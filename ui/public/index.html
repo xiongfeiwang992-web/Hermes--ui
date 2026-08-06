@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="hermes" data-theme-mode="dark" style="color-scheme: dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermes UI — Themes</title>
+    <link rel="stylesheet" href="../src/styles/base.css" />
+    <style>
+      .demo {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 24px 64px;
+      }
+
+      .demo-header {
+        margin-bottom: 32px;
+      }
+
+      .demo-header h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        font-weight: 600;
+        color: var(--text-strong);
+      }
+
+      .demo-header p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .controls {
+        display: grid;
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+
+      .control-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+        border-radius: var(--radius-full);
+        padding: 8px 14px;
+        font: inherit;
+        cursor: pointer;
+        transition: border-color var(--duration-fast), background var(--duration-fast);
+      }
+
+      .chip:hover {
+        border-color: var(--border-hover);
+        background: var(--bg-hover);
+      }
+
+      .chip.active {
+        border-color: var(--accent);
+        background: var(--accent-subtle);
+        color: var(--text-strong);
+      }
+
+      .preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 16px;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        color: var(--text-strong);
+      }
+
+      .card p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: none;
+        border-radius: var(--radius-md);
+        padding: 8px 14px;
+        background: var(--primary);
+        color: var(--primary-foreground);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .btn-primary:hover {
+        background: var(--primary-hover, var(--accent-hover));
+      }
+
+      .status-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .status {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+      }
+
+      .status.ok {
+        background: var(--ok-subtle);
+        color: var(--ok);
+      }
+
+      .status.warn {
+        background: var(--warn-subtle);
+        color: var(--warn);
+      }
+
+      .status.info {
+        background: var(--info-subtle);
+        color: var(--info);
+      }
+
+      .code-block {
+        margin-top: 24px;
+        background: var(--code-bg, var(--bg-muted));
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 12px 14px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text);
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="demo">
+      <header class="demo-header">
+        <h1>Hermes UI Themes</h1>
+        <p>基于 OpenClaw 主题体系，新增 Hermes 金色默认主题。</p>
+      </header>
+
+      <section class="controls">
+        <div class="control-group">
+          <label>Theme</label>
+          <div class="chip-row" id="theme-chips"></div>
+        </div>
+        <div class="control-group">
+          <label>Mode</label>
+          <div class="chip-row" id="mode-chips"></div>
+        </div>
+      </section>
+
+      <section class="preview-grid">
+        <article class="card">
+          <h2>Accent</h2>
+          <p>主色调、按钮与焦点环预览。</p>
+          <button class="btn-primary" type="button">Primary Action</button>
+        </article>
+        <article class="card">
+          <h2>Surfaces</h2>
+          <p>卡片、边框与文字层级。</p>
+          <div class="status-row">
+            <span class="status ok">OK</span>
+            <span class="status warn">Warn</span>
+            <span class="status info">Info</span>
+          </div>
+        </article>
+        <article class="card">
+          <h2>Typography</h2>
+          <p>正文与弱化文字对比度。</p>
+          <strong style="color: var(--text-strong)">Strong text</strong>
+          <br />
+          <span>Regular body text</span>
+        </article>
+      </section>
+
+      <pre class="code-block" id="resolved-theme"></pre>
+    </main>
+
+    <script type="module">
+      import {
+        THEME_OPTIONS,
+        THEME_MODE_OPTIONS,
+        applyThemeToDocument,
+        parseThemeSelection,
+        resolveTheme,
+      } from "../src/app/theme.ts";
+
+      const STORAGE_KEY = "hermes-ui-theme";
+
+      function loadSelection() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) {
+            return { theme: "hermes", mode: "system" };
+          }
+          const parsed = JSON.parse(raw);
+          return parseThemeSelection(parsed.theme, parsed.mode);
+        } catch {
+          return { theme: "hermes", mode: "system" };
+        }
+      }
+
+      function saveSelection(theme, mode) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme, mode }));
+      }
+
+      let selection = loadSelection();
+
+      function render() {
+        const resolved = resolveTheme(selection.theme, selection.mode);
+        applyThemeToDocument(resolved, selection.mode);
+        saveSelection(selection.theme, selection.mode);
+        document.getElementById("resolved-theme").textContent =
+          `resolved: ${resolved}\ntheme: ${selection.theme}\nmode: ${selection.mode}`;
+
+        document.querySelectorAll("[data-theme-chip]").forEach((chip) => {
+          chip.classList.toggle("active", chip.dataset.themeChip === selection.theme);
+        });
+        document.querySelectorAll("[data-mode-chip]").forEach((chip) => {
+          chip.classList.toggle("active", chip.dataset.modeChip === selection.mode);
+        });
+      }
+
+      const themeRow = document.getElementById("theme-chips");
+      for (const option of THEME_OPTIONS) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chip";
+        button.dataset.themeChip = option.id;
+        button.textContent = option.label;
+        button.title = option.description;
+        button.addEventListener("click", () => {
+          selection = { ...selection, theme: option.id };
+          render();
+        });
+        themeRow.appendChild(button);
+      }
+
+      const modeRow = document.getElementById("mode-chips");
+      for (const option of THEME_MODE_OPTIONS) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chip";
+        button.dataset.modeChip = option.id;
+        button.textContent = option.label;
+        button.addEventListener("click", () => {
+          selection = { ...selection, mode: option.id };
+          render();
+        });
+        modeRow.appendChild(button);
+      }
+
+      render();
+    </script>
+  </body>
+</html>
