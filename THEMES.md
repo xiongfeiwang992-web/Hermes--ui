@@ -46,7 +46,19 @@ npm install
 npm run dev
 ```
 
-Open the dev server and use the chip controls to switch themes live.
+Settings persist in `localStorage` under `hermes.ui.settings.v1`. The inline boot script in
+`public/index.html` applies the saved theme before CSS loads to prevent a flash of the wrong palette.
+
+## Runtime API
+
+```ts
+import { createThemeManager } from "./app/theme-manager.ts";
+
+const themeManager = createThemeManager();
+themeManager.setTheme("hermes");
+themeManager.setThemeMode("system");
+themeManager.dispose();
+```
 
 ## Custom Skins
 

@@ -62,18 +62,31 @@ export function resolveTheme(theme: ThemeName, mode: ThemeMode): ResolvedTheme {
   return resolvedMode === "light" ? "custom-light" : "custom";
 }
 
-export function applyThemeToDocument(resolved: ResolvedTheme, mode: ThemeMode): void {
+export function applyThemeToDocument(resolved: ResolvedTheme, mode: ThemeMode, textScale = 100): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+
   const root = document.documentElement;
-  const isLightFamily =
-    resolved === "light" ||
-    resolved === "hermes-light" ||
-    resolved === "openknot-light" ||
-    resolved === "dash-light" ||
-    resolved === "custom-light";
+  const resolvedMode = resolved.endsWith("light") ? "light" : "dark";
 
   root.dataset.theme = resolved;
-  root.dataset.themeMode = isLightFamily ? "light" : "dark";
-  root.style.colorScheme = isLightFamily ? "light" : "dark";
+  root.dataset.themeMode = resolvedMode;
+  root.dataset.themeResolved = resolvedMode;
+  root.classList.toggle("wa-light", resolvedMode === "light");
+  root.classList.toggle("wa-dark", resolvedMode === "dark");
+  root.style.colorScheme = resolvedMode;
+  root.style.setProperty("--control-ui-text-scale", `${textScale / 100}`);
+}
+
+export function applyThemePresentation(settings: {
+  theme: ThemeName;
+  themeMode: ThemeMode;
+  textScale?: number;
+}): ResolvedTheme {
+  const resolved = resolveTheme(settings.theme, settings.themeMode);
+  applyThemeToDocument(resolved, settings.themeMode, settings.textScale ?? 100);
+  return resolved;
 }
 
 export const THEME_OPTIONS: Array<{ id: ThemeName; label: string; description: string }> = [

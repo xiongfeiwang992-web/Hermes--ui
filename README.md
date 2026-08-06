@@ -19,14 +19,24 @@ npm install
 npm run dev
 ```
 
+刷新页面后主题偏好会保留，启动脚本会在 CSS 加载前应用已保存主题，避免闪烁。
+
 ## 目录结构
 
 ```
 ui/
   src/
-    app/theme.ts      # 主题解析与应用逻辑
-    styles/base.css   # 设计 token 与主题 CSS 变量
-  public/index.html   # 主题预览页
+    app/
+      theme.ts           # 主题解析与应用
+      theme-manager.ts   # 运行时主题状态 + System 模式监听
+      theme-transition.ts
+      settings.ts        # localStorage 持久化
+    styles/
+      base.css           # 设计 token 与主题 CSS 变量
+      layout.css         # Hermes 聊天界面布局
+  public/
+    index.html           # 预览页（含 boot script）
+    favicon.svg
 ```
 
 ## 测试
