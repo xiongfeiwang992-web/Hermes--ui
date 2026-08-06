@@ -1,0 +1,16 @@
+{
+  "name": "Hermes UI",
+  "short_name": "Hermes",
+  "description": "Hermes agent interface with gold-themed UI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#ffd700",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Hermes UI — agent interface with OpenClaw-compatible themes." />
+    <title>Hermes UI</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      (function () {
+        var THEMES = { hermes: 1, claw: 1, knot: 1, dash: 1, custom: 1 };
+        var MODES = { system: 1, light: 1, dark: 1 };
+        try {
+          var raw = localStorage.getItem("hermes.ui.settings.v1");
+          if (!raw) return;
+          var s = JSON.parse(raw);
+          var theme = THEMES[s.theme] ? s.theme : "hermes";
+          var mode = MODES[s.themeMode] ? s.themeMode : "system";
+          if (mode === "system") {
+            mode = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          }
+          var resolved =
+            theme === "hermes"
+              ? mode === "light"
+                ? "hermes-light"
+                : "hermes"
+              : theme === "knot"
+                ? mode === "light"
+                  ? "openknot-light"
+                  : "openknot"
+                : theme === "dash"
+                  ? mode === "light"
+                    ? "dash-light"
+                    : "dash"
+                  : mode === "light"
+                    ? "light"
+                    : "dark";
+          var resolvedMode = resolved.indexOf("light") !== -1 ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", resolved);
+          document.documentElement.setAttribute("data-theme-mode", resolvedMode);
+          document.documentElement.setAttribute("data-theme-resolved", resolvedMode);
+          document.documentElement.style.colorScheme = resolvedMode;
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html,
+      body {
+        min-height: 100%;
+      }
+      html {
+        background: #0a0e1a;
+        color-scheme: dark;
+      }
+      html[data-theme-mode="light"] {
+        background: #f5f0e5;
+        color-scheme: light;
+      }
+      html[data-theme="hermes-light"] {
+        background: #f5f0e5;
+      }
+      html[data-theme="openknot"] {
+        background: #080808;
+      }
+      html[data-theme="openknot-light"] {
+        background: #f9f9fb;
+      }
+      html[data-theme="dash"] {
+        background: #1a1210;
+      }
+      html[data-theme="dash-light"] {
+        background: #f7f2ec;
+      }
+      body {
+        margin: 0;
+        background: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hermes-app">
+      <aside class="hermes-sidebar">
+        <div class="hermes-brand">
+          <div class="hermes-brand-mark">H</div>
+          <div class="hermes-brand-text">
+            <strong>Hermes</strong>
+            <span>Agent UI</span>
+          </div>
+        </div>
+
+        <div class="hermes-session-list">
+          <button class="hermes-session active" type="button">
+            <div class="hermes-session-title">默认会话</div>
+            <div class="hermes-session-preview">支持 /theme 命令与文字缩放。</div>
+          </button>
+          <button class="hermes-session" type="button">
+            <div class="hermes-session-title">代码审查</div>
+            <div class="hermes-session-preview">检查 theme-command 的实现。</div>
+          </button>
+          <button class="hermes-session" type="button">
+            <div class="hermes-session-title">部署计划</div>
+            <div class="hermes-session-preview">整理 Hermes UI 发布步骤。</div>
+          </button>
+        </div>
+      </aside>
+
+      <main class="hermes-main">
+        <header class="hermes-topbar">
+          <div>
+            <h1>默认会话</h1>
+            <p>Hermes UI · OpenClaw-compatible themes</p>
+          </div>
+          <div class="hermes-meta" id="resolved-theme">loading…</div>
+        </header>
+
+        <section class="hermes-chat" id="chat-log">
+          <article class="hermes-msg">
+            <div class="hermes-msg-label">Hermes</div>
+            <div class="hermes-msg-body">
+              Hermes UI updated: try slash commands like <code>/theme hermes</code>,
+              <code>/theme dark</code>, or <code>/theme claw</code>. Text scale controls are in the
+              composer footer.
+            </div>
+          </article>
+          <article class="hermes-msg user">
+            <div class="hermes-msg-label">You</div>
+            <div class="hermes-msg-body">hermes update</div>
+          </article>
+        </section>
+
+        <footer class="hermes-composer">
+          <form class="hermes-composer-box" id="composer-form">
+            <textarea
+              id="composer-input"
+              placeholder='Message Hermes, or type "/theme hermes"…'
+              aria-label="Message"
+            ></textarea>
+            <div class="hermes-composer-actions">
+              <div class="hermes-chip-row">
+                <div class="hermes-chip-row" id="theme-chips"></div>
+                <div class="hermes-chip-row" id="mode-chips"></div>
+                <div class="hermes-chip-row" id="scale-chips"></div>
+              </div>
+              <button class="hermes-btn" type="submit">Send</button>
+            </div>
+          </form>
+        </footer>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
