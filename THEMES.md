@@ -52,13 +52,27 @@ Settings persist in `localStorage` under `hermes.ui.settings.v1`. The inline boo
 ## Runtime API
 
 ```ts
-import { createThemeManager } from "./app/theme-manager.ts";
+import { createThemeManager, parseThemeCommand } from "./index.ts";
 
 const themeManager = createThemeManager();
 themeManager.setTheme("hermes");
 themeManager.setThemeMode("system");
+themeManager.setTextScale(110);
+themeManager.applyCommand("/theme dark");
 themeManager.dispose();
 ```
+
+## Slash commands
+
+| Command | Effect |
+|---------|--------|
+| `/theme hermes` | Switch to Hermes gold theme |
+| `/theme claw` | Switch to Claw theme |
+| `/theme knot` | Switch to Knot theme |
+| `/theme dash` | Switch to Dash theme |
+| `/theme light` | Force light mode |
+| `/theme dark` | Force dark mode |
+| `/theme system` | Follow OS appearance |
 
 ## Custom Skins
 

@@ -44,4 +44,12 @@ describe("createThemeManager", () => {
     expect(document.documentElement.dataset.themeMode).toBe("light");
     manager.dispose();
   });
+
+  it("applies /theme commands", () => {
+    const manager = createThemeManager();
+    const result = manager.applyCommand("/theme claw");
+    expect(result.ok).toBe(true);
+    expect(manager.settings.theme).toBe("claw");
+    manager.dispose();
+  });
 });

@@ -4,8 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Hermes UI — agent interface with OpenClaw-compatible themes." />
     <title>Hermes UI</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       (function () {
         var THEMES = { hermes: 1, claw: 1, knot: 1, dash: 1, custom: 1 };
@@ -35,10 +37,11 @@
                   : mode === "light"
                     ? "light"
                     : "dark";
-          var resolvedMode = resolved.includes("light") ? "light" : "dark";
+          var resolvedMode = resolved.indexOf("light") !== -1 ? "light" : "dark";
           document.documentElement.setAttribute("data-theme", resolved);
           document.documentElement.setAttribute("data-theme-mode", resolvedMode);
           document.documentElement.setAttribute("data-theme-resolved", resolvedMode);
+          document.documentElement.style.colorScheme = resolvedMode;
         } catch (e) {}
       })();
     </script>
@@ -75,8 +78,6 @@
         background: inherit;
       }
     </style>
-    <link rel="stylesheet" href="../src/styles/base.css" />
-    <link rel="stylesheet" href="../src/styles/layout.css" />
   </head>
   <body>
     <div class="hermes-app">
@@ -92,11 +93,11 @@
         <div class="hermes-session-list">
           <button class="hermes-session active" type="button">
             <div class="hermes-session-title">默认会话</div>
-            <div class="hermes-session-preview">主题系统已更新，支持持久化设置。</div>
+            <div class="hermes-session-preview">支持 /theme 命令与文字缩放。</div>
           </button>
           <button class="hermes-session" type="button">
             <div class="hermes-session-title">代码审查</div>
-            <div class="hermes-session-preview">帮我检查 theme-manager 的实现。</div>
+            <div class="hermes-session-preview">检查 theme-command 的实现。</div>
           </button>
           <button class="hermes-session" type="button">
             <div class="hermes-session-title">部署计划</div>
@@ -109,103 +110,46 @@
         <header class="hermes-topbar">
           <div>
             <h1>默认会话</h1>
-            <p>Hermes UI · 基于 OpenClaw 主题体系</p>
+            <p>Hermes UI · OpenClaw-compatible themes</p>
           </div>
           <div class="hermes-meta" id="resolved-theme">loading…</div>
         </header>
 
-        <section class="hermes-chat">
+        <section class="hermes-chat" id="chat-log">
           <article class="hermes-msg">
             <div class="hermes-msg-label">Hermes</div>
             <div class="hermes-msg-body">
-              你好，我已更新 Hermes UI：设置会写入 localStorage，刷新页面不会闪烁，System
-              模式也会跟随系统深浅色切换。
+              Hermes UI updated: try slash commands like <code>/theme hermes</code>,
+              <code>/theme dark</code>, or <code>/theme claw</code>. Text scale controls are in the
+              composer footer.
             </div>
           </article>
           <article class="hermes-msg user">
-            <div class="hermes-msg-label">你</div>
-            <div class="hermes-msg-body">更新一下 Hermes。</div>
-          </article>
-          <article class="hermes-msg">
-            <div class="hermes-msg-label">Hermes</div>
-            <div class="hermes-msg-body">
-              你可以在下方切换 Theme 和 Mode。当前默认主题是 Hermes 金色，也可以切到 Claw、Knot、Dash。
-            </div>
+            <div class="hermes-msg-label">You</div>
+            <div class="hermes-msg-body">hermes update</div>
           </article>
         </section>
 
         <footer class="hermes-composer">
-          <div class="hermes-composer-box">
-            <textarea placeholder="输入消息，或切换主题预览效果…" aria-label="Message"></textarea>
+          <form class="hermes-composer-box" id="composer-form">
+            <textarea
+              id="composer-input"
+              placeholder='Message Hermes, or type "/theme hermes"…'
+              aria-label="Message"
+            ></textarea>
             <div class="hermes-composer-actions">
               <div class="hermes-chip-row">
                 <div class="hermes-chip-row" id="theme-chips"></div>
                 <div class="hermes-chip-row" id="mode-chips"></div>
+                <div class="hermes-chip-row" id="scale-chips"></div>
               </div>
-              <button class="hermes-btn" type="button">发送</button>
+              <button class="hermes-btn" type="submit">Send</button>
             </div>
-          </div>
+          </form>
         </footer>
       </main>
     </div>
 
-    <script type="module">
-      import { createThemeManager } from "../src/app/theme-manager.ts";
-      import { THEME_MODE_OPTIONS, THEME_OPTIONS } from "../src/app/theme.ts";
-
-      const themeManager = createThemeManager();
-
-      function renderMeta() {
-        const { theme, themeMode } = themeManager.settings;
-        document.getElementById("resolved-theme").textContent =
-          `${themeManager.resolved} · theme=${theme} · mode=${themeMode}`;
-      }
-
-      function renderChips() {
-        document.querySelectorAll("[data-theme-chip]").forEach((chip) => {
-          chip.classList.toggle("active", chip.dataset.themeChip === themeManager.settings.theme);
-        });
-        document.querySelectorAll("[data-mode-chip]").forEach((chip) => {
-          chip.classList.toggle("active", chip.dataset.modeChip === themeManager.settings.themeMode);
-        });
-      }
-
-      function render() {
-        renderMeta();
-        renderChips();
-      }
-
-      const themeRow = document.getElementById("theme-chips");
-      for (const option of THEME_OPTIONS) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "hermes-chip";
-        button.dataset.themeChip = option.id;
-        button.textContent = option.label;
-        button.title = option.description;
-        button.addEventListener("click", () => {
-          themeManager.setTheme(option.id, button);
-          render();
-        });
-        themeRow.appendChild(button);
-      }
-
-      const modeRow = document.getElementById("mode-chips");
-      for (const option of THEME_MODE_OPTIONS) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "hermes-chip";
-        button.dataset.modeChip = option.id;
-        button.textContent = option.label;
-        button.addEventListener("click", () => {
-          themeManager.setThemeMode(option.id, button);
-          render();
-        });
-        modeRow.appendChild(button);
-      }
-
-      themeManager.subscribe(render);
-      render();
-    </script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

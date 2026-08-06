@@ -1,5 +1,6 @@
 // Hermes UI settings — persisted appearance preferences.
 import { parseThemeSelection, type ThemeMode, type ThemeName } from "./theme.ts";
+import { normalizeTextScale } from "./theme-command.ts";
 
 export const SETTINGS_KEY = "hermes.ui.settings.v1";
 
@@ -36,10 +37,7 @@ export function loadSettings(): HermesSettings {
     }
     const parsed = JSON.parse(raw) as Partial<HermesSettings>;
     const { theme, mode } = parseThemeSelection(parsed.theme, parsed.themeMode);
-    const textScale =
-      typeof parsed.textScale === "number" && parsed.textScale >= 80 && parsed.textScale <= 150
-        ? parsed.textScale
-        : DEFAULT_SETTINGS.textScale;
+    const textScale = normalizeTextScale(parsed.textScale);
 
     return { theme, themeMode: mode, textScale };
   } catch {

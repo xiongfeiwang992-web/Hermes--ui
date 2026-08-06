@@ -9,39 +9,56 @@
 - **Knot** — 纯黑底 + 深红强调色
 - **Dash** — 深可可色 + 巧克力棕强调色
 
-支持 **System / Light / Dark** 三种模式。详见 [THEMES.md](./THEMES.md)。
+支持 **System / Light / Dark** 三种模式，以及 **90%–125%** 文字缩放。详见 [THEMES.md](./THEMES.md)。
 
 ## 快速预览
 
 ```bash
-cd ui
-npm install
+npm install --prefix ui
 npm run dev
 ```
 
-刷新页面后主题偏好会保留，启动脚本会在 CSS 加载前应用已保存主题，避免闪烁。
+或在仓库根目录：
+
+```bash
+npm run dev
+```
+
+在输入框中可试用 slash 命令，例如 `/theme hermes`、`/theme dark`。
+
+## 作为库使用
+
+```ts
+import { createThemeManager, parseThemeCommand } from "hermes-ui";
+
+const themeManager = createThemeManager();
+themeManager.applyCommand("/theme claw");
+```
 
 ## 目录结构
 
 ```
 ui/
+  index.html
   src/
+    index.ts           # 公共导出
+    main.ts            # 预览应用入口
     app/
-      theme.ts           # 主题解析与应用
-      theme-manager.ts   # 运行时主题状态 + System 模式监听
-      theme-transition.ts
-      settings.ts        # localStorage 持久化
+      theme.ts
+      theme-manager.ts
+      theme-command.ts # /theme 命令解析
+      theme-boot.ts    # 启动时无闪烁主题
+      settings.ts
     styles/
-      base.css           # 设计 token 与主题 CSS 变量
-      layout.css         # Hermes 聊天界面布局
+      base.css
+      layout.css
   public/
-    index.html           # 预览页（含 boot script）
     favicon.svg
+    manifest.webmanifest
 ```
 
 ## 测试
 
 ```bash
-cd ui
 npm test
 ```

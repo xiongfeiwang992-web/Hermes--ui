@@ -237,6 +237,15 @@
   color: var(--muted);
 }
 
+.hermes-control-label {
+  width: 100%;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
 @media (max-width: 860px) {
   .hermes-app {
     grid-template-columns: 1fr;
