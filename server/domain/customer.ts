@@ -179,3 +179,51 @@ export function claimCustomer(db: Db, user: SessionUser, payload: { id: string }
   writeAudit(db, user, "customer.claim", "customer", payload.id);
   return getCustomer(db, user, payload.id);
 }
+
+export function matchHouses(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string }
+): ApiResult {
+  const customer = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!customer || !customerVisibleTo(user, customer)) {
+    return { ok: false, message: "客源不存在或无权限", code: 403 };
+  }
+  const dealType = customer.intent === "buy" ? "sale" : "rent";
+  let rows = db
+    .prepare(
+      `SELECT * FROM houses
+       WHERE company_id = ? AND store_id = ? AND deal_type = ? AND status = 'available'
+       ORDER BY updated_at DESC`
+    )
+    .all(user.company_id, customer.store_id, dealType) as any[];
+  rows = rows.filter((house) => {
+    if (house.is_private && user.role === "agent" && house.agent_id !== user.id) {
+      return false;
+    }
+    if (customer.budget_min != null && house.price < customer.budget_min) return false;
+    if (customer.budget_max != null && house.price > customer.budget_max) return false;
+    return true;
+  });
+  return {
+    ok: true,
+    data: rows.map((house) => ({
+      id: house.id,
+      title: house.title,
+      community: house.community,
+      price: house.price,
+      price_unit: house.price_unit,
+      area_size: house.area_size,
+      rooms: house.rooms,
+      district: house.district,
+      match_reasons: [
+        dealType === "sale" ? "求购类型匹配" : "求租类型匹配",
+        customer.budget_min != null || customer.budget_max != null
+          ? "预算范围匹配"
+          : "未限定预算",
+      ],
+    })),
+  };
+}

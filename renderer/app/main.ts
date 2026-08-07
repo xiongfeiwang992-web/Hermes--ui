@@ -78,7 +78,19 @@ function canSee(tab: string) {
   const role = state.user?.role;
   if (!role) return false;
   if (tab === "org" || tab === "audit") return role === "admin" || (tab === "audit" && role === "store_manager");
-  if (["houses", "customers", "follows", "views"].includes(tab)) return role !== "finance";
+  if (
+    [
+      "houses",
+      "customers",
+      "follows",
+      "views",
+      "communities",
+      "keys",
+      "surveys",
+      "verifications",
+    ].includes(tab)
+  )
+    return role !== "finance";
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
   return true;
 }
@@ -138,10 +150,15 @@ function renderSide(side: HTMLElement) {
   const tabs = [
     ["dashboard", "工作台"],
     ["houses", "房源"],
+    ["communities", "楼盘字典"],
+    ["keys", "钥匙"],
+    ["surveys", "实勘"],
+    ["verifications", "验真"],
     ["customers", "客源"],
     ["follows", "跟进"],
     ["views", "带看"],
     ["deals", "成交"],
+    ["earnest", "意向金"],
     ["payments", "收款"],
     ["commissions", "提成"],
     ["messages", "消息"],
@@ -185,10 +202,15 @@ function renderSide(side: HTMLElement) {
 async function renderMain(main: HTMLElement) {
   if (state.tab === "dashboard") return renderDashboard(main);
   if (state.tab === "houses") return renderHouses(main);
+  if (state.tab === "communities") return renderCommunities(main);
+  if (state.tab === "keys") return renderKeys(main);
+  if (state.tab === "surveys") return renderSurveys(main);
+  if (state.tab === "verifications") return renderVerifications(main);
   if (state.tab === "customers") return renderCustomers(main);
   if (state.tab === "follows") return renderFollows(main);
   if (state.tab === "views") return renderViews(main);
   if (state.tab === "deals") return renderDeals(main);
+  if (state.tab === "earnest") return renderEarnest(main);
   if (state.tab === "payments") return renderPayments(main);
   if (state.tab === "commissions") return renderCommissions(main);
   if (state.tab === "messages") return renderMessages(main);
@@ -243,6 +265,22 @@ function openDialog(title: string, fieldsHtml: string, onSubmit: (fd: FormData) 
     backdrop.remove();
     render();
   });
+}
+
+function openInfoDialog(title: string, bodyHtml: string) {
+  const backdrop = el(`
+    <div class="dialog-backdrop">
+      <div class="dialog">
+        <h3>${title}</h3>
+        <div class="list">${bodyHtml}</div>
+        <div class="dialog-actions">
+          <button type="button" class="btn" data-close>关闭</button>
+        </div>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(backdrop);
+  backdrop.querySelector("[data-close]")!.addEventListener("click", () => backdrop.remove());
 }
 
 async function renderHouses(main: HTMLElement) {
@@ -360,6 +398,269 @@ async function renderHouses(main: HTMLElement) {
   await draw();
 }
 
+async function renderCommunities(main: HTMLElement) {
+  main.innerHTML = `
+    <div class="header"><h2>楼盘字典</h2><button class="btn" data-new>新建小区</button></div>
+    <div class="filters"><input data-keyword placeholder="搜索小区/片区/地址" /></div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const keyword = (main.querySelector("[data-keyword]") as HTMLInputElement).value;
+    const result = await api("property.communities.list", { keyword });
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (item) => `<div class="row"><div>
+            <strong>${item.name}</strong>
+            <div class="meta">${item.district || "未填片区"} · ${item.address || "未填地址"} · ${item.building_count || 0} 栋 · ${item.house_count} 套房源</div>
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无自建小区</div>`;
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", () => {
+    openDialog(
+      "新建小区",
+      `
+      <label>小区名称<input name="name" required /></label>
+      <label>片区<input name="district" /></label>
+      <label class="full">地址<input name="address" /></label>
+      <label>楼栋数<input name="building_count" type="number" min="0" /></label>
+      <label>备注<input name="remark" /></label>
+      `,
+      async (fd) => {
+        const result = await api("property.communities.upsert", {
+          name: fd.get("name"),
+          district: fd.get("district"),
+          address: fd.get("address"),
+          building_count: fd.get("building_count")
+            ? Number(fd.get("building_count"))
+            : null,
+          remark: fd.get("remark"),
+        });
+        toast(result.ok ? "小区已创建" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  main.querySelector("[data-keyword]")!.addEventListener("input", draw);
+  await draw();
+}
+
+async function renderKeys(main: HTMLElement) {
+  const houses = await api("house.list", {});
+  main.innerHTML = `
+    <div class="header"><h2>钥匙管理</h2><button class="btn" data-new>登记钥匙</button></div>
+    <div class="filters">
+      <select data-status><option value="">全部状态</option><option value="stored">在店</option><option value="borrowed">借出</option><option value="invalid">作废</option></select>
+    </div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
+    const result = await api("property.keys.list", status ? { status } : {});
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (key) => `<div class="row"><div>
+            <div><span class="tag ${key.status === "stored" ? "ok" : key.status === "borrowed" ? "warn" : "danger"}">${key.status === "stored" ? "在店" : key.status === "borrowed" ? "借出" : "作废"}</span><strong>${key.key_no}</strong> · ${key.house_title}</div>
+            <div class="meta">${key.borrower_name ? `借用人 ${key.borrower_name}` : "未借出"}${key.expected_return_at ? ` · 应还 ${key.expected_return_at}` : ""}</div>
+          </div><div class="ops">
+            ${key.status === "stored" ? `<button class="btn" data-borrow="${key.id}">借出</button>` : ""}
+            ${key.status === "borrowed" ? `<button class="btn" data-return="${key.id}">归还</button>` : ""}
+            ${key.status === "stored" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn danger" data-invalid="${key.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无钥匙记录</div>`;
+    list.querySelectorAll("[data-borrow]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const expected = prompt("预计归还时间（可留空，示例 2026-08-10 18:00）") || null;
+        const result = await api("property.keys.borrow", {
+          id: (button as HTMLElement).dataset.borrow,
+          expected_return_at: expected,
+        });
+        toast(result.ok ? "钥匙已借出" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-return]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("property.keys.return", {
+          id: (button as HTMLElement).dataset.return,
+        });
+        toast(result.ok ? "钥匙已归还" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-invalid]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("作废原因");
+        if (!reason) return;
+        const result = await api("property.keys.invalidate", {
+          id: (button as HTMLElement).dataset.invalid,
+          reason,
+        });
+        toast(result.ok ? "钥匙已作废" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", () => {
+    const options = ((houses.data as any[]) || [])
+      .map((house) => `<option value="${house.id}">${house.title}</option>`)
+      .join("");
+    openDialog(
+      "登记钥匙",
+      `
+      <label class="full">房源<select name="house_id">${options}</select></label>
+      <label>钥匙编号<input name="key_no" required /></label>
+      <label>备注<input name="remark" /></label>
+      `,
+      async (fd) => {
+        const result = await api("property.keys.register", {
+          house_id: fd.get("house_id"),
+          key_no: fd.get("key_no"),
+          remark: fd.get("remark"),
+        });
+        toast(result.ok ? "钥匙已登记" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  main.querySelector("[data-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
+async function renderSurveys(main: HTMLElement) {
+  const houses = await api("house.list", {});
+  main.innerHTML = `
+    <div class="header"><h2>实勘 / 空看</h2><button class="btn" data-new>新增记录</button></div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const result = await api("property.surveys.list", {});
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (survey) => `<div class="row"><div>
+            <div><span class="tag ok">${survey.survey_type === "survey" ? "实勘" : "空看"}</span><strong>${survey.house_title}</strong></div>
+            <div class="meta">${survey.summary} · ${survey.survey_user_name} · ${survey.survey_at}</div>
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无实勘记录</div>`;
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", () => {
+    const options = ((houses.data as any[]) || [])
+      .map((house) => `<option value="${house.id}">${house.title}</option>`)
+      .join("");
+    openDialog(
+      "新增实勘/空看",
+      `
+      <label class="full">房源<select name="house_id">${options}</select></label>
+      <label>类型<select name="survey_type"><option value="survey">实勘</option><option value="vacant_view">空看</option></select></label>
+      <label>时间<input name="survey_at" type="datetime-local" /></label>
+      <label class="full">摘要<textarea name="summary" rows="4" required></textarea></label>
+      `,
+      async (fd) => {
+        const rawTime = String(fd.get("survey_at") || "");
+        const result = await api("property.surveys.create", {
+          house_id: fd.get("house_id"),
+          survey_type: fd.get("survey_type"),
+          survey_at: rawTime ? new Date(rawTime).toISOString() : null,
+          summary: fd.get("summary"),
+        });
+        toast(result.ok ? "实勘记录已保存" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  await draw();
+}
+
+async function renderVerifications(main: HTMLElement) {
+  const houses = await api("house.list", {});
+  main.innerHTML = `
+    <div class="header"><h2>房源验真</h2><button class="btn" data-new>提交验真</button></div>
+    <div class="filters">
+      <select data-status><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已驳回</option></select>
+    </div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
+    const result = await api("property.verifications.list", status ? { status } : {});
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (record) => `<div class="row"><div>
+            <div><span class="tag ${record.status === "approved" ? "ok" : record.status === "rejected" ? "danger" : "warn"}">${record.status === "pending" ? "待审核" : record.status === "approved" ? "已通过" : "已驳回"}</span><strong>${record.house_title}</strong></div>
+            <div class="meta">${record.contact_result || "无联系说明"} · 确认价 ${record.price_confirmed ?? "-"} · ${record.submitted_by_name}${record.reject_reason ? ` · ${record.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${record.status === "pending" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${record.id}">通过</button><button class="btn danger" data-reject="${record.id}">驳回</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无验真记录</div>`;
+    list.querySelectorAll("[data-approve]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("property.verifications.review", {
+          id: (button as HTMLElement).dataset.approve,
+          status: "approved",
+        });
+        toast(result.ok ? "验真已通过" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-reject]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const result = await api("property.verifications.review", {
+          id: (button as HTMLElement).dataset.reject,
+          status: "rejected",
+          reason,
+        });
+        toast(result.ok ? "验真已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", () => {
+    const options = ((houses.data as any[]) || [])
+      .map((house) => `<option value="${house.id}">${house.title}</option>`)
+      .join("");
+    openDialog(
+      "提交验真",
+      `
+      <label class="full">房源<select name="house_id">${options}</select></label>
+      <label>确认价格<input name="price_confirmed" type="number" step="0.01" /></label>
+      <label><span><input name="availability_confirmed" type="checkbox" checked /> 业主确认有效</span></label>
+      <label class="full">联系结果<textarea name="contact_result" rows="3"></textarea></label>
+      `,
+      async (fd) => {
+        const result = await api("property.verifications.submit", {
+          house_id: fd.get("house_id"),
+          price_confirmed: fd.get("price_confirmed")
+            ? Number(fd.get("price_confirmed"))
+            : null,
+          availability_confirmed: fd.get("availability_confirmed") === "on",
+          contact_result: fd.get("contact_result"),
+        });
+        toast(result.ok ? "验真已提交" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  main.querySelector("[data-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
 async function renderCustomers(main: HTMLElement) {
   main.innerHTML = `
     <div class="header"><h2>客源</h2><button class="btn" data-new>新建客源</button></div>
@@ -392,6 +693,7 @@ async function renderCustomers(main: HTMLElement) {
         <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}</div>
       </div>
       <div class="ops">
+        <button class="btn ghost" data-match="${c.id}">匹配房源</button>
         ${c.visibility === "private" ? `<button class="btn ghost" data-public="${c.id}">转公客</button>` : `<button class="btn" data-claim="${c.id}">认领</button>`}
       </div></div>`
       )
@@ -405,6 +707,26 @@ async function renderCustomers(main: HTMLElement) {
         });
         toast(r.ok ? "已转公客" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-match]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const r = await api("customer.matchHouses", {
+          id: (btn as HTMLElement).dataset.match,
+        });
+        if (!r.ok) return toast(r.message, "error");
+        const matches = r.data as any[];
+        openInfoDialog(
+          "匹配房源",
+          matches.length
+            ? matches
+                .map(
+                  (h) =>
+                    `<div class="row"><div><strong>${h.title}</strong><div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? "万" : "元/月"} · ${h.match_reasons.join("、")}</div></div></div>`
+                )
+                .join("")
+            : `<div class="empty">当前没有符合类型和预算的在售房源</div>`
+        );
       })
     );
     list.querySelectorAll("[data-claim]").forEach((btn) =>
@@ -423,6 +745,8 @@ async function renderCustomers(main: HTMLElement) {
       <label>电话<input name="phone" required /></label>
       <label>意图<select name="intent"><option value="buy">求购</option><option value="rent">求租</option></select></label>
       <label>等级<select name="level"><option>A</option><option selected>B</option><option>C</option></select></label>
+      <label>预算下限<input name="budget_min" type="number" step="0.01" /></label>
+      <label>预算上限<input name="budget_max" type="number" step="0.01" /></label>
       <label class="full">需求<textarea name="need" rows="3"></textarea></label>
       `,
       async (fd) => {
@@ -431,6 +755,8 @@ async function renderCustomers(main: HTMLElement) {
           phone: fd.get("phone"),
           intent: fd.get("intent"),
           level: fd.get("level"),
+          budget_min: fd.get("budget_min") ? Number(fd.get("budget_min")) : null,
+          budget_max: fd.get("budget_max") ? Number(fd.get("budget_max")) : null,
           need: fd.get("need"),
         });
         if (res.ok && (res.data as any).duplicate_hint) {
@@ -694,6 +1020,107 @@ async function renderDeals(main: HTMLElement) {
       }
     );
   });
+  await draw();
+}
+
+async function renderEarnest(main: HTMLElement) {
+  const mayCreate = ["admin", "store_manager", "agent"].includes(state.user.role);
+  const houses = mayCreate ? await api("house.list", {}) : ({ ok: true, data: [] } as any);
+  const customers = mayCreate
+    ? await api("customer.list", {})
+    : ({ ok: true, data: [] } as any);
+  const deals = await api("deal.list", { status: "approved" });
+  main.innerHTML = `
+    <div class="header"><h2>意向金</h2>${mayCreate ? `<button class="btn" data-new>登记意向金</button>` : ""}</div>
+    <div class="filters">
+      <select data-status><option value="">全部状态</option><option value="held">在管</option><option value="applied">已冲抵</option><option value="refunded">已退款</option></select>
+    </div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
+    const result = await api("earnest.list", status ? { status } : {});
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (record) => `<div class="row"><div>
+            <div><span class="tag ${record.status === "held" ? "warn" : record.status === "applied" ? "ok" : "danger"}">${record.status === "held" ? "在管" : record.status === "applied" ? "已冲抵" : "已退款"}</span><strong>¥${money(record.amount)}</strong> · ${record.customer_name} × ${record.house_title}</div>
+            <div class="meta">${record.method} · ${record.paid_at}${record.refund_reason ? ` · 退款原因 ${record.refund_reason}` : ""}</div>
+          </div><div class="ops">
+            ${record.status === "held" && ["admin", "finance"].includes(state.user.role) ? `<button class="btn" data-apply="${record.id}">冲抵成交</button><button class="btn danger" data-refund="${record.id}">退款</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无意向金记录</div>`;
+    list.querySelectorAll("[data-apply]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const dealOptions = ((deals.data as any[]) || [])
+          .filter((deal) => deal.status === "approved")
+          .map(
+            (deal) =>
+              `<option value="${deal.id}">${deal.id} · 未收 ¥${money(deal.unpaid_amount)}</option>`
+          )
+          .join("");
+        openDialog(
+          "意向金冲抵",
+          `<label class="full">已审批成交单<select name="deal_id">${dealOptions}</select></label>`,
+          async (fd) => {
+            const result = await api("earnest.apply", {
+              id: (button as HTMLElement).dataset.apply,
+              deal_id: fd.get("deal_id"),
+            });
+            toast(result.ok ? "意向金已冲抵" : result.message, result.ok ? "ok" : "error");
+          }
+        );
+      })
+    );
+    list.querySelectorAll("[data-refund]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("退款原因");
+        if (!reason) return;
+        const result = await api("earnest.refund", {
+          id: (button as HTMLElement).dataset.refund,
+          reason,
+        });
+        toast(result.ok ? "意向金已退款" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const createButton = main.querySelector("[data-new]");
+  if (createButton) {
+    createButton.addEventListener("click", () => {
+      const houseOptions = ((houses.data as any[]) || [])
+        .map((house) => `<option value="${house.id}">${house.title}</option>`)
+        .join("");
+      const customerOptions = ((customers.data as any[]) || [])
+        .map((customer) => `<option value="${customer.id}">${customer.name}</option>`)
+        .join("");
+      openDialog(
+        "登记意向金",
+        `
+        <label>客户<select name="customer_id">${customerOptions}</select></label>
+        <label>房源<select name="house_id">${houseOptions}</select></label>
+        <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>
+        <label>方式<select name="method"><option value="transfer">转账</option><option value="cash">现金</option><option value="other">其他</option></select></label>
+        <label class="full">备注<input name="remark" /></label>
+        `,
+        async (fd) => {
+          const result = await api("earnest.create", {
+            customer_id: fd.get("customer_id"),
+            house_id: fd.get("house_id"),
+            amount: Number(fd.get("amount")),
+            method: fd.get("method"),
+            remark: fd.get("remark"),
+          });
+          toast(result.ok ? "意向金已登记" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  main.querySelector("[data-status]")!.addEventListener("change", draw);
   await draw();
 }
 

@@ -15,7 +15,8 @@
     "start": "npm run build && electron .",
     "seed": "tsx scripts/seed.ts",
     "smoke": "tsx scripts/smoke.ts",
-    "health": "npm run smoke"
+    "smoke:p2": "tsx scripts/p2-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

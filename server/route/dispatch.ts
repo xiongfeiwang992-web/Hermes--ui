@@ -7,6 +7,8 @@ import * as activity from "../domain/activity";
 import * as deal from "../domain/deal";
 import * as report from "../domain/report";
 import * as message from "../domain/message";
+import * as property from "../domain/property";
+import * as earnest from "../domain/earnest";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -77,6 +79,8 @@ function route(
       return customer.toPublic(db, user!, payload);
     case "customer.claim":
       return customer.claimCustomer(db, user!, payload);
+    case "customer.matchHouses":
+      return customer.matchHouses(db, user!, payload);
 
     case "follow.create":
       return activity.createFollow(db, user!, payload);
@@ -113,6 +117,40 @@ function route(
       return deal.listCommissions(db, user!);
     case "commission.paid":
       return deal.markCommissionPaid(db, user!, payload);
+
+    case "property.communities.list":
+      return property.listCommunities(db, user!, payload);
+    case "property.communities.upsert":
+      return property.upsertCommunity(db, user!, payload);
+    case "property.keys.list":
+      return property.listKeys(db, user!, payload);
+    case "property.keys.register":
+      return property.registerKey(db, user!, payload);
+    case "property.keys.borrow":
+      return property.borrowKey(db, user!, payload);
+    case "property.keys.return":
+      return property.returnKey(db, user!, payload);
+    case "property.keys.invalidate":
+      return property.invalidateKey(db, user!, payload);
+    case "property.surveys.list":
+      return property.listSurveys(db, user!, payload);
+    case "property.surveys.create":
+      return property.createSurvey(db, user!, payload);
+    case "property.verifications.list":
+      return property.listVerifications(db, user!, payload);
+    case "property.verifications.submit":
+      return property.submitVerification(db, user!, payload);
+    case "property.verifications.review":
+      return property.reviewVerification(db, user!, payload);
+
+    case "earnest.list":
+      return earnest.listEarnest(db, user!, payload);
+    case "earnest.create":
+      return earnest.createEarnest(db, user!, payload);
+    case "earnest.apply":
+      return earnest.applyEarnest(db, user!, payload);
+    case "earnest.refund":
+      return earnest.refundEarnest(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);
