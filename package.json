@@ -16,7 +16,8 @@
     "seed": "tsx scripts/seed.ts",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:p2": "tsx scripts/p2-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2"
+    "smoke:p2b": "tsx scripts/p2b-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

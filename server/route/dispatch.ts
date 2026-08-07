@@ -9,6 +9,7 @@ import * as report from "../domain/report";
 import * as message from "../domain/message";
 import * as property from "../domain/property";
 import * as earnest from "../domain/earnest";
+import * as transfer from "../domain/transfer";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -81,6 +82,18 @@ function route(
       return customer.claimCustomer(db, user!, payload);
     case "customer.matchHouses":
       return customer.matchHouses(db, user!, payload);
+    case "customer.contacts.list":
+      return customer.listContacts(db, user!, payload);
+    case "customer.contacts.upsert":
+      return customer.upsertContact(db, user!, payload);
+    case "customer.merge":
+      return customer.mergeCustomers(db, user!, payload);
+    case "customer.publicPool.settings":
+      return customer.getPublicPoolSettings(db, user!);
+    case "customer.publicPool.update":
+      return customer.updatePublicPoolSettings(db, user!, payload);
+    case "customer.publicPool.run":
+      return customer.runPublicPool(db, user!);
 
     case "follow.create":
       return activity.createFollow(db, user!, payload);
@@ -152,8 +165,19 @@ function route(
     case "earnest.refund":
       return earnest.refundEarnest(db, user!, payload);
 
+    case "transfer.list":
+      return transfer.listTransferNodes(db, user!, payload);
+    case "transfer.create":
+      return transfer.createTransferNode(db, user!, payload);
+    case "transfer.status":
+      return transfer.changeTransferStatus(db, user!, payload);
+
     case "report.dashboard":
       return report.dashboard(db, user!);
+    case "report.business":
+      return report.businessSummary(db, user!, payload);
+    case "report.dealsCsv":
+      return report.exportDealsCsv(db, user!, payload);
     case "message.list":
       return { ok: true, data: message.listMessages(db, user!) };
     case "message.unread":

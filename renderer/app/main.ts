@@ -159,8 +159,10 @@ function renderSide(side: HTMLElement) {
     ["views", "带看"],
     ["deals", "成交"],
     ["earnest", "意向金"],
+    ["transfer", "过户节点"],
     ["payments", "收款"],
     ["commissions", "提成"],
+    ["reports", "经营报表"],
     ["messages", "消息"],
     ["org", "组织"],
     ["audit", "审计"],
@@ -211,8 +213,10 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "views") return renderViews(main);
   if (state.tab === "deals") return renderDeals(main);
   if (state.tab === "earnest") return renderEarnest(main);
+  if (state.tab === "transfer") return renderTransfer(main);
   if (state.tab === "payments") return renderPayments(main);
   if (state.tab === "commissions") return renderCommissions(main);
+  if (state.tab === "reports") return renderReports(main);
   if (state.tab === "messages") return renderMessages(main);
   if (state.tab === "org") return renderOrg(main);
   if (state.tab === "audit") return renderAudit(main);
@@ -663,7 +667,11 @@ async function renderVerifications(main: HTMLElement) {
 
 async function renderCustomers(main: HTMLElement) {
   main.innerHTML = `
-    <div class="header"><h2>客源</h2><button class="btn" data-new>新建客源</button></div>
+    <div class="header"><h2>客源</h2><div class="ops">
+      ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-run-pool>执行掉公</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-pool-settings>掉公设置</button>` : ""}
+      <button class="btn" data-new>新建客源</button>
+    </div></div>
     <div class="filters">
       <select data-f="visibility"><option value="">全部可见性</option><option value="private">私客</option><option value="public">公客</option></select>
       <select data-f="intent"><option value="">全部意图</option><option value="buy">求购</option><option value="rent">求租</option></select>
@@ -694,6 +702,8 @@ async function renderCustomers(main: HTMLElement) {
       </div>
       <div class="ops">
         <button class="btn ghost" data-match="${c.id}">匹配房源</button>
+        <button class="btn ghost" data-contacts="${c.id}">联系人</button>
+        ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-merge="${c.id}">合并</button>` : ""}
         ${c.visibility === "private" ? `<button class="btn ghost" data-public="${c.id}">转公客</button>` : `<button class="btn" data-claim="${c.id}">认领</button>`}
       </div></div>`
       )
@@ -726,6 +736,66 @@ async function renderCustomers(main: HTMLElement) {
                 )
                 .join("")
             : `<div class="empty">当前没有符合类型和预算的在售房源</div>`
+        );
+      })
+    );
+    list.querySelectorAll("[data-contacts]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const customerId = (btn as HTMLElement).dataset.contacts!;
+        const contacts = await api("customer.contacts.list", {
+          customer_id: customerId,
+        });
+        if (!contacts.ok) return toast(contacts.message, "error");
+        const existing = (contacts.data as any[])
+          .map(
+            (contact) =>
+              `${contact.is_primary ? "主联系人 " : ""}${contact.name} ${contact.phone}${contact.relation ? `（${contact.relation}）` : ""}`
+          )
+          .join("；");
+        openDialog(
+          existing ? `联系人：${existing}` : "新增联系人",
+          `
+          <label>姓名<input name="name" required /></label>
+          <label>电话<input name="phone" required /></label>
+          <label>关系<input name="relation" placeholder="配偶/父母/同事" /></label>
+          <label><span><input name="is_primary" type="checkbox" /> 主联系人</span></label>
+          <label class="full">备注<input name="remark" /></label>
+          `,
+          async (fd) => {
+            const result = await api("customer.contacts.upsert", {
+              customer_id: customerId,
+              name: fd.get("name"),
+              phone: fd.get("phone"),
+              relation: fd.get("relation"),
+              is_primary: fd.get("is_primary") === "on",
+              remark: fd.get("remark"),
+            });
+            toast(result.ok ? "联系人已保存" : result.message, result.ok ? "ok" : "error");
+          }
+        );
+      })
+    );
+    list.querySelectorAll("[data-merge]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const sourceId = (btn as HTMLElement).dataset.merge!;
+        const options = rows
+          .filter((customer) => customer.id !== sourceId)
+          .map((customer) => `<option value="${customer.id}">${customer.name} · ${customer.phone}</option>`)
+          .join("");
+        openDialog(
+          "合并客源（源客源将失效）",
+          `
+          <label class="full">保留目标客源<select name="target_id">${options}</select></label>
+          <label class="full">合并原因<input name="reason" required /></label>
+          `,
+          async (fd) => {
+            const result = await api("customer.merge", {
+              source_id: sourceId,
+              target_id: fd.get("target_id"),
+              reason: fd.get("reason"),
+            });
+            toast(result.ok ? "客源已合并" : result.message, result.ok ? "ok" : "error");
+          }
         );
       })
     );
@@ -769,6 +839,42 @@ async function renderCustomers(main: HTMLElement) {
   });
   main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
   main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
+  const poolSettings = main.querySelector("[data-pool-settings]");
+  if (poolSettings) {
+    poolSettings.addEventListener("click", async () => {
+      const current = await api("customer.publicPool.settings");
+      if (!current.ok) return toast(current.message, "error");
+      const value = prompt(
+        "多少天未跟进自动掉公？输入 0 表示关闭",
+        String((current.data as any).public_pool_days)
+      );
+      if (value == null) return;
+      const result = await api("customer.publicPool.update", {
+        public_pool_days: Number(value),
+      });
+      toast(
+        result.ok
+          ? Number(value) > 0
+            ? `已设置 ${value} 天未跟进掉公`
+            : "自动掉公已关闭"
+          : result.message,
+        result.ok ? "ok" : "error"
+      );
+    });
+  }
+  const runPool = main.querySelector("[data-run-pool]");
+  if (runPool) {
+    runPool.addEventListener("click", async () => {
+      const result = await api("customer.publicPool.run");
+      if (!result.ok) return toast(result.message, "error");
+      const data = result.data as any;
+      toast(
+        data.enabled ? `掉公执行完成，共转入 ${data.moved} 个客源` : "自动掉公未启用",
+        data.enabled ? "ok" : "warn"
+      );
+      if (data.moved) draw();
+    });
+  }
   await draw();
 }
 
@@ -1124,6 +1230,102 @@ async function renderEarnest(main: HTMLElement) {
   await draw();
 }
 
+async function renderTransfer(main: HTMLElement) {
+  const deals = await api("deal.list", { status: "approved" });
+  const canCreate = ["admin", "store_manager"].includes(state.user.role);
+  main.innerHTML = `
+    <div class="header"><h2>过户节点</h2>${canCreate ? `<button class="btn" data-new>新增节点</button>` : ""}</div>
+    <div class="filters">
+      <select data-status><option value="">全部状态</option><option value="pending">待办理</option><option value="in_progress">办理中</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select>
+    </div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
+    const result = await api("transfer.list", status ? { status } : {});
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (node) => `<div class="row"><div>
+            <div><span class="tag ${node.status === "completed" ? "ok" : node.status === "cancelled" ? "danger" : "warn"}">${node.status === "pending" ? "待办理" : node.status === "in_progress" ? "办理中" : node.status === "completed" ? "已完成" : "已取消"}</span><strong>${node.title}</strong> · ${node.node_type}</div>
+            <div class="meta">成交单 ${node.deal_id} · 计划 ${node.planned_at || "未设置"} · ${node.assignee_name || "未指派"}${node.remark ? ` · ${node.remark}` : ""}</div>
+          </div><div class="ops">
+            ${node.status === "pending" ? `<button class="btn ghost" data-start="${node.id}">开始</button>` : ""}
+            ${["pending", "in_progress"].includes(node.status) ? `<button class="btn" data-complete="${node.id}">完成</button><button class="btn danger" data-cancel="${node.id}">取消</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无过户节点</div>`;
+    list.querySelectorAll("[data-start]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("transfer.status", {
+          id: (button as HTMLElement).dataset.start,
+          status: "in_progress",
+        });
+        toast(result.ok ? "节点已开始" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-complete]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("transfer.status", {
+          id: (button as HTMLElement).dataset.complete,
+          status: "completed",
+        });
+        toast(result.ok ? "节点已完成" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-cancel]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("取消原因");
+        if (!reason) return;
+        const result = await api("transfer.status", {
+          id: (button as HTMLElement).dataset.cancel,
+          status: "cancelled",
+          reason,
+        });
+        toast(result.ok ? "节点已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const createButton = main.querySelector("[data-new]");
+  if (createButton) {
+    createButton.addEventListener("click", () => {
+      const options = ((deals.data as any[]) || [])
+        .filter((deal) => deal.status === "approved")
+        .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
+        .join("");
+      openDialog(
+        "新增过户节点",
+        `
+        <label class="full">成交单<select name="deal_id">${options}</select></label>
+        <label>节点类型<select name="node_type"><option value="contract">合同</option><option value="loan">贷款</option><option value="tax">缴税</option><option value="transfer">过户</option><option value="delivery">交房</option><option value="other">其他</option></select></label>
+        <label>节点名称<input name="title" required /></label>
+        <label>计划时间<input name="planned_at" type="datetime-local" /></label>
+        <label>备注<input name="remark" /></label>
+        `,
+        async (fd) => {
+          const planned = String(fd.get("planned_at") || "");
+          const result = await api("transfer.create", {
+            deal_id: fd.get("deal_id"),
+            node_type: fd.get("node_type"),
+            title: fd.get("title"),
+            planned_at: planned ? new Date(planned).toISOString() : null,
+            remark: fd.get("remark"),
+          });
+          toast(result.ok ? "过户节点已创建" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  main.querySelector("[data-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
 async function renderPayments(main: HTMLElement) {
   const deals = await api("deal.list", { status: "approved" });
   main.innerHTML = `
@@ -1205,6 +1407,63 @@ async function renderCommissions(main: HTMLElement) {
       if (r.ok) render();
     })
   );
+}
+
+async function renderReports(main: HTMLElement) {
+  const defaultMonth = new Date().toISOString().slice(0, 7);
+  main.innerHTML = `
+    <div class="header"><h2>经营报表</h2><button class="btn ghost" data-export>导出成交 CSV</button></div>
+    <div class="filters"><input data-month type="month" value="${defaultMonth}" /></div>
+    <div data-report></div>
+  `;
+  const draw = async () => {
+    const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
+    const result = await api("report.business", { month });
+    const container = main.querySelector("[data-report]")!;
+    if (!result.ok) return (container.innerHTML = `<div class="error">${result.message}</div>`);
+    const report = result.data as any;
+    container.innerHTML = `
+      <div class="stats">
+        <div class="stat"><div class="n">${report.houses_added}</div><div class="l">新增房源</div></div>
+        <div class="stat"><div class="n">${report.customers_added}</div><div class="l">新增客源</div></div>
+        <div class="stat"><div class="n">${report.follows_created}</div><div class="l">新增跟进</div></div>
+        <div class="stat"><div class="n">${report.views_created}</div><div class="l">带看</div></div>
+        <div class="stat"><div class="n">${report.deals_approved}</div><div class="l">审批成交</div></div>
+        <div class="stat"><div class="n">${money(report.commission_total)}</div><div class="l">应收佣金</div></div>
+        <div class="stat"><div class="n">${money(report.paid_total)}</div><div class="l">已收佣金</div></div>
+        <div class="stat"><div class="n">${money(report.unpaid_total)}</div><div class="l">未收佣金</div></div>
+      </div>
+      <h3>经纪人业绩排行</h3>
+      <div class="list">
+        ${
+          report.rankings.length
+            ? report.rankings
+                .map(
+                  (item: any, index: number) =>
+                    `<div class="row"><div><strong>${index + 1}. ${item.display_name}</strong><div class="meta">${item.deal_count} 单 · 归属业绩 ¥${money(item.performance)}</div></div></div>`
+                )
+                .join("")
+            : `<div class="empty">本月暂无审批成交</div>`
+        }
+      </div>
+    `;
+  };
+  main.querySelector("[data-month]")!.addEventListener("change", draw);
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
+    const result = await api("report.dealsCsv", { month });
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: file.mime });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条成交`);
+  });
+  await draw();
 }
 
 async function renderMessages(main: HTMLElement) {
