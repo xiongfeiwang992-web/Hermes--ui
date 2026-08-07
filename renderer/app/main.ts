@@ -778,8 +778,12 @@ async function renderCustomers(main: HTMLElement) {
     list.querySelectorAll("[data-merge]").forEach((btn) =>
       btn.addEventListener("click", () => {
         const sourceId = (btn as HTMLElement).dataset.merge!;
+        const source = rows.find((customer) => customer.id === sourceId);
         const options = rows
-          .filter((customer) => customer.id !== sourceId)
+          .filter(
+            (customer) =>
+              customer.id !== sourceId && customer.store_id === source?.store_id
+          )
           .map((customer) => `<option value="${customer.id}">${customer.name} · ${customer.phone}</option>`)
           .join("");
         openDialog(
