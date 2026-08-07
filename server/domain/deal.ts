@@ -1,0 +1,415 @@
+import type { Db } from "../db/database";
+import {
+  canApproveDeal,
+  canRegisterPayment,
+  canSeeCommissions,
+  canWriteListing,
+} from "../auth/policy";
+import { writeAudit } from "./audit";
+import { createMessage } from "./message";
+import { nextId, nowIso } from "../utils/id";
+import type { ApiResult, SessionUser } from "../utils/types";
+
+function parseJson<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function presentDeal(row: any) {
+  return {
+    ...row,
+    agent_ids: parseJson<string[]>(row.agent_ids, []),
+    split_ratios: parseJson<Record<string, number>>(row.split_ratios, {}),
+  };
+}
+
+function getAgentPoolRate(db: Db, companyId: string): number {
+  const row = db
+    .prepare(`SELECT agent_pool_rate FROM settings WHERE company_id = ?`)
+    .get(companyId) as any;
+  return row?.agent_pool_rate ?? 0.5;
+}
+
+export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  if (!payload.house_id || !payload.customer_id || payload.contract_price == null) {
+    return { ok: false, message: "成交单信息不完整" };
+  }
+  const house = db
+    .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+    .get(payload.house_id, user.company_id) as any;
+  const customer = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.customer_id, user.company_id) as any;
+  if (!house || !customer) return { ok: false, message: "房源或客源不存在" };
+
+  const commissionOwner = Number(payload.commission_owner || 0);
+  const commissionCustomer = Number(payload.commission_customer || 0);
+  const commissionTotal =
+    payload.commission_total != null
+      ? Number(payload.commission_total)
+      : commissionOwner + commissionCustomer;
+  if (Math.abs(commissionOwner + commissionCustomer - commissionTotal) > 0.01) {
+    return { ok: false, message: "业主佣 + 客户佣 须等于应收合计" };
+  }
+  const agentIds: string[] = payload.agent_ids?.length ? payload.agent_ids : [user.id];
+  const split: Record<string, number> = payload.split_ratios || {};
+  if (!Object.keys(split).length) {
+    const each = Math.floor((100 / agentIds.length) * 100) / 100;
+    agentIds.forEach((id, idx) => {
+      split[id] = idx === agentIds.length - 1 ? 100 - each * (agentIds.length - 1) : each;
+    });
+  }
+  const sum = Object.values(split).reduce((a, b) => a + Number(b), 0);
+  if (Math.abs(sum - 100) > 0.01) return { ok: false, message: "分成比例合计须为 100%" };
+
+  const id = nextId("D");
+  const now = nowIso();
+  db.prepare(
+    `INSERT INTO deals(
+      id, company_id, store_id, deal_type, house_id, customer_id, view_id,
+      contract_price, commission_total, commission_owner, commission_customer, deal_date,
+      status, agent_ids, split_ratios, remark, contract_attachment, created_by, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    user.company_id,
+    user.store_id,
+    payload.deal_type || house.deal_type,
+    payload.house_id,
+    payload.customer_id,
+    payload.view_id || null,
+    Number(payload.contract_price),
+    commissionTotal,
+    commissionOwner,
+    commissionCustomer,
+    payload.deal_date || now.slice(0, 10),
+    JSON.stringify(agentIds),
+    JSON.stringify(split),
+    payload.remark || null,
+    payload.contract_attachment || null,
+    user.id,
+    now,
+    now
+  );
+  writeAudit(db, user, "deal.create", "deal", id);
+  return getDeal(db, user, id);
+}
+
+export function getDeal(db: Db, user: SessionUser, id: string): ApiResult {
+  const row = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(id, user.company_id) as any;
+  if (!row) return { ok: false, message: "成交单不存在" };
+  if (user.role === "store_manager" && row.store_id !== user.store_id) {
+    return { ok: false, message: "无权限", code: 403 };
+  }
+  if (user.role === "agent") {
+    const agents = parseJson<string[]>(row.agent_ids, []);
+    if (row.store_id !== user.store_id || (!agents.includes(user.id) && row.created_by !== user.id)) {
+      return { ok: false, message: "无权限", code: 403 };
+    }
+  }
+  const paid = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+    )
+    .get(id) as { s: number };
+  return {
+    ok: true,
+    data: {
+      ...presentDeal(row),
+      paid_amount: paid.s,
+      unpaid_amount: row.commission_total - paid.s,
+    },
+  };
+}
+
+export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
+  let rows = db
+    .prepare(`SELECT * FROM deals WHERE company_id = ? ORDER BY updated_at DESC`)
+    .all(user.company_id) as any[];
+  if (user.role === "store_manager") rows = rows.filter((d) => d.store_id === user.store_id);
+  if (user.role === "agent") {
+    rows = rows.filter((d) => {
+      const agents = parseJson<string[]>(d.agent_ids, []);
+      return d.store_id === user.store_id && (agents.includes(user.id) || d.created_by === user.id);
+    });
+  }
+  if (q.status) rows = rows.filter((d) => d.status === q.status);
+  return {
+    ok: true,
+    data: rows.map((r) => {
+      const paid = db
+        .prepare(
+          `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+        )
+        .get(r.id) as { s: number };
+      return {
+        ...presentDeal(r),
+        paid_amount: paid.s,
+        unpaid_amount: r.commission_total - paid.s,
+      };
+    }),
+  };
+}
+
+export function submitDeal(db: Db, user: SessionUser, payload: { id: string }): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  const current = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "成交单不存在" };
+  if (!["draft", "rejected"].includes(current.status)) {
+    return { ok: false, message: "当前状态不可提交" };
+  }
+  const now = nowIso();
+  db.prepare(
+    `UPDATE deals SET status = 'pending_approval', submitted_by = ?, submitted_at = ?, updated_at = ?, reject_reason = NULL WHERE id = ?`
+  ).run(user.id, now, now, payload.id);
+  db.prepare(`UPDATE houses SET status = 'deal_pending', updated_at = ? WHERE id = ?`).run(
+    now,
+    current.house_id
+  );
+  db.prepare(`UPDATE customers SET status = 'deal_pending', updated_at = ? WHERE id = ?`).run(
+    now,
+    current.customer_id
+  );
+
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id = ? AND store_id = ? AND role IN ('store_manager','admin') AND status = 'active'`
+    )
+    .all(user.company_id, current.store_id) as any[];
+  const admins = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id = ? AND role = 'admin' AND status = 'active'`
+    )
+    .all(user.company_id) as any[];
+  const notifyIds = new Set([...managers, ...admins].map((u) => u.id as string));
+  for (const uid of notifyIds) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: uid,
+      title: "成交待审批",
+      body: `成交单 ${payload.id} 待审批`,
+      kind: "deal_submit",
+      ref_type: "deal",
+      ref_id: payload.id,
+    });
+  }
+  writeAudit(db, user, "deal.submit", "deal", payload.id);
+  return getDeal(db, user, payload.id);
+}
+
+export function approveDeal(db: Db, user: SessionUser, payload: { id: string }): ApiResult {
+  if (!canApproveDeal(user)) return { ok: false, message: "无权限", code: 403 };
+  const current = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "成交单不存在" };
+  if (user.role === "store_manager" && current.store_id !== user.store_id) {
+    return { ok: false, message: "只能审批本店成交", code: 403 };
+  }
+  if (current.status !== "pending_approval") {
+    return { ok: false, message: "当前状态不可审批" };
+  }
+  const now = nowIso();
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE deals SET status = 'approved', approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?`
+    ).run(user.id, now, now, payload.id);
+    db.prepare(`UPDATE houses SET status = 'closed', updated_at = ? WHERE id = ?`).run(
+      now,
+      current.house_id
+    );
+    db.prepare(`UPDATE customers SET status = 'closed', updated_at = ? WHERE id = ?`).run(
+      now,
+      current.customer_id
+    );
+
+    const rate = getAgentPoolRate(db, user.company_id);
+    const pool = current.commission_total * rate;
+    const ratios = parseJson<Record<string, number>>(current.split_ratios, {});
+    for (const [uid, ratio] of Object.entries(ratios)) {
+      const amount = Math.round(((pool * Number(ratio)) / 100) * 100) / 100;
+      db.prepare(
+        `INSERT INTO commissions(id, company_id, store_id, deal_id, user_id, ratio, amount, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'accrued', ?, ?)`
+      ).run(
+        nextId("CM"),
+        user.company_id,
+        current.store_id,
+        payload.id,
+        uid,
+        Number(ratio),
+        amount,
+        now,
+        now
+      );
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: current.store_id,
+        user_id: uid,
+        title: "成交已审批",
+        body: `成交单 ${payload.id} 已通过，提成应计 ¥${amount}`,
+        kind: "deal_approve",
+        ref_type: "deal",
+        ref_id: payload.id,
+      });
+    }
+  });
+  tx();
+  writeAudit(db, user, "deal.approve", "deal", payload.id);
+  return getDeal(db, user, payload.id);
+}
+
+export function rejectDeal(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string; reason: string }
+): ApiResult {
+  if (!canApproveDeal(user)) return { ok: false, message: "无权限", code: 403 };
+  if (!payload.reason?.trim()) return { ok: false, message: "驳回原因必填" };
+  const current = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "成交单不存在" };
+  if (user.role === "store_manager" && current.store_id !== user.store_id) {
+    return { ok: false, message: "只能审批本店成交", code: 403 };
+  }
+  if (current.status !== "pending_approval") {
+    return { ok: false, message: "当前状态不可驳回" };
+  }
+  const now = nowIso();
+  db.prepare(
+    `UPDATE deals SET status = 'rejected', reject_reason = ?, updated_at = ? WHERE id = ?`
+  ).run(payload.reason.trim(), now, payload.id);
+  db.prepare(`UPDATE houses SET status = 'available', updated_at = ? WHERE id = ?`).run(
+    now,
+    current.house_id
+  );
+  db.prepare(`UPDATE customers SET status = 'viewing', updated_at = ? WHERE id = ?`).run(
+    now,
+    current.customer_id
+  );
+  if (current.submitted_by) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: current.submitted_by,
+      title: "成交已驳回",
+      body: `成交单 ${payload.id} 被驳回：${payload.reason}`,
+      kind: "deal_reject",
+      ref_type: "deal",
+      ref_id: payload.id,
+    });
+  }
+  writeAudit(db, user, "deal.reject", "deal", payload.id, { reason: payload.reason });
+  return getDeal(db, user, payload.id);
+}
+
+export function createPayment(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
+  const deal = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.deal_id, user.company_id) as any;
+  if (!deal) return { ok: false, message: "成交单不存在" };
+  if (deal.status !== "approved") return { ok: false, message: "仅已审批成交可收款" };
+  const amount = Number(payload.amount);
+  if (!(amount > 0)) return { ok: false, message: "收款金额须大于 0" };
+  const paid = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+    )
+    .get(deal.id) as { s: number };
+  const warning = paid.s + amount > deal.commission_total;
+  const id = nextId("PAY");
+  db.prepare(
+    `INSERT INTO payments(id, company_id, store_id, deal_id, amount, pay_type, method, paid_at, payer_side, status, remark, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)`
+  ).run(
+    id,
+    user.company_id,
+    deal.store_id,
+    deal.id,
+    amount,
+    payload.pay_type || "commission",
+    payload.method || "transfer",
+    payload.paid_at || nowIso(),
+    payload.payer_side || "customer",
+    payload.remark || null,
+    user.id,
+    nowIso()
+  );
+  writeAudit(db, user, "payment.create", "payment", id, { deal_id: deal.id, amount });
+  for (const uid of parseJson<string[]>(deal.agent_ids, [])) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: deal.store_id,
+      user_id: uid,
+      title: "收到佣金",
+      body: `成交单 ${deal.id} 收款 ¥${amount}${warning ? "（已超应收，已记录）" : ""}`,
+      kind: "payment",
+      ref_type: "deal",
+      ref_id: deal.id,
+    });
+  }
+  return {
+    ok: true,
+    data: {
+      id,
+      warning: warning ? "收款合计已超过应收佣金" : null,
+    },
+  };
+}
+
+export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult {
+  let rows = db
+    .prepare(`SELECT * FROM payments WHERE company_id = ? ORDER BY paid_at DESC`)
+    .all(user.company_id) as any[];
+  if (user.role === "store_manager") rows = rows.filter((p) => p.store_id === user.store_id);
+  if (user.role === "agent") {
+    const myDeals = new Set(
+      (db.prepare(`SELECT id, agent_ids, created_by, store_id FROM deals WHERE company_id = ?`).all(user.company_id) as any[])
+        .filter((d) => {
+          const agents = parseJson<string[]>(d.agent_ids, []);
+          return d.store_id === user.store_id && (agents.includes(user.id) || d.created_by === user.id);
+        })
+        .map((d) => d.id)
+    );
+    rows = rows.filter((p) => myDeals.has(p.deal_id));
+  }
+  if (q.deal_id) rows = rows.filter((p) => p.deal_id === q.deal_id);
+  return { ok: true, data: rows };
+}
+
+export function listCommissions(db: Db, user: SessionUser): ApiResult {
+  const scope = canSeeCommissions(user);
+  if (scope === "none") return { ok: false, message: "无权限", code: 403 };
+  let rows = db
+    .prepare(`SELECT * FROM commissions WHERE company_id = ? ORDER BY created_at DESC`)
+    .all(user.company_id) as any[];
+  if (scope === "store") rows = rows.filter((c) => c.store_id === user.store_id);
+  if (scope === "self") rows = rows.filter((c) => c.user_id === user.id);
+  return { ok: true, data: rows };
+}
+
+export function markCommissionPaid(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string }
+): ApiResult {
+  if (!(user.role === "admin" || user.role === "finance")) {
+    return { ok: false, message: "无权限", code: 403 };
+  }
+  db.prepare(
+    `UPDATE commissions SET status = 'paid', updated_at = ? WHERE id = ? AND company_id = ?`
+  ).run(nowIso(), payload.id, user.company_id);
+  writeAudit(db, user, "commission.paid", "commission", payload.id);
+  return { ok: true, data: { id: payload.id } };
+}

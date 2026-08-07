@@ -1,1 +1,69 @@
-# Hermes--ui
+# 未来家本地 · 自研房产中介系统（MVP）
+
+基于文档包 **MASTER-2.1** 从零实现的门店主链路系统。  
+技术栈：**Electron + TypeScript + SQLite**（业务内核可脱离 Electron，经 HTTP 调用）。
+
+## 已确认生意口径（默认）
+
+- 业态：二手买卖 + 住宅租赁
+- 角色：管理员 / 店长 / 经纪人 / 财务
+- 成交审批：店长审本店
+- 提成：公司留存 50% / 经纪人池 50%；审批后计提；分成合计 100%
+- 公私客：不自动掉公；经纪人见本人私客 + 本店公客
+- 保密盘：接盘人 + 店长 + 管理员
+- 跨店：完全隔离
+
+## 红线
+
+禁止厂商许可 / 指纹云校验 / License 绕过 / 拷贝厂商安装包。
+
+## 快速开始
+
+```bash
+npm install
+npm run seed          # 写入演示账号与门店
+npm run smoke         # 主路径自动化验收
+npm run dev:server    # API :8787
+npm run dev:renderer  # UI  :5173
+```
+
+浏览器打开 `http://127.0.0.1:5173` 即可演示（无需 Electron）。
+
+一键开发（需本机图形环境）：
+
+```bash
+npm run dev
+```
+
+## 演示账号
+
+密码均为 `123456`：
+
+| 账号 | 角色 |
+|------|------|
+| admin | 管理员 |
+| manager | 店长（一号店） |
+| agent_a / agent_b | 经纪人（一号店） |
+| finance | 财务 |
+| agent_c | 经纪人（二号店，用于跨店隔离演示） |
+
+## MVP 主路径
+
+登录 → 录房源 → 录客源 → 写跟进 → 登记带看 → 提交成交 → 店长审批 → 财务收款 → 查看提成
+
+另含：工作台摘要、站内消息、审计日志、电话脱敏、店隔离/私客/保密盘。
+
+## 目录
+
+```
+docs/           需求与总文档（权威 MASTER-2.1）
+server/         业务内核（domain / auth / db / route）
+renderer/       前端工作台
+electron/       桌面壳
+migrations/     SQLite 结构
+scripts/        seed / smoke / dev
+```
+
+## 文档权威
+
+以 [`docs/自研中介系统-开发总文档.md`](docs/自研中介系统-开发总文档.md) 第三编预填 **MVP必须** 为准；字段细节见 `docs/MVP需求规格.md`。
