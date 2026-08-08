@@ -111,8 +111,9 @@ function canSee(tab: string) {
   )
     return role !== "finance";
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
-  if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
-  if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
+  if (tab === "finance-assets")
+    return ["admin", "finance", "store_manager"].includes(role);
+  if (role === "finance" && tab.startsWith("suite-")) return false;
   return true;
 }
 
@@ -198,7 +199,7 @@ function renderSide(side: HTMLElement) {
     ["property-ext", "房源扩展"],
     ["deal-ext", "交易扩展"],
     ["suite-newhome", "新房分销"],
-    ["suite-finance", "财务管理"],
+    ["finance-assets", "资产凭证"],
     ["cashbook", "收支流水"],
     ["expenses", "费用报销"],
     ["office-content", "公告知识"],
@@ -284,9 +285,9 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "performance") return renderPerformance(main);
   if (state.tab === "deal-ext") return renderDealExt(main);
   if (state.tab === "property-ext") return renderPropertyExt(main);
+  if (state.tab === "finance-assets") return renderFinanceAssets(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
-      "suite-finance": "finance",
       "suite-office": "office",
     };
     return renderSuite(main, moduleMap[state.tab]);
@@ -5169,6 +5170,176 @@ async function renderPerformance(main: HTMLElement) {
   await draw();
 }
 
+async function renderFinanceAssets(main: HTMLElement) {
+  const canWrite = ["admin", "finance"].includes(state.user.role);
+  const options = await api("finance.options", {});
+  const storeOptions = options.ok
+    ? ((options.data as any).stores || [])
+        .map((store: any) => `<option value="${store.id}">${store.name}</option>`)
+        .join("")
+    : "";
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
+  main.innerHTML = `
+    <div class="header"><h2>资产台账与备查凭证</h2><div class="ops">
+      ${canWrite ? `<button class="btn ghost" data-new-asset>登记资产</button><button class="btn" data-new-voucher>新建凭证</button>` : ""}
+    </div></div>
+    <h3>固定资产</h3>
+    <div class="filters"><select data-asset-status><option value="">全部状态</option><option value="in_use">在用</option><option value="idle">闲置</option><option value="disposed">已处置</option></select></div>
+    <div class="list" data-assets></div>
+    <h3>备查凭证</h3>
+    <div class="filters"><select data-voucher-status><option value="">全部状态</option><option value="draft">草稿</option><option value="posted">已过账</option><option value="voided">已作废</option></select></div>
+    <div class="list" data-vouchers></div>
+  `;
+  const drawAssets = async () => {
+    const status = (main.querySelector("[data-asset-status]") as HTMLSelectElement).value;
+    const result = await api("finance.assets.list", status ? { status } : {});
+    const list = main.querySelector("[data-assets]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "in_use" ? "ok" : item.status === "disposed" ? "danger" : "warn"}">${item.status}</span><strong>${item.name}</strong> · ${item.code}</div>
+            <div class="meta">${item.store_name} · ${item.category} · 原值 ${item.original_value}${item.custodian_name ? ` · 保管 ${item.custodian_name}` : ""}${item.location ? ` · ${item.location}` : ""}${item.dispose_reason ? ` · ${item.dispose_reason}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite && item.status !== "disposed" ? `<button class="btn danger" data-dispose="${item.id}">处置</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无资产</div>`;
+    list.querySelectorAll("[data-dispose]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "处置资产",
+          `<label class="full">原因<input name="reason" required /></label>
+           <label>处置金额<input name="dispose_amount" type="number" min="0" step="0.01" value="0" /></label>`,
+          async (fd) => {
+            const updated = await api("finance.assets.dispose", {
+              id: (button as HTMLElement).dataset.dispose,
+              reason: fd.get("reason"),
+              dispose_amount: Number(fd.get("dispose_amount") || 0),
+            });
+            toast(updated.ok ? "资产已处置" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawAssets();
+          }
+        )
+      )
+    );
+  };
+  const drawVouchers = async () => {
+    const status = (main.querySelector("[data-voucher-status]") as HTMLSelectElement).value;
+    const result = await api("finance.vouchers.list", status ? { status } : {});
+    const list = main.querySelector("[data-vouchers]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "posted" ? "ok" : item.status === "voided" ? "danger" : "warn"}">${item.status}</span><strong>${item.voucher_no}</strong> · ${item.summary}</div>
+            <div class="meta">${item.store_name} · ${item.voucher_date} · 借 ${item.debit_total} / 贷 ${item.credit_total} · ${item.line_count} 行${item.void_reason ? ` · ${item.void_reason}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite && item.status === "draft" ? `<button class="btn" data-post="${item.id}">过账</button><button class="btn danger" data-void="${item.id}">作废</button>` : ""}
+            ${canWrite && item.status === "posted" ? `<button class="btn danger" data-void="${item.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无凭证</div>`;
+    list.querySelectorAll("[data-post]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("finance.vouchers.post", {
+          id: (button as HTMLElement).dataset.post,
+        });
+        toast(updated.ok ? "凭证已过账" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawVouchers();
+      })
+    );
+    list.querySelectorAll("[data-void]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("作废原因");
+        if (!reason) return;
+        const updated = await api("finance.vouchers.void", {
+          id: (button as HTMLElement).dataset.void,
+          reason,
+        });
+        toast(updated.ok ? "凭证已作废" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawVouchers();
+      })
+    );
+  };
+  main.querySelector("[data-new-asset]")?.addEventListener("click", () =>
+    openDialog(
+      "登记资产",
+      `<label>编码<input name="code" required /></label>
+       <label>名称<input name="name" required /></label>
+       <label>分类<select name="category"><option value="furniture">家具</option><option value="equipment">设备</option><option value="vehicle">车辆</option><option value="electronics">电子设备</option><option value="other">其他</option></select></label>
+       <label>门店<select name="store_id">${storeOptions}</select></label>
+       <label>购置日期<input name="purchase_date" type="date" required /></label>
+       <label>原值<input name="original_value" type="number" min="0.01" step="0.01" required /></label>
+       <label>残值<input name="residual_value" type="number" min="0" step="0.01" value="0" /></label>
+       <label>数量<input name="quantity" type="number" min="0.01" step="0.01" value="1" /></label>
+       <label>保管人<select name="custodian_user_id"><option value="">无</option>${userOptions}</select></label>
+       <label class="full">存放位置<input name="location" /></label>`,
+      async (fd) => {
+        const result = await api("finance.assets.save", {
+          code: fd.get("code"),
+          name: fd.get("name"),
+          category: fd.get("category"),
+          store_id: fd.get("store_id"),
+          purchase_date: fd.get("purchase_date"),
+          original_value: Number(fd.get("original_value")),
+          residual_value: Number(fd.get("residual_value") || 0),
+          quantity: Number(fd.get("quantity") || 1),
+          custodian_user_id: fd.get("custodian_user_id") || null,
+          location: fd.get("location"),
+        });
+        toast(result.ok ? "资产已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAssets();
+      }
+    )
+  );
+  main.querySelector("[data-new-voucher]")?.addEventListener("click", () =>
+    openDialog(
+      "新建备查凭证",
+      `<label>门店<select name="store_id">${storeOptions}</select></label>
+       <label>日期<input name="voucher_date" type="date" required /></label>
+       <label class="full">摘要<input name="summary" required /></label>
+       <label>借方科目<input name="debit_account" value="银行存款" required /></label>
+       <label>贷方科目<input name="credit_account" value="主营业务收入" required /></label>
+       <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>`,
+      async (fd) => {
+        const amount = Number(fd.get("amount"));
+        const result = await api("finance.vouchers.create", {
+          store_id: fd.get("store_id"),
+          voucher_date: fd.get("voucher_date"),
+          summary: fd.get("summary"),
+          lines: [
+            {
+              account_name: fd.get("debit_account"),
+              direction: "debit",
+              amount,
+            },
+            {
+              account_name: fd.get("credit_account"),
+              direction: "credit",
+              amount,
+            },
+          ],
+        });
+        toast(
+          result.ok ? `凭证草稿 ${(result.data as any).voucher_no} 已创建` : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) drawVouchers();
+      }
+    )
+  );
+  main.querySelector("[data-asset-status]")!.addEventListener("change", drawAssets);
+  main.querySelector("[data-voucher-status]")!.addEventListener("change", drawVouchers);
+  await Promise.all([drawAssets(), drawVouchers()]);
+}
+
 async function renderPropertyExt(main: HTMLElement) {
   const canWrite = state.user.role !== "finance";
   const options = await api("propertyExt.options", {});
@@ -5638,13 +5809,6 @@ const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
 > = {
-  finance: {
-    title: "财务管理",
-    types: [
-      ["asset", "资产"],
-      ["voucher", "会计凭证"],
-    ],
-  },
   office: {
     title: "办公协同",
     types: [

@@ -117,7 +117,6 @@ assert(
 );
 
 const cases = [
-  { module: "finance", type: "asset", actor: finance, approver: finance },
   { module: "office", type: "exam", actor: agent, approver: manager },
   { module: "office", type: "event", actor: agent, approver: manager },
   { module: "office", type: "work_summary", actor: agent, approver: manager },

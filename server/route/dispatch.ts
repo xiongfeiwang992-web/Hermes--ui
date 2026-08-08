@@ -34,6 +34,7 @@ import * as marketing from "../domain/marketing";
 import * as performance from "../domain/performance";
 import * as dealExt from "../domain/dealExt";
 import * as propertyExt from "../domain/propertyExt";
+import * as financeAssets from "../domain/financeAssets";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -612,6 +613,26 @@ function route(
       return propertyExt.activateExclusive(db, user!, payload);
     case "propertyExt.exclusive.end":
       return propertyExt.endExclusive(db, user!, payload);
+    case "finance.options":
+      return financeAssets.financeOptions(db, user!);
+    case "finance.assets.list":
+      return financeAssets.listAssets(db, user!, payload);
+    case "finance.assets.save":
+      return financeAssets.saveAsset(db, user!, payload);
+    case "finance.assets.dispose":
+      return financeAssets.disposeAsset(db, user!, payload);
+    case "finance.vouchers.list":
+      return financeAssets.listVouchers(db, user!, payload);
+    case "finance.vouchers.get":
+      return financeAssets.getVoucher(db, user!, payload);
+    case "finance.vouchers.create":
+      return financeAssets.createVoucher(db, user!, payload);
+    case "finance.vouchers.update":
+      return financeAssets.updateVoucher(db, user!, payload);
+    case "finance.vouchers.post":
+      return financeAssets.postVoucher(db, user!, payload);
+    case "finance.vouchers.void":
+      return financeAssets.voidVoucher(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

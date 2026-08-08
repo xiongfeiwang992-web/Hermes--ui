@@ -6,7 +6,6 @@ import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
 
 const TYPES: Record<string, Set<string>> = {
-  finance: new Set(["asset", "voucher"]),
   office: new Set([
     "exam",
     "event",
@@ -18,9 +17,7 @@ const TYPES: Record<string, Set<string>> = {
   ]),
 };
 
-const MANAGER_ONLY = new Set([
-  "finance",
-]);
+const MANAGER_ONLY = new Set<string>([]);
 
 const TRANSITIONS: Record<string, string[]> = {
   draft: ["pending", "active", "cancelled"],
@@ -36,7 +33,6 @@ const TRANSITIONS: Record<string, string[]> = {
 
 function canCreate(user: SessionUser, module: string): boolean {
   if (user.role === "admin") return true;
-  if (module === "finance") return user.role === "finance";
   if (module === "hr") return user.role === "store_manager";
   if (MANAGER_ONLY.has(module)) return user.role === "store_manager";
   return user.role !== "finance";
@@ -44,7 +40,7 @@ function canCreate(user: SessionUser, module: string): boolean {
 
 function visible(user: SessionUser, row: any): boolean {
   if (user.role === "admin") return true;
-  if (user.role === "finance") return row.module === "finance";
+  if (user.role === "finance") return false;
   if (row.store_id && row.store_id !== user.store_id) return false;
   if (user.role === "store_manager") return true;
   if (row.module === "office" && row.record_type === "event") {
@@ -146,7 +142,6 @@ export function updateRecord(db: Db, user: SessionUser, payload: any): ApiResult
   }
   const canEdit =
     user.role === "admin" ||
-    (user.role === "finance" && row.module === "finance") ||
     (user.role === "store_manager" && row.store_id === user.store_id) ||
     (row.created_by === user.id && ["draft", "rejected"].includes(row.status));
   if (!canEdit) return { ok: false, message: "当前记录不可编辑", code: 403 };
@@ -186,8 +181,7 @@ export function changeStatus(db: Db, user: SessionUser, payload: any): ApiResult
     approval &&
     !(
       user.role === "admin" ||
-      (user.role === "store_manager" && row.store_id === user.store_id) ||
-      (user.role === "finance" && row.module === "finance")
+      (user.role === "store_manager" && row.store_id === user.store_id)
     )
   ) {
     return { ok: false, message: "无审批权限", code: 403 };
