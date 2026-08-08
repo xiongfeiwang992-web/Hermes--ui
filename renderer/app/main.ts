@@ -6824,21 +6824,61 @@ async function renderSystemCenter(main: HTMLElement) {
   }
   const permissionButton = main.querySelector("[data-permission]");
   if (permissionButton) {
-    permissionButton.addEventListener("click", () => {
+    permissionButton.addEventListener("click", async () => {
+      const listed = await api("permission.list", {});
+      if (!listed.ok) return toast(listed.message, "error");
+      const data = listed.data as {
+        roles: string[];
+        matrix: Array<{
+          feature: string;
+          label: string;
+          description: string;
+          roles: Record<string, boolean>;
+        }>;
+      };
+      const roleLabels: Record<string, string> = {
+        store_manager: "店长",
+        agent: "经纪人",
+        finance: "财务",
+      };
+      const rowsHtml = data.matrix
+        .map((row) => {
+          const checks = data.roles
+            .map(
+              (role) =>
+                `<label style="display:inline-block;min-width:4.8rem;margin-right:0.5rem"><input type="checkbox" name="${role}::${row.feature}" ${row.roles[role] ? "checked" : ""} /> ${roleLabels[role] || role}</label>`
+            )
+            .join("");
+          return `<label class="full"><span><strong>${row.label}</strong> · ${row.feature}<br/><span class="meta">${row.description}</span></span><div>${checks}</div></label>`;
+        })
+        .join("");
       openDialog(
-        "设置功能权限",
-        `
-        <label>角色<select name="role"><option value="agent">经纪人</option><option value="store_manager">店长</option><option value="finance">财务</option></select></label>
-        <label>功能<input name="feature" placeholder="如 report.*" required /></label>
-        <label><span><input name="allowed" type="checkbox" checked /> 允许</span></label>
-        `,
+        "功能权限矩阵",
+        `<p class="meta full">管理员始终可访问全部功能。取消勾选即禁用该角色对应菜单级能力（按 domain.* 生效）。</p>${rowsHtml}`,
         async (fd) => {
-          const result = await api("permission.set", {
-            role: fd.get("role"),
-            feature: fd.get("feature"),
-            allowed: fd.get("allowed") === "on",
-          });
-          toast(result.ok ? "功能权限已更新" : result.message, result.ok ? "ok" : "error");
+          let failed = 0;
+          let changed = 0;
+          for (const row of data.matrix) {
+            for (const role of data.roles) {
+              const allowed = fd.get(`${role}::${row.feature}`) === "on";
+              if (allowed === Boolean(row.roles[role])) continue;
+              changed += 1;
+              const result = await api("permission.set", {
+                role,
+                feature: row.feature,
+                allowed,
+              });
+              if (!result.ok) failed += 1;
+            }
+          }
+          toast(
+            failed
+              ? `部分权限更新失败（${failed}）`
+              : changed
+                ? `功能权限已更新（${changed} 项）`
+                : "权限无变化",
+            failed ? "error" : "ok"
+          );
         }
       );
     });
