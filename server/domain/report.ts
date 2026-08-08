@@ -681,3 +681,91 @@ export function exportDealsCsv(
     },
   };
 }
+
+export function exportCommissionsCsv(
+  db: Db,
+  user: SessionUser,
+  payload: { month?: string; status?: string } = {}
+): ApiResult {
+  const range = monthRange(payload.month);
+  let rows = db
+    .prepare(
+      `SELECT c.*, u.display_name AS user_name, d.deal_date, d.commission_total, d.approved_at,
+              h.title AS house_title, cu.name AS customer_name
+       FROM commissions c
+       JOIN users u ON u.id = c.user_id
+       JOIN deals d ON d.id = c.deal_id
+       JOIN houses h ON h.id = d.house_id
+       JOIN customers cu ON cu.id = d.customer_id
+       WHERE c.company_id = ?
+       ORDER BY c.created_at DESC`
+    )
+    .all(user.company_id) as any[];
+  rows = rows.filter((row) => {
+    if (!scoped(user, row)) return false;
+    if (user.role === "agent" && row.user_id !== user.id) return false;
+    if (row.created_at < range.start || row.created_at >= range.end) return false;
+    if (payload.status && row.status !== payload.status) return false;
+    return true;
+  });
+  writeAudit(db, user, "commission.export", "commission", undefined, {
+    month: range.month,
+    rows: rows.length,
+  });
+  return csvFile(
+    `提成明细-${range.month}.csv`,
+    [
+      "提成编号",
+      "门店",
+      "经纪人",
+      "成交单",
+      "房源",
+      "客户",
+      "成交日期",
+      "成交应收佣金",
+      "分成比例",
+      "提成金额",
+      "状态",
+      "计提时间",
+    ],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.user_name,
+      row.deal_id,
+      row.house_title,
+      row.customer_name,
+      row.deal_date,
+      row.commission_total,
+      row.ratio,
+      row.amount,
+      row.status,
+      row.created_at,
+    ])
+  );
+}
+
+export function exportPerformanceCsv(
+  db: Db,
+  user: SessionUser,
+  payload: { month?: string } = {}
+): ApiResult {
+  const summary = businessSummary(db, user, payload);
+  if (!summary.ok) return summary;
+  const data = summary.data as any;
+  writeAudit(db, user, "performance.export", "report", undefined, {
+    month: data.month,
+    rows: (data.rankings || []).length,
+  });
+  return csvFile(
+    `业绩排名-${data.month}.csv`,
+    ["名次", "经纪人", "用户编号", "成交单数", "业绩佣金"],
+    (data.rankings || []).map((row: any, index: number) => [
+      index + 1,
+      row.display_name,
+      row.user_id,
+      row.deal_count,
+      Math.round(Number(row.performance) * 100) / 100,
+    ])
+  );
+}
