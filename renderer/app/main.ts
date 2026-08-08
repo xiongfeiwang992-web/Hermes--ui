@@ -2171,7 +2171,7 @@ async function renderReports(main: HTMLElement) {
     `<h3>${title}</h3><div class="list">${rowsHtml || `<div class="empty">暂无数据</div>`}</div>`;
   const draw = async () => {
     const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
-    const [result, activity, hotspots, attributes, sources] = await Promise.all([
+    const [result, activity, hotspots, attributes, sources, rankings] = await Promise.all([
       api("report.business", { month }),
       canAnalyze
         ? api("report.activityStats", { month })
@@ -2183,6 +2183,7 @@ async function renderReports(main: HTMLElement) {
       canAnalyze
         ? api("report.customerSources", {})
         : Promise.resolve({ ok: false, message: "无权限" } as ApiResult),
+      api("performance.rankings.monthly", { period_month: month }),
     ]);
     const container = main.querySelector("[data-report]")!;
     if (!result.ok) return (container.innerHTML = `<div class="error">${result.message}</div>`);
@@ -2190,6 +2191,11 @@ async function renderReports(main: HTMLElement) {
     const hot = hotspots.ok ? (hotspots.data as any) : null;
     const attrs = attributes.ok ? (attributes.data as any) : null;
     const src = sources.ok ? (sources.data as any) : null;
+    const board = rankings.ok ? (rankings.data as any) : null;
+    const completionText = (item: any) =>
+      item.completion_rate == null
+        ? "未设目标"
+        : `目标完成 ${item.completion_rate}%（${item.metric === "deals" ? `${item.actual_value}/${item.target_value} 单` : `¥${money(item.actual_value)}/¥${money(item.target_value)}`}）`;
     container.innerHTML = `
       <div class="stats">
         <div class="stat"><div class="n">${report.houses_added}</div><div class="l">新增房源</div></div>
@@ -2201,6 +2207,36 @@ async function renderReports(main: HTMLElement) {
         <div class="stat"><div class="n">${money(report.paid_total)}</div><div class="l">已收佣金</div></div>
         <div class="stat"><div class="n">${money(report.unpaid_total)}</div><div class="l">未收佣金</div></div>
       </div>
+      ${
+        board
+          ? `<h3>门店业绩排名</h3>
+      <div class="list">
+        ${
+          board.stores.length
+            ? board.stores
+                .map(
+                  (item: any) =>
+                    `<div class="row"><div><strong>${item.rank}. ${item.store_name}</strong><div class="meta">${item.deal_count} 单 · 佣金 ¥${money(item.commission_total)} · ${completionText(item)}</div></div></div>`
+                )
+                .join("")
+            : `<div class="empty">本月暂无门店业绩</div>`
+        }
+      </div>
+      <h3>人员业绩排名（含目标完成率）</h3>
+      <div class="list">
+        ${
+          board.agents.length
+            ? board.agents
+                .map(
+                  (item: any) =>
+                    `<div class="row"><div><strong>${item.rank}. ${item.display_name}</strong><div class="meta">${item.deal_count} 单 · 归属业绩 ¥${money(item.performance)} · ${completionText(item)}</div></div></div>`
+                )
+                .join("")
+            : `<div class="empty">本月暂无人员业绩</div>`
+        }
+      </div>`
+          : ""
+      }
       <h3>经纪人业绩排行</h3>
       <div class="list">
         ${
