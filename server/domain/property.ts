@@ -4,9 +4,18 @@ import { writeAudit } from "./audit";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
+import { ensureHouseRole, roleAllowsOperation } from "./house";
 
 function canOperateStore(user: SessionUser, storeId: string): boolean {
   return user.role === "admin" || user.store_id === storeId;
+}
+
+function defaultProtectionUntil(db: Db, companyId: string): string | null {
+  const setting = db
+    .prepare(`SELECT house_role_protection_days FROM settings WHERE company_id=?`)
+    .get(companyId) as any;
+  const days = Number(setting?.house_role_protection_days || 0);
+  return days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
 }
 
 export function listCommunities(
@@ -245,6 +254,14 @@ export function createSurvey(db: Db, user: SessionUser, payload: any): ApiResult
   }
   const summary = String(payload.summary || "").trim();
   if (!summary) return { ok: false, message: "实勘摘要必填" };
+  if (!roleAllowsOperation(db, house.id, "surveyor", user))
+    return { ok: false, message: "实勘角色处于他人保护期，无权操作", code: 403 };
+  const surveyUserId = payload.survey_user_id || user.id;
+  const surveyUser = db
+    .prepare(`SELECT * FROM users WHERE id=? AND company_id=? AND status='active'`)
+    .get(surveyUserId, user.company_id) as any;
+  if (!surveyUser || surveyUser.store_id !== house.store_id)
+    return { ok: false, message: "实勘人须为房源同店在职员工" };
   const id = nextId("SVY");
   db.prepare(
     `INSERT INTO house_surveys(
@@ -258,11 +275,19 @@ export function createSurvey(db: Db, user: SessionUser, payload: any): ApiResult
     house.id,
     payload.survey_type,
     payload.survey_at || nowIso(),
-    payload.survey_user_id || user.id,
+    surveyUserId,
     summary,
     JSON.stringify(payload.image_urls || []),
     user.id,
     nowIso()
+  );
+  ensureHouseRole(
+    db,
+    house,
+    "surveyor",
+    surveyUserId,
+    user.id,
+    defaultProtectionUntil(db, user.company_id)
   );
   writeAudit(db, user, "survey.create", "house_survey", id, { house_id: house.id });
   return { ok: true, data: { id } };
@@ -298,6 +323,8 @@ export function submitVerification(db: Db, user: SessionUser, payload: any): Api
   if (!house || !houseVisibleTo(user, house)) {
     return { ok: false, message: "房源不存在或无权限", code: 403 };
   }
+  if (!roleAllowsOperation(db, house.id, "verifier", user))
+    return { ok: false, message: "核验角色处于他人保护期，无权操作", code: 403 };
   const id = nextId("VER");
   const now = nowIso();
   db.prepare(
@@ -320,6 +347,14 @@ export function submitVerification(db: Db, user: SessionUser, payload: any): Api
     user.id,
     now,
     now
+  );
+  ensureHouseRole(
+    db,
+    house,
+    "verifier",
+    user.id,
+    user.id,
+    defaultProtectionUntil(db, user.company_id)
   );
   const managers = db
     .prepare(

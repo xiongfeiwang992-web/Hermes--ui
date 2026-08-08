@@ -361,6 +361,18 @@ async function renderHouses(main: HTMLElement) {
       list.innerHTML = `<div class="empty">暂无房源，点击右上角新建</div>`;
       return;
     }
+    const roleEntries = await Promise.all(
+      rows.map(async (house) => [house.id, await api("house.roles.list", { house_id: house.id })])
+    );
+    const houseRoles = new Map(roleEntries as Array<[string, ApiResult]>);
+    const roleLabels: Record<string, string> = {
+      surveyor: "实勘",
+      verifier: "核验",
+      photographer: "摄影",
+      floorplan: "户型",
+      key_keeper: "钥匙",
+      entrustment: "委托",
+    };
     list.innerHTML = rows
       .map(
         (h) => `
@@ -372,11 +384,13 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
           <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}</div>
+          ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
         </div>
         <div class="ops">
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
           ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
+          <button class="btn ghost" data-roles="${h.id}">角色人</button>
           ${["available", "suspended", "draft"].includes(h.status) ? `<button class="btn danger" data-withdraw="${h.id}">撤盘</button>` : ""}
         </div>
       </div>`
@@ -412,6 +426,65 @@ async function renderHouses(main: HTMLElement) {
         });
         toast(result.ok ? "房源锁定状态已更新" : result.message, result.ok ? "ok" : "error");
         if (result.ok) draw();
+      });
+    });
+    list.querySelectorAll("[data-roles]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const houseId = (btn as HTMLElement).dataset.roles!;
+        const [rolesResult, usersResult] = await Promise.all([
+          api("house.roles.list", { house_id: houseId }),
+          api("org.users.store", {}),
+        ]);
+        if (!rolesResult.ok) return toast(rolesResult.message, "error");
+        const roles = rolesResult.data as any[];
+        if (!["admin", "store_manager"].includes(state.user.role)) {
+          return toast(
+            roles.length
+              ? roles.map((item) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join("；")
+              : "暂无角色人",
+            "warn"
+          );
+        }
+        const userOptions = usersResult.ok
+          ? (usersResult.data as any[])
+              .map((employee) => `<option value="${employee.id}">${employee.display_name}</option>`)
+              .join("")
+          : "";
+        const removeOptions = roles
+          .map(
+            (item) =>
+              `<option value="${item.id}">${roleLabels[item.role_type] || item.role_type}：${item.display_name}</option>`
+          )
+          .join("");
+        openDialog(
+          "管理房源角色人",
+          `
+          <label>操作<select name="action"><option value="assign">指派/更新</option><option value="remove">解除</option></select></label>
+          <label>角色<select name="role_type">${Object.entries(roleLabels)
+            .map(([value, label]) => `<option value="${value}">${label}</option>`)
+            .join("")}</select></label>
+          <label>员工<select name="user_id">${userOptions}</select></label>
+          <label>保护至<input name="protected_until" type="date" /></label>
+          <label class="full">解除现有角色<select name="remove_id"><option value="">请选择</option>${removeOptions}</select></label>
+          <label class="full">保护期内解除原因<input name="reason" /></label>
+          `,
+          async (fd) => {
+            const removing = fd.get("action") === "remove";
+            const result = removing
+              ? await api("house.roles.remove", {
+                  id: fd.get("remove_id"),
+                  reason: fd.get("reason"),
+                })
+              : await api("house.roles.assign", {
+                  house_id: houseId,
+                  role_type: fd.get("role_type"),
+                  user_id: fd.get("user_id"),
+                  protected_until: fd.get("protected_until") || null,
+                });
+            toast(result.ok ? (removing ? "角色已解除" : "角色已指派") : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
       });
     });
   };
@@ -2210,6 +2283,7 @@ async function renderSystemCenter(main: HTMLElement) {
         <label>个人持盘上限<input name="house_hold_limit" type="number" value="${value.house_hold_limit}" /></label>
         <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
+        <label>房源角色保护期（天）<input name="house_role_protection_days" type="number" min="0" max="365" value="${value.house_role_protection_days}" /></label>
         <label><span><input name="deal_doc_required" type="checkbox" ${value.deal_doc_required ? "checked" : ""} /> 提交成交前强制资料齐全</span></label>
         <label class="full">成交必录字段（逗号分隔）<input name="deal_required_fields" value="${value.deal_required_fields.join(",")}" placeholder="loan_bank,loan_amount" /></label>
         `,
@@ -2218,6 +2292,7 @@ async function renderSystemCenter(main: HTMLElement) {
             house_hold_limit: Number(fd.get("house_hold_limit")),
             manager_award_rate: Number(fd.get("manager_award_rate")),
             password_min_length: Number(fd.get("password_min_length")),
+            house_role_protection_days: Number(fd.get("house_role_protection_days")),
             deal_doc_required: fd.get("deal_doc_required") === "on",
             deal_required_fields: String(fd.get("deal_required_fields") || "")
               .split(",")

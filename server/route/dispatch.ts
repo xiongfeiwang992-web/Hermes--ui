@@ -83,6 +83,12 @@ function route(
       return house.changeHouseAgent(db, user!, payload);
     case "house.lock":
       return house.setHouseLock(db, user!, payload);
+    case "house.roles.list":
+      return house.listHouseRoles(db, user!, payload);
+    case "house.roles.assign":
+      return house.assignHouseRole(db, user!, payload);
+    case "house.roles.remove":
+      return house.removeHouseRole(db, user!, payload);
 
     case "customer.list":
       return customer.listCustomers(db, user!, payload);

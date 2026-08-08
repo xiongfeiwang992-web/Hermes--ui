@@ -71,20 +71,25 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
   const hold = Number(p.house_hold_limit);
   const award = Number(p.manager_award_rate);
   const min = Number(p.password_min_length);
+  const protectionDays = Number(p.house_role_protection_days ?? 30);
   if (!Number.isInteger(hold) || hold < 1 || hold > 100)
     return { ok: false, message: "持盘上限须为 1～100" };
   if (award < 0 || award > 0.5) return { ok: false, message: "管理奖比例须为 0～0.5" };
   if (!Number.isInteger(min) || min < 8 || min > 32)
     return { ok: false, message: "密码最小长度须为 8～32" };
+  if (!Number.isInteger(protectionDays) || protectionDays < 0 || protectionDays > 365)
+    return { ok: false, message: "角色保护期须为 0～365 天" };
   db.prepare(
     `UPDATE settings SET house_hold_limit=?, manager_award_rate=?, deal_required_fields=?,
-     password_min_length=?, deal_doc_required=?, updated_by=?, updated_at=? WHERE company_id=?`
+     password_min_length=?, deal_doc_required=?, house_role_protection_days=?,
+     updated_by=?, updated_at=? WHERE company_id=?`
   ).run(
     hold,
     award,
     JSON.stringify(p.deal_required_fields || []),
     min,
     p.deal_doc_required ? 1 : 0,
+    protectionDays,
     user.id,
     nowIso(),
     user.company_id

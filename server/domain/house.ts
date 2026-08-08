@@ -6,6 +6,7 @@ import {
   maskPhone,
 } from "../auth/policy";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -17,6 +18,15 @@ const ALLOWED: Record<string, string[]> = {
   closed: [],
   withdrawn: [],
 };
+
+const ROLE_TYPES = new Set([
+  "surveyor",
+  "verifier",
+  "photographer",
+  "floorplan",
+  "key_keeper",
+  "entrustment",
+]);
 
 function presentHouse(user: SessionUser, row: any) {
   const visiblePhone = canSeeOwnerPhone(user, row)
@@ -313,4 +323,149 @@ export function setHouseLock(
   );
   writeAudit(db, user, payload.locked ? "house.lock" : "house.unlock", "house", house.id);
   return getHouse(db, user, house.id);
+}
+
+export function ensureHouseRole(
+  db: Db,
+  house: any,
+  roleType: string,
+  userId: string,
+  createdBy: string,
+  protectedUntil?: string | null
+): string {
+  const existing = db
+    .prepare(
+      `SELECT id FROM house_role_holders
+       WHERE house_id=? AND role_type=? AND user_id=?`
+    )
+    .get(house.id, roleType, userId) as any;
+  const id = existing?.id || nextId("HRH");
+  db.prepare(
+    `INSERT INTO house_role_holders(
+       id, company_id, store_id, house_id, role_type, user_id,
+       protected_until, created_by, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(house_id, role_type, user_id) DO UPDATE SET
+       protected_until=excluded.protected_until`
+  ).run(
+    id,
+    house.company_id,
+    house.store_id,
+    house.id,
+    roleType,
+    userId,
+    protectedUntil || null,
+    createdBy,
+    nowIso()
+  );
+  return id;
+}
+
+export function roleAllowsOperation(
+  db: Db,
+  houseId: string,
+  roleType: string,
+  user: SessionUser
+): boolean {
+  if (user.role === "admin" || user.role === "store_manager") return true;
+  const active = db
+    .prepare(
+      `SELECT user_id FROM house_role_holders
+       WHERE house_id=? AND role_type=?
+       AND (protected_until IS NULL OR protected_until >= ?)`
+    )
+    .all(houseId, roleType, nowIso()) as any[];
+  return active.length === 0 || active.some((row) => row.user_id === user.id);
+}
+
+export function listHouseRoles(db: Db, user: SessionUser, payload: any): ApiResult {
+  const house = db
+    .prepare(`SELECT * FROM houses WHERE id=? AND company_id=?`)
+    .get(payload.house_id, user.company_id) as any;
+  if (!house || !houseVisibleTo(user, house))
+    return { ok: false, message: "房源不存在或无权限", code: 403 };
+  const rows = db
+    .prepare(
+      `SELECT r.*, u.display_name
+       FROM house_role_holders r JOIN users u ON u.id=r.user_id
+       WHERE r.house_id=? ORDER BY r.role_type, r.created_at`
+    )
+    .all(house.id);
+  return { ok: true, data: rows };
+}
+
+export function assignHouseRole(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  if (!ROLE_TYPES.has(payload.role_type))
+    return { ok: false, message: "房源角色类型无效" };
+  const house = db
+    .prepare(`SELECT * FROM houses WHERE id=? AND company_id=?`)
+    .get(payload.house_id, user.company_id) as any;
+  if (
+    !house ||
+    (user.role === "store_manager" && house.store_id !== user.store_id)
+  )
+    return { ok: false, message: "房源不存在或无权限", code: 403 };
+  const holder = db
+    .prepare(`SELECT * FROM users WHERE id=? AND company_id=? AND status='active'`)
+    .get(payload.user_id, user.company_id) as any;
+  if (!holder || holder.store_id !== house.store_id)
+    return { ok: false, message: "角色人须为房源同店在职员工" };
+  const protectedDate = payload.protected_until
+    ? new Date(payload.protected_until)
+    : null;
+  if (protectedDate && Number.isNaN(protectedDate.getTime()))
+    return { ok: false, message: "保护期日期无效" };
+  const protectedUntil = protectedDate ? protectedDate.toISOString() : null;
+  const id = ensureHouseRole(
+    db,
+    house,
+    payload.role_type,
+    holder.id,
+    user.id,
+    protectedUntil
+  );
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: house.store_id,
+    user_id: holder.id,
+    title: "房源角色已指派",
+    body: `${house.title}：${payload.role_type}${protectedUntil ? `，保护至 ${protectedUntil.slice(0, 10)}` : ""}`,
+    kind: "house_role",
+    ref_type: "house",
+    ref_id: house.id,
+  });
+  writeAudit(db, user, "house.role.assign", "house_role_holder", id, {
+    house_id: house.id,
+    role_type: payload.role_type,
+    user_id: holder.id,
+    protected_until: protectedUntil,
+  });
+  return { ok: true, data: { id } };
+}
+
+export function removeHouseRole(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  const role = db
+    .prepare(`SELECT * FROM house_role_holders WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (
+    !role ||
+    (user.role === "store_manager" && role.store_id !== user.store_id)
+  )
+    return { ok: false, message: "角色记录不存在或无权限", code: 403 };
+  const protectedNow = role.protected_until && role.protected_until >= nowIso();
+  if (protectedNow && user.role !== "admin")
+    return { ok: false, message: "角色保护期内仅管理员可解除" };
+  if (protectedNow && !String(payload.reason || "").trim())
+    return { ok: false, message: "保护期内解除须填写原因" };
+  db.prepare(`DELETE FROM house_role_holders WHERE id=?`).run(role.id);
+  writeAudit(db, user, "house.role.remove", "house_role_holder", role.id, {
+    house_id: role.house_id,
+    role_type: role.role_type,
+    reason: payload.reason,
+  });
+  return { ok: true, data: { id: role.id } };
 }
