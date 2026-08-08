@@ -237,6 +237,10 @@ function route(
       return config.getSettings(db, user!);
     case "config.settings.save":
       return config.saveSettings(db, user!, payload);
+    case "config.commissionTiers.list":
+      return config.listCommissionTiers(db, user!);
+    case "config.commissionTiers.save":
+      return config.saveCommissionTier(db, user!, payload);
     case "contract.templates":
       return contract.templates(db, user!);
     case "contract.template.save":

@@ -1807,7 +1807,7 @@ async function renderSystemCenter(main: HTMLElement) {
       ${canManageSystem ? `<button class="btn ghost" data-blacklist>添加黑名单</button>` : ""}
       <button class="btn ghost" data-password>修改密码</button>
       <button class="btn ghost" data-preferences>界面偏好</button>
-      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button>` : ""}
       ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
@@ -2012,6 +2012,34 @@ async function renderSystemCenter(main: HTMLElement) {
               .filter(Boolean),
           });
           toast(result.ok ? "业务参数已保存" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  const tierButton = main.querySelector("[data-tiers]");
+  if (tierButton) {
+    tierButton.addEventListener("click", async () => {
+      const current = await api("config.commissionTiers.list");
+      const summary =
+        current.ok && (current.data as any[]).length
+          ? (current.data as any[])
+              .map((tier) => `${tier.min_amount}～${tier.max_amount ?? "以上"}：${tier.pool_rate * 100}%`)
+              .join("；")
+          : "当前无阶梯，使用公司默认比例";
+      openDialog(
+        `新增提成阶梯（${summary}）`,
+        `
+        <label>佣金下限<input name="min_amount" type="number" min="0" required /></label>
+        <label>佣金上限<input name="max_amount" type="number" min="0" /></label>
+        <label>经纪人池比例<input name="pool_rate" type="number" min="0.01" max="1" step="0.01" required /></label>
+        `,
+        async (fd) => {
+          const result = await api("config.commissionTiers.save", {
+            min_amount: Number(fd.get("min_amount")),
+            max_amount: fd.get("max_amount") ? Number(fd.get("max_amount")) : null,
+            pool_rate: Number(fd.get("pool_rate")),
+          });
+          toast(result.ok ? "提成阶梯已保存" : result.message, result.ok ? "ok" : "error");
         }
       );
     });

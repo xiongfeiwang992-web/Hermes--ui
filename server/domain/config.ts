@@ -83,3 +83,34 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
   writeAudit(db, user, "settings.update", "settings", user.company_id);
   return getSettings(db, user);
 }
+
+export function listCommissionTiers(db: Db, user: SessionUser): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  return {
+    ok: true,
+    data: db
+      .prepare(
+        `SELECT * FROM commission_tiers WHERE company_id=? AND status='active'
+         ORDER BY min_amount`
+      )
+      .all(user.company_id),
+  };
+}
+
+export function saveCommissionTier(db: Db, user: SessionUser, p: any): ApiResult {
+  if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
+  const min = Number(p.min_amount);
+  const max = p.max_amount == null || p.max_amount === "" ? null : Number(p.max_amount);
+  const rate = Number(p.pool_rate);
+  if (min < 0 || (max != null && max < min) || rate <= 0 || rate > 1)
+    return { ok: false, message: "阶梯范围或经纪人池比例无效" };
+  const id = nextId("TIER");
+  db.prepare(
+    `INSERT INTO commission_tiers(id, company_id, min_amount, max_amount, pool_rate,
+     status, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+  ).run(id, user.company_id, min, max, rate, user.id, nowIso(), nowIso());
+  writeAudit(db, user, "commission_tier.create", "commission_tier", id, p);
+  return { ok: true, data: { id } };
+}

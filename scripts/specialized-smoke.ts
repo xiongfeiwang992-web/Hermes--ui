@@ -62,6 +62,18 @@ assert(
   ).ok,
   "save specialized settings"
 );
+assert(
+  app.call(
+    "config.commissionTiers.save",
+    { min_amount: 0, max_amount: 30000, pool_rate: 0.6 },
+    admin
+  ).ok,
+  "save commission tier"
+);
+assert(
+  data<any[]>(app.call("config.commissionTiers.list", {}, manager)).length === 1,
+  "list commission tiers"
+);
 
 const house = app.call(
   "house.create",
@@ -158,6 +170,12 @@ assert(app.call("deal.approve", { id: dealId }, manager).ok, "approve specialize
 assert(
   data<any[]>(app.call("commission.list", {}, finance)).length === 2,
   "generate agent commission and manager award"
+);
+assert(
+  data<any[]>(app.call("commission.list", {}, agent)).some(
+    (item) => item.user_id === agentId && item.amount === 12000
+  ),
+  "apply matching commission tier rate"
 );
 assert(
   app.call(
