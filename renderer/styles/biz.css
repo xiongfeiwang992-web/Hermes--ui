@@ -84,7 +84,13 @@ body[data-density="compact"] .main { padding: 14px; }
 .btn.danger { background: var(--danger); }
 .btn.block { width: 100%; margin-top: 16px; }
 
-.shell { display: grid; grid-template-columns: 220px 1fr; height: 100%; }
+.shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
 .side {
   background: linear-gradient(180deg, var(--side), var(--side-2));
   color: #d7e0ef;
@@ -92,6 +98,8 @@ body[data-density="compact"] .main { padding: 14px; }
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
 }
 .brand { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .brand .logo {
@@ -119,7 +127,7 @@ body[data-density="compact"] .main { padding: 14px; }
 .nav-btn.on, .nav-btn:hover { background: rgba(31,111,235,.28); color: #fff; }
 .side-foot { margin-top: auto; font-size: 12px; color: #8091ab; }
 
-.main { padding: 22px; overflow: auto; }
+.main { min-height: 0; padding: 22px; overflow: auto; }
 .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
 .header h2 { margin: 0; font-size: 22px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
