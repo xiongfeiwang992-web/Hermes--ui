@@ -32,6 +32,7 @@ import * as rental from "../domain/rental";
 import * as customerCare from "../domain/customerCare";
 import * as marketing from "../domain/marketing";
 import * as performance from "../domain/performance";
+import * as dealExt from "../domain/dealExt";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -550,6 +551,32 @@ function route(
       return performance.payDividendBatch(db, user!, payload);
     case "performance.events":
       return performance.listPerformanceEvents(db, user!, payload);
+    case "dealExt.options":
+      return dealExt.dealExtOptions(db, user!);
+    case "dealExt.complaints.list":
+      return dealExt.listComplaints(db, user!, payload);
+    case "dealExt.complaints.create":
+      return dealExt.createComplaint(db, user!, payload);
+    case "dealExt.complaints.investigate":
+      return dealExt.investigateComplaint(db, user!, payload);
+    case "dealExt.complaints.resolve":
+      return dealExt.resolveComplaint(db, user!, payload);
+    case "dealExt.complaints.reject":
+      return dealExt.rejectComplaint(db, user!, payload);
+    case "dealExt.complaints.withdraw":
+      return dealExt.withdrawComplaint(db, user!, payload);
+    case "dealExt.renames.list":
+      return dealExt.listRenames(db, user!, payload);
+    case "dealExt.renames.create":
+      return dealExt.createRename(db, user!, payload);
+    case "dealExt.renames.submit":
+      return dealExt.submitRename(db, user!, payload);
+    case "dealExt.renames.approve":
+      return dealExt.approveRename(db, user!, payload);
+    case "dealExt.renames.reject":
+      return dealExt.rejectRename(db, user!, payload);
+    case "dealExt.renames.cancel":
+      return dealExt.cancelRename(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

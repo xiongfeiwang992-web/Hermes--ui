@@ -13,7 +13,6 @@ const TYPES: Record<string, Set<string>> = {
     "auction",
     "exclusive_agency",
   ]),
-  deal_ext: new Set(["deal_complaint", "rename"]),
   finance: new Set(["asset", "voucher"]),
   office: new Set([
     "exam",

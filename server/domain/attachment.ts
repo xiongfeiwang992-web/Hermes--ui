@@ -168,6 +168,37 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     )
       return { ok: false, message: "销售报告不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "deal_complaint") {
+    const complaint = db
+      .prepare(`SELECT * FROM deal_complaints WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !complaint ||
+      !(
+        user.role === "admin" ||
+        user.role === "finance" ||
+        (user.role === "store_manager" && complaint.store_id === user.store_id) ||
+        complaint.created_by === user.id ||
+        complaint.assignee_user_id === user.id
+      )
+    )
+      return { ok: false, message: "成交投诉不存在或无附件权限", code: 403 };
+  }
+  if (payload.parent_type === "deal_rename") {
+    const rename = db
+      .prepare(`SELECT * FROM deal_renames WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !rename ||
+      user.role === "finance" ||
+      !(
+        user.role === "admin" ||
+        (user.role === "store_manager" && rename.store_id === user.store_id) ||
+        rename.created_by === user.id
+      )
+    )
+      return { ok: false, message: "成交更名不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -393,6 +424,41 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     if (!["contract_scan", "settlement_doc"].includes(payload.category))
       return { ok: false, message: "销售报告附件分类无效" };
     attachmentStoreId = report.store_id;
+  }
+  if (payload.parent_type === "deal_complaint") {
+    const complaint = db
+      .prepare(`SELECT * FROM deal_complaints WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const canUpload =
+      complaint &&
+      ["open", "investigating"].includes(complaint.status) &&
+      user.role !== "finance" &&
+      (user.role === "admin" ||
+        (user.role === "store_manager" && complaint.store_id === user.store_id) ||
+        complaint.created_by === user.id ||
+        complaint.assignee_user_id === user.id);
+    if (!canUpload)
+      return { ok: false, message: "成交投诉不存在或当前状态无附件上传权限", code: 403 };
+    if (payload.category !== "complaint_evidence")
+      return { ok: false, message: "成交投诉附件分类无效" };
+    attachmentStoreId = complaint.store_id;
+  }
+  if (payload.parent_type === "deal_rename") {
+    const rename = db
+      .prepare(`SELECT * FROM deal_renames WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const canUpload =
+      rename &&
+      ["draft", "rejected"].includes(rename.status) &&
+      user.role !== "finance" &&
+      (user.role === "admin" ||
+        (user.role === "store_manager" && rename.store_id === user.store_id) ||
+        rename.created_by === user.id);
+    if (!canUpload)
+      return { ok: false, message: "成交更名不存在或当前状态无附件上传权限", code: 403 };
+    if (payload.category !== "rename_evidence")
+      return { ok: false, message: "成交更名附件分类无效" };
+    attachmentStoreId = rename.store_id;
   }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");

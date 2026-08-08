@@ -95,6 +95,7 @@ function canSee(tab: string) {
   if (tab === "customer-care") return role !== "finance";
   if (tab === "marketing") return role !== "finance";
   if (tab === "performance") return true;
+  if (tab === "deal-ext") return true;
   if (
     [
       "houses",
@@ -194,7 +195,7 @@ function renderSide(side: HTMLElement) {
     ["commissions", "提成"],
     ["reports", "经营报表"],
     ["suite-property", "房源扩展"],
-    ["suite-deal", "交易扩展"],
+    ["deal-ext", "交易扩展"],
     ["suite-newhome", "新房分销"],
     ["suite-finance", "财务管理"],
     ["cashbook", "收支流水"],
@@ -280,10 +281,10 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "customer-care") return renderCustomerCare(main);
   if (state.tab === "marketing") return renderMarketing(main);
   if (state.tab === "performance") return renderPerformance(main);
+  if (state.tab === "deal-ext") return renderDealExt(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
-      "suite-deal": "deal_ext",
       "suite-finance": "finance",
       "suite-office": "office",
     };
@@ -5163,6 +5164,244 @@ async function renderPerformance(main: HTMLElement) {
   await draw();
 }
 
+async function renderDealExt(main: HTMLElement) {
+  const canManage = ["admin", "store_manager"].includes(state.user.role);
+  const canWrite = state.user.role !== "finance";
+  const options = await api("dealExt.options", {});
+  const dealOptions = options.ok
+    ? ((options.data as any).deals || [])
+        .map(
+          (deal: any) =>
+            `<option value="${deal.id}">${deal.house_title} · ${deal.customer_name}</option>`
+        )
+        .join("")
+    : "";
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
+  main.innerHTML = `
+    <div class="header"><h2>成交投诉与更名</h2><div class="ops">
+      ${canWrite ? `<button class="btn ghost" data-new-complaint>登记投诉</button><button class="btn" data-new-rename>申请更名</button>` : ""}
+    </div></div>
+    <h3>成交投诉</h3>
+    <div class="filters"><select data-complaint-status><option value="">全部状态</option><option value="open">待处理</option><option value="investigating">调查中</option><option value="resolved">已结案</option><option value="rejected">已驳回</option><option value="withdrawn">已撤回</option></select></div>
+    <div class="list" data-complaints></div>
+    <h3>成交更名</h3>
+    <div class="filters"><select data-rename-status><option value="">全部状态</option><option value="draft">草稿</option><option value="submitted">待审批</option><option value="approved">已审批</option><option value="rejected">已驳回</option><option value="cancelled">已取消</option></select></div>
+    <div class="list" data-renames></div>
+  `;
+  const drawComplaints = async () => {
+    const status = (main.querySelector("[data-complaint-status]") as HTMLSelectElement).value;
+    const result = await api("dealExt.complaints.list", status ? { status } : {});
+    const list = main.querySelector("[data-complaints]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "resolved" ? "ok" : item.status === "rejected" || item.status === "withdrawn" ? "danger" : "warn"}">${item.status}</span><strong>${item.title}</strong> · ${item.house_title}</div>
+            <div class="meta">${item.category} · ${item.customer_name} · 附件 ${item.attachment_count}${item.assignee_name ? ` · 处理人 ${item.assignee_name}` : ""}${item.resolution ? ` · ${item.resolution}` : ""}${item.reject_reason ? ` · ${item.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${item.status === "open" && canWrite ? `<button class="btn danger" data-withdraw-complaint="${item.id}">撤回</button>` : ""}
+            ${item.status === "open" && canManage ? `<button class="btn" data-investigate="${item.id}">开始调查</button><button class="btn danger" data-reject-complaint="${item.id}">驳回</button>` : ""}
+            ${item.status === "investigating" && (canManage || item.assignee_user_id === state.user.id) ? `<button class="btn ghost" data-complaint-attach="${item.id}">上传凭证</button><button class="btn" data-resolve="${item.id}">结案</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无成交投诉</div>`;
+    list.querySelectorAll("[data-investigate]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "开始调查",
+          `<label>处理人<select name="assignee_user_id">${userOptions}</select></label>`,
+          async (fd) => {
+            const updated = await api("dealExt.complaints.investigate", {
+              id: (button as HTMLElement).dataset.investigate,
+              assignee_user_id: fd.get("assignee_user_id"),
+            });
+            toast(updated.ok ? "已进入调查" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawComplaints();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-complaint-attach]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const localPath = prompt("本地处理凭证路径");
+        if (!localPath) return;
+        const uploaded = await api("attachment.add", {
+          parent_type: "deal_complaint",
+          parent_id: (button as HTMLElement).dataset.complaintAttach,
+          category: "complaint_evidence",
+          name: "投诉凭证.pdf",
+          local_path: localPath,
+        });
+        toast(uploaded.ok ? "凭证已上传" : uploaded.message, uploaded.ok ? "ok" : "error");
+        if (uploaded.ok) drawComplaints();
+      })
+    );
+    list.querySelectorAll("[data-resolve]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "结案",
+          `<label class="full">处理结果<input name="resolution" required /></label>`,
+          async (fd) => {
+            const updated = await api("dealExt.complaints.resolve", {
+              id: (button as HTMLElement).dataset.resolve,
+              resolution: fd.get("resolution"),
+            });
+            toast(updated.ok ? "投诉已结案" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawComplaints();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-reject-complaint]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const updated = await api("dealExt.complaints.reject", {
+          id: (button as HTMLElement).dataset.rejectComplaint,
+          reason,
+        });
+        toast(updated.ok ? "投诉已驳回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawComplaints();
+      })
+    );
+    list.querySelectorAll("[data-withdraw-complaint]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("撤回原因");
+        if (!reason) return;
+        const updated = await api("dealExt.complaints.withdraw", {
+          id: (button as HTMLElement).dataset.withdrawComplaint,
+          reason,
+        });
+        toast(updated.ok ? "投诉已撤回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawComplaints();
+      })
+    );
+  };
+  const drawRenames = async () => {
+    const status = (main.querySelector("[data-rename-status]") as HTMLSelectElement).value;
+    const result = await api("dealExt.renames.list", status ? { status } : {});
+    const list = main.querySelector("[data-renames]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "approved" ? "ok" : item.status === "rejected" || item.status === "cancelled" ? "danger" : "warn"}">${item.status}</span><strong>${item.house_title}</strong> · ${item.target}</div>
+            <div class="meta">${item.new_customer_name ? `客户 ${item.old_customer_name}→${item.new_customer_name}` : ""}${item.new_owner_name ? ` · 业主 ${item.old_owner_name}→${item.new_owner_name}` : ""} · 附件 ${item.attachment_count}${item.reject_reason ? ` · ${item.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${["draft", "rejected"].includes(item.status) && canWrite ? `<button class="btn ghost" data-rename-attach="${item.id}">上传证明</button><button class="btn" data-submit-rename="${item.id}">提交</button><button class="btn danger" data-cancel-rename="${item.id}">取消</button>` : ""}
+            ${item.status === "submitted" && canManage ? `<button class="btn" data-approve-rename="${item.id}">审批</button><button class="btn danger" data-reject-rename="${item.id}">驳回</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无成交更名</div>`;
+    list.querySelectorAll("[data-rename-attach]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const localPath = prompt("本地更名证明路径");
+        if (!localPath) return;
+        const uploaded = await api("attachment.add", {
+          parent_type: "deal_rename",
+          parent_id: (button as HTMLElement).dataset.renameAttach,
+          category: "rename_evidence",
+          name: "更名证明.pdf",
+          local_path: localPath,
+        });
+        toast(uploaded.ok ? "证明已上传" : uploaded.message, uploaded.ok ? "ok" : "error");
+        if (uploaded.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-submit-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("dealExt.renames.submit", {
+          id: (button as HTMLElement).dataset.submitRename,
+        });
+        toast(updated.ok ? "更名已提交" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-approve-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("dealExt.renames.approve", {
+          id: (button as HTMLElement).dataset.approveRename,
+        });
+        toast(updated.ok ? "更名已审批并生效" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-reject-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const updated = await api("dealExt.renames.reject", {
+          id: (button as HTMLElement).dataset.rejectRename,
+          reason,
+        });
+        toast(updated.ok ? "更名已驳回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-cancel-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("取消原因");
+        if (!reason) return;
+        const updated = await api("dealExt.renames.cancel", {
+          id: (button as HTMLElement).dataset.cancelRename,
+          reason,
+        });
+        toast(updated.ok ? "更名已取消" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+  };
+  main.querySelector("[data-new-complaint]")?.addEventListener("click", () =>
+    openDialog(
+      "登记成交投诉",
+      `<label class="full">成交单<select name="deal_id">${dealOptions}</select></label>
+       <label>分类<select name="category"><option value="commission">佣金</option><option value="service">服务</option><option value="document">资料</option><option value="payment">收付款</option><option value="other">其他</option></select></label>
+       <label>标题<input name="title" required /></label>
+       <label class="full">说明<textarea name="description" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("dealExt.complaints.create", {
+          deal_id: fd.get("deal_id"),
+          category: fd.get("category"),
+          title: fd.get("title"),
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "投诉已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawComplaints();
+      }
+    )
+  );
+  main.querySelector("[data-new-rename]")?.addEventListener("click", () =>
+    openDialog(
+      "申请成交更名",
+      `<label class="full">成交单<select name="deal_id">${dealOptions}</select></label>
+       <label>更名对象<select name="target"><option value="customer">客户</option><option value="owner">业主</option><option value="both">双方</option></select></label>
+       <label>新客户姓名<input name="new_customer_name" /></label>
+       <label>新业主姓名<input name="new_owner_name" /></label>
+       <label class="full">原因<input name="reason" required /></label>`,
+      async (fd) => {
+        const result = await api("dealExt.renames.create", {
+          deal_id: fd.get("deal_id"),
+          target: fd.get("target"),
+          new_customer_name: fd.get("new_customer_name"),
+          new_owner_name: fd.get("new_owner_name"),
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "更名草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawRenames();
+      }
+    )
+  );
+  main.querySelector("[data-complaint-status]")!.addEventListener("change", drawComplaints);
+  main.querySelector("[data-rename-status]")!.addEventListener("change", drawRenames);
+  await Promise.all([drawComplaints(), drawRenames()]);
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -5175,13 +5414,6 @@ const suiteMeta: Record<
       ["media", "视频/全景"],
       ["auction", "拍卖模式"],
       ["exclusive_agency", "包销/独家代理"],
-    ],
-  },
-  deal_ext: {
-    title: "交易扩展",
-    types: [
-      ["deal_complaint", "成交投诉"],
-      ["rename", "成交更名"],
     ],
   },
   finance: {
