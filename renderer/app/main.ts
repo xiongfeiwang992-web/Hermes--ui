@@ -1871,9 +1871,15 @@ async function renderTransfer(main: HTMLElement) {
 
 async function renderPayments(main: HTMLElement) {
   const deals = await api("deal.list", { status: "approved" });
+  const canCashier = ["admin", "finance"].includes(state.user.role);
+  const statusLabel: Record<string, string> = {
+    pending: "待出纳确认",
+    confirmed: "已到账",
+    rejected: "已驳回",
+  };
   main.innerHTML = `
     <div class="header"><h2>收款</h2>
-      ${["admin", "finance"].includes(state.user.role) ? `<button class="btn" data-new>登记收款</button>` : ""}
+      ${canCashier ? `<button class="btn" data-new>登记收款</button>` : ""}
     </div>
     <div class="list" data-list></div>
   `;
@@ -1885,11 +1891,39 @@ async function renderPayments(main: HTMLElement) {
     list.innerHTML = (r.data as any[])
       .map(
         (p) => `<div class="row"><div>
-        <div><strong>¥${money(p.amount)}</strong> · ${p.method} · ${p.payer_side}</div>
-        <div class="meta">成交单 ${p.deal_id} · ${p.paid_at} · ${p.direction === "out" ? "退款" : "收款"}</div>
-      </div><div class="ops">${p.direction !== "out" && ["admin", "finance"].includes(state.user.role) ? `<button class="btn danger" data-refund-payment="${p.deal_id}">登记退款</button>` : ""}</div></div>`
+        <div>
+          <span class="tag ${p.status === "confirmed" ? "ok" : p.status === "rejected" ? "danger" : "warn"}">${p.direction === "out" ? "退款" : statusLabel[p.status] || p.status}</span>
+          <strong>¥${money(p.amount)}</strong> · ${p.method} · ${p.payer_side}
+        </div>
+        <div class="meta">成交单 ${p.deal_id} · ${p.paid_at}${p.reject_reason ? ` · 驳回：${escapeHtml(p.reject_reason)}` : ""}</div>
+      </div><div class="ops">
+        ${p.status === "pending" && p.direction !== "out" && canCashier ? `<button class="btn" data-confirm-payment="${p.id}">确认到账</button><button class="btn danger" data-reject-payment="${p.id}">驳回</button>` : ""}
+        ${p.status === "confirmed" && p.direction !== "out" && canCashier ? `<button class="btn danger" data-refund-payment="${p.deal_id}">登记退款</button>` : ""}
+      </div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-confirm-payment]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("payment.confirm", {
+          id: (button as HTMLElement).dataset.confirmPayment,
+        });
+        if (result.ok && (result.data as any).warning) toast((result.data as any).warning, "warn");
+        else toast(result.ok ? "已确认到账" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) render();
+      })
+    );
+    list.querySelectorAll("[data-reject-payment]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因（必填）");
+        if (!reason) return;
+        const result = await api("payment.reject", {
+          id: (button as HTMLElement).dataset.rejectPayment,
+          reason,
+        });
+        toast(result.ok ? "收款已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) render();
+      })
+    );
     list.querySelectorAll("[data-refund-payment]").forEach((button) =>
       button.addEventListener("click", async () => {
         const amount = prompt("退款金额");
@@ -1917,7 +1951,7 @@ async function renderPayments(main: HTMLElement) {
         )
         .join("");
       openDialog(
-        "登记收款",
+        "登记收款（待出纳确认）",
         `
         <label class="full">成交单<select name="deal_id">${opts}</select></label>
         <label>金额<input name="amount" type="number" step="0.01" required /></label>
@@ -1932,7 +1966,7 @@ async function renderPayments(main: HTMLElement) {
             payer_side: fd.get("payer_side"),
           });
           if (res.ok && (res.data as any).warning) toast((res.data as any).warning, "warn");
-          else toast(res.ok ? "收款已登记" : res.message, res.ok ? "ok" : "error");
+          else toast(res.ok ? "收款已登记，待出纳确认" : res.message, res.ok ? "ok" : "error");
         }
       );
     });

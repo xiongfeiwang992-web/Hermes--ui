@@ -188,13 +188,15 @@ assert(
   ),
   "apply matching commission tier rate"
 );
+const specializedPay = app.call(
+  "payment.create",
+  { deal_id: dealId, amount: 10000, method: "transfer", payer_side: "customer" },
+  finance
+);
+assert(specializedPay.ok, "create payment before refund");
 assert(
-  app.call(
-    "payment.create",
-    { deal_id: dealId, amount: 10000, method: "transfer", payer_side: "customer" },
-    finance
-  ).ok,
-  "create payment before refund"
+  app.call("payment.confirm", { id: data<any>(specializedPay).id }, finance).ok,
+  "confirm payment before refund"
 );
 assert(
   app.call(

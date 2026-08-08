@@ -391,11 +391,19 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
       `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
     )
     .get(deal.id) as { s: number };
-  const warning = paid.s + amount > deal.commission_total;
+  const pending = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount),0) AS s FROM payments
+       WHERE deal_id = ? AND status = 'pending' AND direction = 'in'`
+    )
+    .get(deal.id) as { s: number };
+  const warning = paid.s + pending.s + amount > deal.commission_total;
   const id = nextId("PAY");
   db.prepare(
-    `INSERT INTO payments(id, company_id, store_id, deal_id, amount, pay_type, method, paid_at, payer_side, status, remark, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)`
+    `INSERT INTO payments(
+      id, company_id, store_id, deal_id, amount, pay_type, method, paid_at, payer_side,
+      status, remark, created_by, created_at, direction, confirmation_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 'in', 'pending')`
   ).run(
     id,
     user.company_id,
@@ -410,14 +418,58 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
     user.id,
     nowIso()
   );
-  writeAudit(db, user, "payment.create", "payment", id, { deal_id: deal.id, amount });
+  writeAudit(db, user, "payment.create", "payment", id, {
+    deal_id: deal.id,
+    amount,
+    status: "pending",
+  });
+  return {
+    ok: true,
+    data: {
+      id,
+      status: "pending",
+      warning: warning ? "登记后合计（含待确认）将超过应收佣金" : null,
+    },
+  };
+}
+
+export function confirmPayment(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
+  const payment = db
+    .prepare(`SELECT * FROM payments WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!payment) return { ok: false, message: "收款不存在" };
+  if (payment.direction === "out") return { ok: false, message: "退款无需出纳确认" };
+  if (payment.status !== "pending") return { ok: false, message: "仅待确认收款可确认到账" };
+  const deal = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payment.deal_id, user.company_id) as any;
+  if (!deal) return { ok: false, message: "成交单不存在" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE payments
+     SET status='confirmed', confirmation_status='confirmed',
+         confirmed_by=?, confirmed_at=?, reject_reason=NULL
+     WHERE id=? AND company_id=?`
+  ).run(user.id, now, payment.id, user.company_id);
+  const paid = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s
+       FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+    )
+    .get(deal.id) as { s: number };
+  const warning = paid.s > deal.commission_total;
+  writeAudit(db, user, "payment.confirm", "payment", payment.id, {
+    deal_id: deal.id,
+    amount: payment.amount,
+  });
   for (const uid of parseJson<string[]>(deal.agent_ids, [])) {
     createMessage(db, {
       company_id: user.company_id,
       store_id: deal.store_id,
       user_id: uid,
-      title: "收到佣金",
-      body: `成交单 ${deal.id} 收款 ¥${amount}${warning ? "（已超应收，已记录）" : ""}`,
+      title: "佣金已到账",
+      body: `成交单 ${deal.id} 收款 ¥${payment.amount} 已出纳确认${warning ? "（已超应收，已记录）" : ""}`,
       kind: "payment",
       ref_type: "deal",
       ref_id: deal.id,
@@ -426,10 +478,48 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
   return {
     ok: true,
     data: {
-      id,
+      id: payment.id,
+      status: "confirmed",
       warning: warning ? "收款合计已超过应收佣金" : null,
     },
   };
+}
+
+export function rejectPayment(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
+  const reason = String(payload.reason || "").trim();
+  if (reason.length < 2) return { ok: false, message: "驳回须填写原因（至少 2 个字）" };
+  const payment = db
+    .prepare(`SELECT * FROM payments WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!payment) return { ok: false, message: "收款不存在" };
+  if (payment.direction === "out") return { ok: false, message: "退款不可驳回确认" };
+  if (payment.status !== "pending") return { ok: false, message: "仅待确认收款可驳回" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE payments
+     SET status='rejected', confirmation_status='rejected',
+         confirmed_by=?, confirmed_at=?, reject_reason=?
+     WHERE id=? AND company_id=?`
+  ).run(user.id, now, reason, payment.id, user.company_id);
+  writeAudit(db, user, "payment.reject", "payment", payment.id, {
+    deal_id: payment.deal_id,
+    amount: payment.amount,
+    reason,
+  });
+  if (payment.created_by && payment.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: payment.store_id,
+      user_id: payment.created_by,
+      title: "收款确认被驳回",
+      body: `成交单 ${payment.deal_id} 收款 ¥${payment.amount} 被驳回：${reason}`,
+      kind: "payment_reject",
+      ref_type: "payment",
+      ref_id: payment.id,
+    });
+  }
+  return { ok: true, data: { id: payment.id, status: "rejected" } };
 }
 
 export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult {
@@ -449,6 +539,7 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
     rows = rows.filter((p) => myDeals.has(p.deal_id));
   }
   if (q.deal_id) rows = rows.filter((p) => p.deal_id === q.deal_id);
+  if (q.status) rows = rows.filter((p) => p.status === q.status);
   return { ok: true, data: rows };
 }
 

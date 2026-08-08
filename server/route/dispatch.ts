@@ -169,6 +169,10 @@ function route(
       return deal.rejectDeal(db, user!, payload);
     case "payment.create":
       return deal.createPayment(db, user!, payload);
+    case "payment.confirm":
+      return deal.confirmPayment(db, user!, payload);
+    case "payment.reject":
+      return deal.rejectPayment(db, user!, payload);
     case "payment.list":
       return deal.listPayments(db, user!, payload);
     case "payment.refund":
