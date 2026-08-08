@@ -214,10 +214,49 @@ function renderLogin() {
     state.token = res.data.token;
     state.user = res.data.user;
     localStorage.setItem("weilaijia.token", state.token);
+    if (res.data.must_change_password) {
+      toast("密码已过期，请先修改密码", "error");
+      await promptForcedPasswordChange();
+      return;
+    }
     toast("登录成功");
     render();
   });
   return node;
+}
+
+async function promptForcedPasswordChange() {
+  const backdrop = el(`
+    <div class="dialog-backdrop">
+      <form class="dialog">
+        <h3>密码已过期</h3>
+        <div class="form-grid">
+          <p class="hint">按公司密码策略，当前密码已超过最长使用天数，须修改后才能继续使用。</p>
+          <label>当前密码<input name="current_password" type="password" required /></label>
+          <label>新密码<input name="new_password" type="password" required /></label>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn" type="submit">修改密码</button>
+        </div>
+      </form>
+    </div>
+  `);
+  document.body.appendChild(backdrop);
+  backdrop.querySelector("form")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target as HTMLFormElement);
+    const result = await api("auth.changePassword", {
+      current_password: fd.get("current_password"),
+      new_password: fd.get("new_password"),
+    });
+    if (!result.ok) return toast(result.message, "error");
+    state.token = "";
+    state.user = null;
+    localStorage.removeItem("weilaijia.token");
+    backdrop.remove();
+    toast("密码已更新，请重新登录");
+    render();
+  });
 }
 
 function renderSide(side: HTMLElement) {
@@ -6896,6 +6935,7 @@ async function renderSystemCenter(main: HTMLElement) {
         <label>个人持盘上限<input name="house_hold_limit" type="number" value="${value.house_hold_limit}" /></label>
         <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
+        <label>密码最长使用天数（0=不强制）<input name="password_max_age_days" type="number" min="0" max="730" value="${value.password_max_age_days ?? 0}" /></label>
         <label>房源角色保护期（天）<input name="house_role_protection_days" type="number" min="0" max="365" value="${value.house_role_protection_days}" /></label>
         <label><span><input name="deal_doc_required" type="checkbox" ${value.deal_doc_required ? "checked" : ""} /> 提交成交前强制资料齐全</span></label>
         <label><span><input name="force_follow_before_phone" type="checkbox" ${value.force_follow_before_phone ? "checked" : ""} /> 经纪人查看电话前强制写跟进</span></label>
@@ -6907,6 +6947,7 @@ async function renderSystemCenter(main: HTMLElement) {
             house_hold_limit: Number(fd.get("house_hold_limit")),
             manager_award_rate: Number(fd.get("manager_award_rate")),
             password_min_length: Number(fd.get("password_min_length")),
+            password_max_age_days: Number(fd.get("password_max_age_days")),
             house_role_protection_days: Number(fd.get("house_role_protection_days")),
             deal_doc_required: fd.get("deal_doc_required") === "on",
             force_follow_before_phone: fd.get("force_follow_before_phone") === "on",
@@ -7306,8 +7347,14 @@ async function boot() {
   await initApiBase();
   if (state.token) {
     const me = await api("auth.me");
-    if (me.ok) state.user = me.data;
-    else {
+    if (me.ok) {
+      state.user = me.data;
+      if ((me.data as any).must_change_password) {
+        await render();
+        await promptForcedPasswordChange();
+        return;
+      }
+    } else {
       state.token = "";
       localStorage.removeItem("weilaijia.token");
     }

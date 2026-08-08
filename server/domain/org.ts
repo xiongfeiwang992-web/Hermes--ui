@@ -6,6 +6,24 @@ import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
 import { randomBytes } from "node:crypto";
 
+
+function passwordChangedAt(row: any): string {
+  return row.password_changed_at || row.created_at;
+}
+
+export function isPasswordExpired(db: Db, userId: string): boolean {
+  const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(userId) as any;
+  if (!row) return false;
+  const settings = db
+    .prepare(`SELECT password_max_age_days FROM settings WHERE company_id = ?`)
+    .get(row.company_id) as any;
+  const days = Number(settings?.password_max_age_days || 0);
+  if (!Number.isInteger(days) || days <= 0) return false;
+  const changedMs = Date.parse(passwordChangedAt(row));
+  if (!Number.isFinite(changedMs)) return false;
+  return Date.now() > changedMs + days * 24 * 3600 * 1000;
+}
+
 function toUser(row: any): SessionUser {
   return {
     id: row.id,
@@ -35,8 +53,16 @@ export function login(
   db.prepare(
     `INSERT INTO sessions(token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`
   ).run(token, row.id, nowIso(), expires);
-  writeAudit(db, toUser(row), "auth.login", "user", row.id);
-  return { ok: true, data: { token, user: toUser(row) } };
+  const user = toUser(row);
+  writeAudit(db, user, "auth.login", "user", row.id);
+  return {
+    ok: true,
+    data: {
+      token,
+      user,
+      must_change_password: isPasswordExpired(db, row.id),
+    },
+  };
 }
 
 export function logout(db: Db, token: string | null, user: SessionUser | null): ApiResult {
@@ -171,8 +197,10 @@ export function upsertUser(
     const passwordHash = payload.password
       ? hashPassword(payload.password)
       : existing.password_hash;
+    const changedAt = payload.password ? nowIso() : existing.password_changed_at || existing.created_at;
     db.prepare(
-      `UPDATE users SET account = ?, display_name = ?, role = ?, store_id = ?, phone = ?, password_hash = ?, status = COALESCE(?, status)
+      `UPDATE users SET account = ?, display_name = ?, role = ?, store_id = ?, phone = ?, password_hash = ?,
+       password_changed_at = ?, status = COALESCE(?, status)
        WHERE id = ? AND company_id = ?`
     ).run(
       payload.account,
@@ -181,6 +209,7 @@ export function upsertUser(
       payload.store_id,
       payload.phone || null,
       passwordHash,
+      changedAt,
       payload.status || null,
       payload.id,
       user.company_id
@@ -194,9 +223,10 @@ export function upsertUser(
   if (!payload.password) return { ok: false, message: "新建员工须设置密码" };
   const id = nextId("USR");
   try {
+    const created = nowIso();
     db.prepare(
-      `INSERT INTO users(id, company_id, store_id, account, display_name, password_hash, role, phone, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
+      `INSERT INTO users(id, company_id, store_id, account, display_name, password_hash, role, phone, status, created_at, password_changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
     ).run(
       id,
       user.company_id,
@@ -206,7 +236,8 @@ export function upsertUser(
       hashPassword(payload.password),
       payload.role,
       payload.phone || null,
-      nowIso()
+      created,
+      created
     );
   } catch {
     return { ok: false, message: "账号已存在", code: 409 };
@@ -218,8 +249,14 @@ export function upsertUser(
   return { ok: true, data: { id } };
 }
 
-export function me(user: SessionUser): ApiResult {
-  return { ok: true, data: user };
+export function me(db: Db, user: SessionUser): ApiResult {
+  return {
+    ok: true,
+    data: {
+      ...user,
+      must_change_password: isPasswordExpired(db, user.id),
+    },
+  };
 }
 
 export function changePassword(
@@ -227,8 +264,12 @@ export function changePassword(
   user: SessionUser,
   payload: { current_password: string; new_password: string }
 ): ApiResult {
-  if (String(payload.new_password || "").length < 8) {
-    return { ok: false, message: "新密码至少 8 位" };
+  const policy = db
+    .prepare(`SELECT password_min_length FROM settings WHERE company_id = ?`)
+    .get(user.company_id) as any;
+  const minLength = Number(policy?.password_min_length || 8);
+  if (String(payload.new_password || "").length < minLength) {
+    return { ok: false, message: `新密码至少 ${minLength} 位` };
   }
   const row = db
     .prepare(`SELECT password_hash FROM users WHERE id = ? AND company_id = ?`)
@@ -236,8 +277,10 @@ export function changePassword(
   if (!row || !verifyPassword(payload.current_password || "", row.password_hash)) {
     return { ok: false, message: "当前密码错误" };
   }
-  db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(
+  const now = nowIso();
+  db.prepare(`UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?`).run(
     hashPassword(payload.new_password),
+    now,
     user.id
   );
   db.prepare(`DELETE FROM sessions WHERE user_id = ?`).run(user.id);

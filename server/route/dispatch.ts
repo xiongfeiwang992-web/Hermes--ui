@@ -40,6 +40,11 @@ import * as mortgageCalc from "../domain/mortgageCalc";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
+const PASSWORD_EXPIRED_ALLOWED = new Set([
+  "auth.logout",
+  "auth.me",
+  "auth.changePassword",
+]);
 
 export function dispatch(
   db: Db,
@@ -54,6 +59,13 @@ export function dispatch(
     }
     if (user && !suite.featureAllowed(db, user, action)) {
       return { ok: false, message: "该功能已被管理员禁用", code: 403 };
+    }
+    if (
+      user &&
+      !PASSWORD_EXPIRED_ALLOWED.has(action) &&
+      org.isPasswordExpired(db, user.id)
+    ) {
+      return { ok: false, message: "密码已过期，请先修改密码", code: 403 };
     }
     return route(db, action, payload, user, token);
   } catch (err: any) {
@@ -74,7 +86,7 @@ function route(
     case "auth.logout":
       return org.logout(db, token, user);
     case "auth.me":
-      return org.me(user!);
+      return org.me(db, user!);
     case "auth.changePassword":
       return org.changePassword(db, user!, payload);
 
