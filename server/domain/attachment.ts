@@ -51,6 +51,20 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     )
       return { ok: false, message: "候选人不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "employee_contract") {
+    const contract = db
+      .prepare(`SELECT * FROM employee_contracts WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !contract ||
+      !(
+        user.role === "admin" ||
+        (user.role === "store_manager" && contract.store_id === user.store_id) ||
+        contract.user_id === user.id
+      )
+    )
+      return { ok: false, message: "员工合同不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -159,6 +173,20 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
       return { ok: false, message: "候选人不存在或无简历上传权限", code: 403 };
     if (payload.category !== "resume") return { ok: false, message: "候选人附件分类无效" };
     attachmentStoreId = candidate.store_id;
+  }
+  if (payload.parent_type === "employee_contract") {
+    const contract = db
+      .prepare(`SELECT * FROM employee_contracts WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const canUpload =
+      contract &&
+      (user.role === "admin" || contract.user_id === user.id) &&
+      ((payload.category === "signed_contract" && contract.status === "draft") ||
+        (payload.category === "contract_renewal" &&
+          ["active", "expired"].includes(contract.status)));
+    if (!canUpload)
+      return { ok: false, message: "员工合同不存在或当前状态无附件上传权限", code: 403 };
+    attachmentStoreId = contract.store_id;
   }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");

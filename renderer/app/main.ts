@@ -193,6 +193,7 @@ function renderSide(side: HTMLElement) {
     ["suite-hr", "人事管理"],
     ["workforce", "岗位调动"],
     ["recruitment", "招聘管理"],
+    ["employee-contracts", "员工合同"],
     ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
     ["suite-rental", "租赁托管"],
@@ -261,6 +262,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "cashbook") return renderCashbook(main);
   if (state.tab === "workforce") return renderWorkforce(main);
   if (state.tab === "recruitment") return renderRecruitment(main);
+  if (state.tab === "employee-contracts") return renderEmployeeContracts(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -3025,6 +3027,194 @@ async function renderRecruitment(main: HTMLElement) {
   await draw();
 }
 
+async function renderEmployeeContracts(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const desktopShell = (window as any).weilaijia?.shell;
+  const optionsResult = await api("employee.contracts.options", {});
+  const users = optionsResult.ok ? (optionsResult.data as any).users : [];
+  const contractTypes: Record<string, string> = {
+    labor: "劳动合同",
+    confidentiality: "保密协议",
+    noncompete: "竞业协议",
+  };
+  const statusLabels: Record<string, string> = {
+    draft: "草稿",
+    active: "生效",
+    expired: "已到期",
+    terminated: "已终止",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>员工合同</h2><div class="ops">
+      ${isAdmin ? `<button class="btn ghost" data-expire-contracts>刷新到期</button><button class="btn" data-new-employee-contract>登记合同</button>` : ""}
+    </div></div>
+    <div class="filters"><select data-contract-status><option value="">全部状态</option>${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></div>
+    <div class="list" data-employee-contract-list></div>
+  `;
+  const draw = async () => {
+    const status = (main.querySelector("[data-contract-status]") as HTMLSelectElement).value;
+    const result = await api("employee.contracts.list", status ? { status } : {});
+    const list = main.querySelector("[data-employee-contract-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((contract) => {
+          const own = contract.user_id === state.user.id;
+          const canSignedUpload =
+            contract.status === "draft" && (isAdmin || own);
+          const canRenewalUpload =
+            ["active", "expired"].includes(contract.status) && (isAdmin || own);
+          return `<div class="row"><div>
+            <div><span class="tag ${contract.status === "active" ? "ok" : contract.status === "draft" ? "warn" : "danger"}">${statusLabels[contract.status] || contract.status}</span><span class="tag">${contractTypes[contract.contract_type] || contract.contract_type}</span><strong>${contract.employee_name}</strong> · ${contract.contract_no}</div>
+            <div class="meta">${contract.store_name} · ${contract.start_date} 至 ${contract.end_date}${contract.signed_at ? ` · 签署 ${contract.signed_at}` : " · 未登记签署"}${contract.probation_end_date ? ` · 试用期至 ${contract.probation_end_date}` : ""} · 已签附件 ${contract.signed_attachment_count} · 续签附件 ${contract.renewal_attachment_count}${contract.remark ? ` · ${contract.remark}` : ""}${contract.termination_reason ? ` · 终止：${contract.termination_reason}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-contract-events="${contract.id}">履历</button>
+            ${canSignedUpload ? `<button class="btn ghost" data-contract-file="${contract.id}" data-contract-category="signed_contract">上传已签合同</button>` : ""}
+            ${canRenewalUpload ? `<button class="btn ghost" data-contract-file="${contract.id}" data-contract-category="contract_renewal">上传续签附件</button>` : ""}
+            ${isAdmin && contract.status === "draft" && !contract.signed_at ? `<button class="btn ghost" data-sign-employee-contract="${contract.id}">登记签署</button>` : ""}
+            ${isAdmin && contract.status === "draft" ? `<button class="btn" data-activate-contract="${contract.id}">启用</button>` : ""}
+            ${isAdmin && ["active", "expired"].includes(contract.status) ? `<button class="btn" data-renew-contract="${contract.id}" data-current-end="${contract.end_date}">续签</button>` : ""}
+            ${isAdmin && contract.status === "active" ? `<button class="btn danger" data-terminate-contract="${contract.id}">终止</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无员工合同</div>`;
+    list.querySelectorAll("[data-contract-file]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传合同附件", "error");
+        const element = button as HTMLElement;
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const result = await api("attachment.add", {
+            parent_type: "employee_contract",
+            parent_id: element.dataset.contractFile,
+            category: element.dataset.contractCategory,
+            name: localPath.split(/[\\/]/).pop() || "员工合同附件",
+            local_path: localPath,
+          });
+          if (!result.ok) return toast(result.message, "error");
+        }
+        toast(paths.length ? `已上传 ${paths.length} 个合同附件` : "未选择文件");
+        if (paths.length) draw();
+      })
+    );
+    list.querySelectorAll("[data-contract-events]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("employee.contracts.events", {
+          id: (button as HTMLElement).dataset.contractEvents,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        const labels: Record<string, string> = {
+          created: "创建",
+          signed: "签署",
+          activated: "启用",
+          renewed: "续签",
+          expired: "到期",
+          terminated: "终止",
+        };
+        openInfoDialog(
+          "合同履历",
+          (result.data as any[])
+            .map(
+              (event) => `<div class="row"><div><strong>${labels[event.event_type] || event.event_type}</strong><div class="meta">${event.created_by_name} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${JSON.stringify(event.details)}</div></div></div>`
+            )
+            .join("") || `<div class="empty">暂无履历</div>`
+        );
+      })
+    );
+    list.querySelectorAll("[data-activate-contract]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("employee.contracts.activate", {
+          id: (button as HTMLElement).dataset.activateContract,
+        });
+        toast(result.ok ? "员工合同已启用" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-sign-employee-contract]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记合同签署日期",
+          `<label>签署日期<input name="signed_at" type="date" required /></label>`,
+          async (fd) => {
+            const result = await api("employee.contracts.sign", {
+              id: (button as HTMLElement).dataset.signEmployeeContract,
+              signed_at: fd.get("signed_at"),
+            });
+            toast(result.ok ? "合同签署日期已登记" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-renew-contract]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "续签员工合同",
+          `<label>当前到期日<input value="${(button as HTMLElement).dataset.currentEnd}" disabled /></label><label>新到期日<input name="end_date" type="date" required /></label>`,
+          async (fd) => {
+            const result = await api("employee.contracts.renew", {
+              id: (button as HTMLElement).dataset.renewContract,
+              end_date: fd.get("end_date"),
+            });
+            toast(result.ok ? "员工合同已续签" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-terminate-contract]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("合同终止原因");
+        if (!reason) return;
+        const result = await api("employee.contracts.terminate", {
+          id: (button as HTMLElement).dataset.terminateContract,
+          reason,
+        });
+        toast(result.ok ? "员工合同已终止" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelector("[data-new-employee-contract]")?.addEventListener("click", () =>
+    openDialog(
+      "登记员工合同",
+      `
+      <label>员工<select name="user_id">${users.map((employee: any) => `<option value="${employee.id}">${employee.display_name} · ${roleLabel(employee.role)}</option>`).join("")}</select></label>
+      <label>合同类型<select name="contract_type">${Object.entries(contractTypes).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label>
+      <label>合同编号<input name="contract_no" required /></label>
+      <label>签署日期<input name="signed_at" type="date" /></label>
+      <label>开始日期<input name="start_date" type="date" required /></label>
+      <label>结束日期<input name="end_date" type="date" required /></label>
+      <label>试用期结束<input name="probation_end_date" type="date" /></label>
+      <label class="full">备注<textarea name="remark" rows="3"></textarea></label>
+      `,
+      async (fd) => {
+        const result = await api("employee.contracts.create", {
+          user_id: fd.get("user_id"),
+          contract_type: fd.get("contract_type"),
+          contract_no: fd.get("contract_no"),
+          signed_at: fd.get("signed_at") || null,
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          probation_end_date: fd.get("probation_end_date") || null,
+          remark: fd.get("remark"),
+        });
+        toast(result.ok ? "员工合同草稿已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-expire-contracts]")?.addEventListener("click", async () => {
+    const result = await api("employee.contracts.expire", {});
+    toast(
+      result.ok ? `已刷新，新增到期 ${(result.data as any).expired} 份` : result.message,
+      result.ok ? "ok" : "error"
+    );
+    if (result.ok) draw();
+  });
+  main.querySelector("[data-contract-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -3081,7 +3271,6 @@ const suiteMeta: Record<
   hr: {
     title: "人事管理",
     types: [
-      ["employee_contract", "人事合同"],
       ["salary", "薪酬条"],
     ],
   },

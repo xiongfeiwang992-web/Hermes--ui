@@ -25,6 +25,7 @@ import * as attendance from "../domain/attendance";
 import * as cashbook from "../domain/cashbook";
 import * as workforce from "../domain/workforce";
 import * as recruitment from "../domain/recruitment";
+import * as employeeContract from "../domain/employeeContract";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -335,6 +336,24 @@ function route(
       return recruitment.changeCandidateStatus(db, user!, payload);
     case "recruitment.candidates.onboard":
       return recruitment.onboardCandidate(db, user!, payload);
+    case "employee.contracts.options":
+      return employeeContract.contractOptions(db, user!);
+    case "employee.contracts.list":
+      return employeeContract.listContracts(db, user!, payload);
+    case "employee.contracts.events":
+      return employeeContract.listContractEvents(db, user!, payload);
+    case "employee.contracts.create":
+      return employeeContract.createContract(db, user!, payload);
+    case "employee.contracts.sign":
+      return employeeContract.signContract(db, user!, payload);
+    case "employee.contracts.activate":
+      return employeeContract.activateContract(db, user!, payload);
+    case "employee.contracts.renew":
+      return employeeContract.renewContract(db, user!, payload);
+    case "employee.contracts.terminate":
+      return employeeContract.terminateContract(db, user!, payload);
+    case "employee.contracts.expire":
+      return employeeContract.expireContracts(db, user!);
 
     case "report.dashboard":
       return report.dashboard(db, user!);
