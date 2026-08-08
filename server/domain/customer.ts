@@ -2,6 +2,7 @@ import type { Db } from "../db/database";
 import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
 import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
+import { isBlacklistedPhone } from "./blacklist";
 import {
   isAllowedCustomerSource,
   labelCustomerSource,
@@ -68,6 +69,9 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (!["buy", "rent"].includes(payload.intent)) {
     return { ok: false, message: "intent 无效" };
   }
+  if (isBlacklistedPhone(db, user.company_id, payload.phone)) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
+  }
   const source = normalizeCustomerSource(payload.source);
   if (source && !isAllowedCustomerSource(db, user.company_id, source)) {
     return { ok: false, message: "客户来源不在当前字典中" };
@@ -132,6 +136,13 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   const nextSource = sourceProvided ? normalizeCustomerSource(payload.source) : null;
   if (sourceProvided && nextSource && !isAllowedCustomerSource(db, user.company_id, nextSource)) {
     return { ok: false, message: "客户来源不在当前字典中" };
+  }
+  if (
+    payload.phone != null &&
+    String(payload.phone).trim() !== String(current.phone || "").trim() &&
+    isBlacklistedPhone(db, user.company_id, payload.phone)
+  ) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
   }
   const summary = buildModificationSummary([
     { label: "姓名", provided: payload.name != null, prev: current.name, next: payload.name },
