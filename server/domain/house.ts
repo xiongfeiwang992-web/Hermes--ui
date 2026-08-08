@@ -11,6 +11,11 @@ import {
   recordModificationFollow,
 } from "./activity";
 import { writeAudit } from "./audit";
+import {
+  isAllowedHouseSource,
+  labelHouseSource,
+  normalizeHouseSource,
+} from "./config";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
@@ -44,6 +49,7 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
+    source_label: labelHouseSource(db, user.company_id, row.source),
   };
 }
 
@@ -64,6 +70,10 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
       String(h.community).includes(String(q.community))
     );
   if (q.agent_id) rows = rows.filter((h) => h.agent_id === q.agent_id);
+  if (q.source) {
+    const source = normalizeHouseSource(q.source);
+    rows = rows.filter((h) => normalizeHouseSource(h.source) === source);
+  }
   if (q.keyword) {
     const k = String(q.keyword);
     rows = rows.filter(
@@ -98,6 +108,10 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   if (!["sale", "rent"].includes(payload.deal_type)) {
     return { ok: false, message: "deal_type 无效" };
+  }
+  const source = normalizeHouseSource(payload.source);
+  if (source && !isAllowedHouseSource(db, user.company_id, source)) {
+    return { ok: false, message: "房源来源不在当前字典中" };
   }
   if (user.role === "agent") {
     const setting = db
@@ -161,7 +175,7 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     user.id,
     agentId,
     payload.is_private ? 1 : 0,
-    payload.source || null,
+    source,
     payload.remark || null,
     payload.cover_image || null,
     payload.property_type || "residential",
@@ -197,6 +211,11 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   const nextPrice = payload.price != null ? Number(payload.price) : null;
   const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
+  const sourceProvided = Object.prototype.hasOwnProperty.call(payload, "source");
+  const nextSource = sourceProvided ? normalizeHouseSource(payload.source) : null;
+  if (sourceProvided && nextSource && !isAllowedHouseSource(db, user.company_id, nextSource)) {
+    return { ok: false, message: "房源来源不在当前字典中" };
+  }
   const priceSummary =
     payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
   const summary = buildModificationSummary([
@@ -242,7 +261,12 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       next: nextPrivate,
       bool: true,
     },
-    { label: "来源", provided: payload.source != null, prev: current.source, next: payload.source },
+    {
+      label: "来源",
+      provided: sourceProvided,
+      prev: current.source,
+      next: nextSource,
+    },
     { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
     {
       label: "封面",
@@ -303,7 +327,7 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.owner_name ?? null,
     payload.owner_phone ?? null,
     nextPrivate,
-    payload.source ?? null,
+    sourceProvided ? nextSource : null,
     payload.remark ?? null,
     payload.cover_image ?? null,
     payload.property_type ?? null,
