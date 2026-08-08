@@ -116,48 +116,22 @@ assert(
   "list local business attachment"
 );
 
-const cases = [
-  { module: "office", type: "exam", actor: agent, approver: manager },
-  { module: "office", type: "event", actor: agent, approver: manager },
-  { module: "office", type: "work_summary", actor: agent, approver: manager },
-  { module: "office", type: "workflow", actor: agent, approver: manager },
-  { module: "office", type: "ticket", actor: agent, approver: manager },
-  { module: "office", type: "circle_post", actor: agent, approver: manager },
-];
-
-for (const item of cases) {
-  const created = app.call(
+const modules = app.call("suite.modules", {}, manager);
+assert(
+  modules.ok && dataOf<any[]>(modules).length === 0,
+  "generic suite modules fully specialized away"
+);
+assert(
+  !app.call(
     "suite.create",
     {
-      module: item.module,
-      record_type: item.type,
-      title: `${item.module}-${item.type}`,
-      amount: 100,
-      data: { description: "全模块验收记录" },
+      module: "office",
+      record_type: "exam",
+      title: "旧通用考试",
     },
-    item.actor
-  );
-  assert(created.ok, `create ${item.module}/${item.type}`);
-  if (!created.ok) continue;
-  const id = dataOf<any>(created).id;
-  assert(
-    app.call("suite.status", { id, status: "pending" }, item.actor).ok,
-    `submit ${item.module}/${item.type}`
-  );
-  assert(
-    app.call("suite.status", { id, status: "approved" }, item.approver).ok,
-    `approve ${item.module}/${item.type}`
-  );
-  assert(
-    app.call("suite.status", { id, status: "completed" }, item.approver).ok,
-    `complete ${item.module}/${item.type}`
-  );
-}
-
-const officeList = app.call("suite.list", { module: "office" }, manager);
-assert(
-  officeList.ok && dataOf<any[]>(officeList).some((item) => item.record_type === "exam"),
-  "list office records"
+    agent
+  ).ok,
+  "generic suite office exam removed"
 );
 
 const blacklist = app.call(

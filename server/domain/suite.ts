@@ -5,17 +5,7 @@ import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
 
-const TYPES: Record<string, Set<string>> = {
-  office: new Set([
-    "exam",
-    "event",
-    "workflow",
-    "ticket",
-    "work_summary",
-    "circle_post",
-    "call_record",
-  ]),
-};
+const TYPES: Record<string, Set<string>> = {};
 
 const MANAGER_ONLY = new Set<string>([]);
 

@@ -35,6 +35,7 @@ import * as performance from "../domain/performance";
 import * as dealExt from "../domain/dealExt";
 import * as propertyExt from "../domain/propertyExt";
 import * as financeAssets from "../domain/financeAssets";
+import * as officeCollab from "../domain/officeCollab";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -633,6 +634,60 @@ function route(
       return financeAssets.postVoucher(db, user!, payload);
     case "finance.vouchers.void":
       return financeAssets.voidVoucher(db, user!, payload);
+    case "officeCollab.options":
+      return officeCollab.officeCollabOptions(db, user!);
+    case "officeCollab.exams.list":
+      return officeCollab.listExams(db, user!, payload);
+    case "officeCollab.exams.save":
+      return officeCollab.saveExam(db, user!, payload);
+    case "officeCollab.exams.publish":
+      return officeCollab.publishExam(db, user!, payload);
+    case "officeCollab.exams.attempt":
+      return officeCollab.submitExamAttempt(db, user!, payload);
+    case "officeCollab.events.list":
+      return officeCollab.listEvents(db, user!, payload);
+    case "officeCollab.events.save":
+      return officeCollab.saveEvent(db, user!, payload);
+    case "officeCollab.events.open":
+      return officeCollab.openEvent(db, user!, payload);
+    case "officeCollab.events.signup":
+      return officeCollab.signupEvent(db, user!, payload);
+    case "officeCollab.workflows.list":
+      return officeCollab.listWorkflows(db, user!, payload);
+    case "officeCollab.workflows.create":
+      return officeCollab.createWorkflow(db, user!, payload);
+    case "officeCollab.workflows.submit":
+      return officeCollab.submitWorkflow(db, user!, payload);
+    case "officeCollab.workflows.decide":
+      return officeCollab.decideWorkflow(db, user!, payload);
+    case "officeCollab.tickets.list":
+      return officeCollab.listTickets(db, user!, payload);
+    case "officeCollab.tickets.create":
+      return officeCollab.createTicket(db, user!, payload);
+    case "officeCollab.tickets.approve":
+      return officeCollab.approveTicket(db, user!, payload);
+    case "officeCollab.tickets.issue":
+      return officeCollab.issueTicket(db, user!, payload);
+    case "officeCollab.tickets.return":
+      return officeCollab.returnTicket(db, user!, payload);
+    case "officeCollab.summaries.list":
+      return officeCollab.listSummaries(db, user!, payload);
+    case "officeCollab.summaries.save":
+      return officeCollab.saveSummary(db, user!, payload);
+    case "officeCollab.summaries.submit":
+      return officeCollab.submitSummary(db, user!, payload);
+    case "officeCollab.summaries.review":
+      return officeCollab.reviewSummary(db, user!, payload);
+    case "officeCollab.circle.list":
+      return officeCollab.listCirclePosts(db, user!, payload);
+    case "officeCollab.circle.create":
+      return officeCollab.createCirclePost(db, user!, payload);
+    case "officeCollab.circle.hide":
+      return officeCollab.hideCirclePost(db, user!, payload);
+    case "officeCollab.calls.list":
+      return officeCollab.listCalls(db, user!, payload);
+    case "officeCollab.calls.create":
+      return officeCollab.createCall(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

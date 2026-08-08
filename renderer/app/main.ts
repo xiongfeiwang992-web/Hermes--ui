@@ -113,6 +113,7 @@ function canSee(tab: string) {
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
   if (tab === "finance-assets")
     return ["admin", "finance", "store_manager"].includes(role);
+  if (tab === "office-collab") return role !== "finance";
   if (role === "finance" && tab.startsWith("suite-")) return false;
   return true;
 }
@@ -203,7 +204,7 @@ function renderSide(side: HTMLElement) {
     ["cashbook", "收支流水"],
     ["expenses", "费用报销"],
     ["office-content", "公告知识"],
-    ["suite-office", "办公协同"],
+    ["office-collab", "办公协同"],
     ["payroll", "薪酬工资条"],
     ["workforce", "岗位调动"],
     ["recruitment", "招聘管理"],
@@ -286,12 +287,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "deal-ext") return renderDealExt(main);
   if (state.tab === "property-ext") return renderPropertyExt(main);
   if (state.tab === "finance-assets") return renderFinanceAssets(main);
-  if (state.tab.startsWith("suite-")) {
-    const moduleMap: Record<string, string> = {
-      "suite-office": "office",
-    };
-    return renderSuite(main, moduleMap[state.tab]);
-  }
+  if (state.tab === "office-collab") return renderOfficeCollab(main);
   if (state.tab === "system-center") return renderSystemCenter(main);
   if (state.tab === "messages") return renderMessages(main);
   if (state.tab === "org") return renderOrg(main);
@@ -5805,120 +5801,415 @@ async function renderDealExt(main: HTMLElement) {
   await Promise.all([drawComplaints(), drawRenames()]);
 }
 
-const suiteMeta: Record<
-  string,
-  { title: string; types: Array<[string, string]> }
-> = {
-  office: {
-    title: "办公协同",
-    types: [
-      ["exam", "考试"],
-      ["event", "会议活动"],
-      ["workflow", "流程会签"],
-      ["ticket", "票据流转"],
-      ["work_summary", "工作总结"],
-      ["circle_post", "同事圈"],
-      ["call_record", "来电记录"],
-    ],
-  },
-};
-
-async function renderSuite(main: HTMLElement, module: string) {
-  const meta = suiteMeta[module];
-  if (!meta) {
-    main.innerHTML = `<div class="error">模块不存在</div>`;
-    return;
-  }
+async function renderOfficeCollab(main: HTMLElement) {
+  const canManage = ["admin", "store_manager"].includes(state.user.role);
+  const options = await api("officeCollab.options", {});
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .filter((user: any) => user.id !== state.user.id)
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
   main.innerHTML = `
-    <div class="header"><h2>${meta.title}</h2><button class="btn" data-new>新建记录</button></div>
-    <div class="filters">
-      <select data-type><option value="">全部类型</option>${meta.types
-        .map(([value, label]) => `<option value="${value}">${label}</option>`)
-        .join("")}</select>
-      <select data-status><option value="">全部状态</option><option value="draft">草稿</option><option value="pending">待审批</option><option value="approved">已审批</option><option value="active">生效</option><option value="in_progress">进行中</option><option value="completed">已完成</option><option value="rejected">已驳回</option></select>
-    </div>
-    <div class="list" data-list></div>
+    <div class="header"><h2>办公协同</h2><div class="ops">
+      ${canManage ? `<button class="btn ghost" data-exam>发布考试</button><button class="btn ghost" data-event>创建活动</button>` : ""}
+      <button class="btn ghost" data-workflow>发起会签</button>
+      <button class="btn ghost" data-ticket>申领票据</button>
+      <button class="btn ghost" data-summary>写总结</button>
+      <button class="btn ghost" data-circle>发同事圈</button>
+      <button class="btn" data-call>登记来电</button>
+    </div></div>
+    <h3>考试</h3><div class="list" data-exams></div>
+    <h3>活动</h3><div class="list" data-events></div>
+    <h3>会签</h3><div class="list" data-workflows></div>
+    <h3>票据</h3><div class="list" data-tickets></div>
+    <h3>工作总结</h3><div class="list" data-summaries></div>
+    <h3>同事圈</h3><div class="list" data-circle></div>
+    <h3>来电</h3><div class="list" data-calls></div>
   `;
-  const typeLabel = Object.fromEntries(meta.types);
-  const draw = async () => {
-    const recordType = (main.querySelector("[data-type]") as HTMLSelectElement).value;
-    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
-    const result = await api("suite.list", {
-      module,
-      ...(recordType ? { record_type: recordType } : {}),
-      ...(status ? { status } : {}),
-    });
-    const list = main.querySelector("[data-list]")!;
+  const drawExams = async () => {
+    const result = await api("officeCollab.exams.list", {});
+    const list = main.querySelector("[data-exams]")!;
     if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
-    const rows = result.data as any[];
     list.innerHTML =
-      rows
+      (result.data as any[])
         .map(
-          (record) => `<div class="row"><div>
-            <div><span class="tag ${["approved", "active", "completed"].includes(record.status) ? "ok" : record.status === "rejected" ? "danger" : "warn"}">${record.status}</span><span class="tag">${typeLabel[record.record_type] || record.record_type}</span><strong>${record.title}</strong>${record.amount != null ? ` · ¥${money(record.amount)}` : ""}</div>
-            <div class="meta">${record.due_at ? `截止 ${record.due_at} · ` : ""}${record.data?.description || record.data?.note || "无补充说明"}${record.reject_reason ? ` · 驳回：${record.reject_reason}` : ""}</div>
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "published" ? "ok" : "warn"}">${item.status}</span><strong>${item.title}</strong></div>
+            <div class="meta">及格 ${item.pass_score} · ${item.duration_minutes} 分钟 · 参考 ${item.attempt_count}</div>
           </div><div class="ops">
-            ${["draft", "rejected"].includes(record.status) ? `<button class="btn" data-status-id="${record.id}" data-to="pending">提交</button>` : ""}
-            ${record.status === "pending" && (["admin", "store_manager"].includes(state.user.role) || (state.user.role === "finance" && module === "finance")) ? `<button class="btn" data-status-id="${record.id}" data-to="approved">审批</button><button class="btn danger" data-reject-record="${record.id}">驳回</button>` : ""}
-            ${["approved", "active"].includes(record.status) ? `<button class="btn ghost" data-status-id="${record.id}" data-to="in_progress">开始</button>` : ""}
-            ${["approved", "active", "in_progress"].includes(record.status) ? `<button class="btn" data-status-id="${record.id}" data-to="completed">完成</button>` : ""}
+            ${canManage && item.status === "draft" ? `<button class="btn" data-publish-exam="${item.id}">发布</button>` : ""}
+            ${item.status === "published" ? `<button class="btn" data-attempt-exam="${item.id}">提交成绩</button>` : ""}
           </div></div>`
         )
-        .join("") || `<div class="empty">暂无${meta.title}记录</div>`;
-    list.querySelectorAll("[data-status-id]").forEach((button) =>
+        .join("") || `<div class="empty">暂无考试</div>`;
+    list.querySelectorAll("[data-publish-exam]").forEach((button) =>
       button.addEventListener("click", async () => {
-        const element = button as HTMLElement;
-        const result = await api("suite.status", {
-          id: element.dataset.statusId,
-          status: element.dataset.to,
+        const updated = await api("officeCollab.exams.publish", {
+          id: (button as HTMLElement).dataset.publishExam,
         });
-        toast(result.ok ? "状态已更新" : result.message, result.ok ? "ok" : "error");
-        if (result.ok) draw();
+        toast(updated.ok ? "考试已发布" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawExams();
       })
     );
-    list.querySelectorAll("[data-reject-record]").forEach((button) =>
+    list.querySelectorAll("[data-attempt-exam]").forEach((button) =>
       button.addEventListener("click", async () => {
-        const reason = prompt("驳回原因");
-        if (!reason) return;
-        const result = await api("suite.status", {
-          id: (button as HTMLElement).dataset.rejectRecord,
-          status: "rejected",
-          reason,
+        const score = prompt("本次成绩（0-100）");
+        if (score == null) return;
+        const updated = await api("officeCollab.exams.attempt", {
+          exam_id: (button as HTMLElement).dataset.attemptExam,
+          score: Number(score),
         });
-        toast(result.ok ? "已驳回" : result.message, result.ok ? "ok" : "error");
-        if (result.ok) draw();
+        toast(updated.ok ? "成绩已提交" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawExams();
       })
     );
   };
-  main.querySelector("[data-new]")!.addEventListener("click", () => {
-    openDialog(
-      `新建${meta.title}记录`,
-      `
-      <label>类型<select name="record_type">${meta.types
-        .map(([value, label]) => `<option value="${value}">${label}</option>`)
-        .join("")}</select></label>
-      <label>标题<input name="title" required /></label>
-      <label>金额<input name="amount" type="number" step="0.01" /></label>
-      <label>截止时间<input name="due_at" type="datetime-local" /></label>
-      <label class="full">说明<textarea name="description" rows="4"></textarea></label>
-      `,
-      async (fd) => {
-        const dueAt = String(fd.get("due_at") || "");
-        const result = await api("suite.create", {
-          module,
-          record_type: fd.get("record_type"),
-          title: fd.get("title"),
-          amount: fd.get("amount") ? Number(fd.get("amount")) : null,
-          due_at: dueAt ? new Date(dueAt).toISOString() : null,
-          data: { description: fd.get("description") },
+  const drawEvents = async () => {
+    const result = await api("officeCollab.events.list", {});
+    const list = main.querySelector("[data-events]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "open" ? "ok" : "warn"}">${item.status}</span><strong>${item.title}</strong></div>
+            <div class="meta">${item.location || "未定地点"} · 报名 ${item.signup_count}${item.capacity != null ? `/${item.capacity}` : ""}</div>
+          </div><div class="ops">
+            ${canManage && item.status === "draft" ? `<button class="btn" data-open-event="${item.id}">开放报名</button>` : ""}
+            ${item.status === "open" ? `<button class="btn" data-signup-event="${item.id}">报名</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无活动</div>`;
+    list.querySelectorAll("[data-open-event]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.events.open", {
+          id: (button as HTMLElement).dataset.openEvent,
         });
-        toast(result.ok ? "记录已创建" : result.message, result.ok ? "ok" : "error");
-      }
+        toast(updated.ok ? "已开放报名" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawEvents();
+      })
     );
-  });
-  main.querySelector("[data-type]")!.addEventListener("change", draw);
-  main.querySelector("[data-status]")!.addEventListener("change", draw);
-  await draw();
+    list.querySelectorAll("[data-signup-event]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.events.signup", {
+          id: (button as HTMLElement).dataset.signupEvent,
+        });
+        toast(updated.ok ? "报名成功" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawEvents();
+      })
+    );
+  };
+  const drawWorkflows = async () => {
+    const result = await api("officeCollab.workflows.list", {});
+    const list = main.querySelector("[data-workflows]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "approved" ? "ok" : item.status === "rejected" ? "danger" : "warn"}">${item.status}</span><strong>${item.title}</strong></div>
+            <div class="meta">${item.created_by_name} · 会签 ${item.approved_count}/${item.approver_count}${item.reject_reason ? ` · ${item.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${item.status === "draft" && item.created_by === state.user.id ? `<button class="btn" data-submit-workflow="${item.id}">提交</button>` : ""}
+            ${item.status === "pending" ? `<button class="btn" data-approve-workflow="${item.id}">同意</button><button class="btn danger" data-reject-workflow="${item.id}">驳回</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无会签</div>`;
+    list.querySelectorAll("[data-submit-workflow]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.workflows.submit", {
+          id: (button as HTMLElement).dataset.submitWorkflow,
+        });
+        toast(updated.ok ? "会签已提交" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawWorkflows();
+      })
+    );
+    list.querySelectorAll("[data-approve-workflow]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.workflows.decide", {
+          id: (button as HTMLElement).dataset.approveWorkflow,
+          decision: "approved",
+        });
+        toast(updated.ok ? "已同意" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawWorkflows();
+      })
+    );
+    list.querySelectorAll("[data-reject-workflow]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const comment = prompt("驳回意见");
+        if (!comment) return;
+        const updated = await api("officeCollab.workflows.decide", {
+          id: (button as HTMLElement).dataset.rejectWorkflow,
+          decision: "rejected",
+          comment,
+        });
+        toast(updated.ok ? "已驳回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawWorkflows();
+      })
+    );
+  };
+  const drawTickets = async () => {
+    const result = await api("officeCollab.tickets.list", {});
+    const list = main.querySelector("[data-tickets]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "issued" || item.status === "returned" ? "ok" : "warn"}">${item.status}</span><strong>${item.title}</strong> · x${item.quantity}</div>
+            <div class="meta">${item.ticket_type} · ${item.applicant_name}</div>
+          </div><div class="ops">
+            ${canManage && item.status === "requested" ? `<button class="btn" data-approve-ticket="${item.id}">批准</button>` : ""}
+            ${canManage && item.status === "approved" ? `<button class="btn" data-issue-ticket="${item.id}">发放</button>` : ""}
+            ${item.status === "issued" ? `<button class="btn danger" data-return-ticket="${item.id}">回收</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无票据</div>`;
+    list.querySelectorAll("[data-approve-ticket]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.tickets.approve", {
+          id: (button as HTMLElement).dataset.approveTicket,
+        });
+        toast(updated.ok ? "已批准" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawTickets();
+      })
+    );
+    list.querySelectorAll("[data-issue-ticket]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.tickets.issue", {
+          id: (button as HTMLElement).dataset.issueTicket,
+        });
+        toast(updated.ok ? "已发放" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawTickets();
+      })
+    );
+    list.querySelectorAll("[data-return-ticket]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.tickets.return", {
+          id: (button as HTMLElement).dataset.returnTicket,
+        });
+        toast(updated.ok ? "已回收" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawTickets();
+      })
+    );
+  };
+  const drawSummaries = async () => {
+    const result = await api("officeCollab.summaries.list", {});
+    const list = main.querySelector("[data-summaries]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "reviewed" ? "ok" : "warn"}">${item.status}</span><strong>${item.user_name}</strong> · ${item.period_start}~${item.period_end}</div>
+            <div class="meta">${item.content.slice(0, 60)}${item.review_comment ? ` · 评阅：${item.review_comment}` : ""}</div>
+          </div><div class="ops">
+            ${item.status === "draft" && item.user_id === state.user.id ? `<button class="btn" data-submit-summary="${item.id}">提交</button>` : ""}
+            ${canManage && item.status === "submitted" ? `<button class="btn" data-review-summary="${item.id}">评阅</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无工作总结</div>`;
+    list.querySelectorAll("[data-submit-summary]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("officeCollab.summaries.submit", {
+          id: (button as HTMLElement).dataset.submitSummary,
+        });
+        toast(updated.ok ? "总结已提交" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawSummaries();
+      })
+    );
+    list.querySelectorAll("[data-review-summary]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const comment = prompt("评阅意见");
+        if (!comment) return;
+        const updated = await api("officeCollab.summaries.review", {
+          id: (button as HTMLElement).dataset.reviewSummary,
+          comment,
+        });
+        toast(updated.ok ? "已评阅" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawSummaries();
+      })
+    );
+  };
+  const drawCircle = async () => {
+    const result = await api("officeCollab.circle.list", {});
+    const list = main.querySelector("[data-circle]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "published" ? "ok" : "danger"}">${item.status}</span><strong>${item.author_name}</strong></div>
+            <div class="meta">${item.content}</div>
+          </div><div class="ops">
+            ${canManage && item.status === "published" ? `<button class="btn danger" data-hide-circle="${item.id}">隐藏</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无同事圈动态</div>`;
+    list.querySelectorAll("[data-hide-circle]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("隐藏原因");
+        if (!reason) return;
+        const updated = await api("officeCollab.circle.hide", {
+          id: (button as HTMLElement).dataset.hideCircle,
+          reason,
+        });
+        toast(updated.ok ? "已隐藏" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawCircle();
+      })
+    );
+  };
+  const drawCalls = async () => {
+    const result = await api("officeCollab.calls.list", {});
+    const list = main.querySelector("[data-calls]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag">${item.direction === "in" ? "来电" : "去电"}</span><strong>${item.phone}</strong></div>
+            <div class="meta">${item.created_by_name}${item.customer_name ? ` · 客 ${item.customer_name}` : ""}${item.house_title ? ` · 房 ${item.house_title}` : ""}${item.note ? ` · ${item.note}` : ""}</div>
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无来电记录</div>`;
+  };
+  main.querySelector("[data-exam]")?.addEventListener("click", () =>
+    openDialog(
+      "创建考试",
+      `<label class="full">标题<input name="title" required /></label>
+       <label>及格分<input name="pass_score" type="number" min="0" max="100" value="60" /></label>
+       <label>时长(分)<input name="duration_minutes" type="number" min="1" max="600" value="60" /></label>
+       <label class="full">说明<input name="description" /></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.exams.save", {
+          title: fd.get("title"),
+          pass_score: Number(fd.get("pass_score")),
+          duration_minutes: Number(fd.get("duration_minutes")),
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "考试草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawExams();
+      }
+    )
+  );
+  main.querySelector("[data-event]")?.addEventListener("click", () =>
+    openDialog(
+      "创建活动",
+      `<label class="full">标题<input name="title" required /></label>
+       <label>开始<input name="start_at" type="datetime-local" required /></label>
+       <label>结束<input name="end_at" type="datetime-local" required /></label>
+       <label>地点<input name="location" /></label>
+       <label>名额<input name="capacity" type="number" min="1" /></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.events.save", {
+          title: fd.get("title"),
+          start_at: new Date(String(fd.get("start_at"))).toISOString(),
+          end_at: new Date(String(fd.get("end_at"))).toISOString(),
+          location: fd.get("location"),
+          capacity: fd.get("capacity") || null,
+        });
+        toast(result.ok ? "活动草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawEvents();
+      }
+    )
+  );
+  main.querySelector("[data-workflow]")?.addEventListener("click", () =>
+    openDialog(
+      "发起会签",
+      `<label class="full">标题<input name="title" required /></label>
+       <label class="full">内容<textarea name="content" required></textarea></label>
+       <label class="full">会签人<select name="approver_user_id" required>${userOptions}</select></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.workflows.create", {
+          title: fd.get("title"),
+          content: fd.get("content"),
+          approver_user_ids: [String(fd.get("approver_user_id"))],
+        });
+        toast(result.ok ? "会签草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawWorkflows();
+      }
+    )
+  );
+  main.querySelector("[data-ticket]")?.addEventListener("click", () =>
+    openDialog(
+      "申领票据",
+      `<label>类型<select name="ticket_type"><option value="receipt">收据</option><option value="invoice">发票</option><option value="contract_blank">空白合同</option><option value="other">其他</option></select></label>
+       <label>数量<input name="quantity" type="number" min="1" value="1" required /></label>
+       <label class="full">标题<input name="title" required /></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.tickets.create", {
+          ticket_type: fd.get("ticket_type"),
+          quantity: Number(fd.get("quantity")),
+          title: fd.get("title"),
+        });
+        toast(result.ok ? "申领已提交" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawTickets();
+      }
+    )
+  );
+  main.querySelector("[data-summary]")?.addEventListener("click", () =>
+    openDialog(
+      "工作总结",
+      `<label>开始日期<input name="period_start" type="date" required /></label>
+       <label>结束日期<input name="period_end" type="date" required /></label>
+       <label class="full">内容<textarea name="content" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.summaries.save", {
+          period_start: fd.get("period_start"),
+          period_end: fd.get("period_end"),
+          content: fd.get("content"),
+        });
+        toast(result.ok ? "总结草稿已保存" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawSummaries();
+      }
+    )
+  );
+  main.querySelector("[data-circle]")?.addEventListener("click", () =>
+    openDialog(
+      "发同事圈",
+      `<label class="full">内容<textarea name="content" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.circle.create", {
+          content: fd.get("content"),
+        });
+        toast(result.ok ? "已发布" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawCircle();
+      }
+    )
+  );
+  main.querySelector("[data-call]")?.addEventListener("click", () =>
+    openDialog(
+      "登记来电",
+      `<label>号码<input name="phone" required placeholder="11位手机号" /></label>
+       <label>方向<select name="direction"><option value="in">来电</option><option value="out">去电</option></select></label>
+       <label class="full">备注<input name="note" /></label>`,
+      async (fd) => {
+        const result = await api("officeCollab.calls.create", {
+          phone: fd.get("phone"),
+          direction: fd.get("direction"),
+          note: fd.get("note"),
+          called_at: new Date().toISOString(),
+        });
+        toast(
+          result.ok
+            ? `已登记${(result.data as any).matched_customer_id ? "并匹配客源" : ""}${(result.data as any).matched_house_id ? "并匹配房源" : ""}`
+            : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) drawCalls();
+      }
+    )
+  );
+  await Promise.all([
+    drawExams(),
+    drawEvents(),
+    drawWorkflows(),
+    drawTickets(),
+    drawSummaries(),
+    drawCircle(),
+    drawCalls(),
+  ]);
 }
 
 async function renderSystemCenter(main: HTMLElement) {
