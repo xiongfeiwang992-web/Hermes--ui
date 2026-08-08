@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
+import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
@@ -111,6 +112,48 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (user.role === "agent" && current.agent_id !== user.id && current.visibility !== "public") {
     return { ok: false, message: "只能编辑本人私客", code: 403 };
   }
+  const nextConfidential =
+    payload.is_confidential == null ? null : payload.is_confidential ? 1 : 0;
+  const summary = buildModificationSummary([
+    { label: "姓名", provided: payload.name != null, prev: current.name, next: payload.name },
+    {
+      label: "电话",
+      provided: payload.phone != null,
+      prev: current.phone,
+      next: payload.phone,
+      sensitive: true,
+    },
+    { label: "意图", provided: payload.intent != null, prev: current.intent, next: payload.intent },
+    {
+      label: "预算下限",
+      provided: payload.budget_min != null,
+      prev: current.budget_min,
+      next: payload.budget_min,
+    },
+    {
+      label: "预算上限",
+      provided: payload.budget_max != null,
+      prev: current.budget_max,
+      next: payload.budget_max,
+    },
+    {
+      label: "预算说明",
+      provided: payload.budget_note != null,
+      prev: current.budget_note,
+      next: payload.budget_note,
+    },
+    { label: "需求", provided: payload.need != null, prev: current.need, next: payload.need },
+    { label: "等级", provided: payload.level != null, prev: current.level, next: payload.level },
+    { label: "来源", provided: payload.source != null, prev: current.source, next: payload.source },
+    { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
+    {
+      label: "保密客",
+      provided: payload.is_confidential != null,
+      prev: current.is_confidential,
+      next: nextConfidential,
+      bool: true,
+    },
+  ]);
   db.prepare(
     `UPDATE customers SET
       name = COALESCE(?, name),
@@ -137,11 +180,18 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.level ?? null,
     payload.source ?? null,
     payload.remark ?? null,
-    payload.is_confidential == null ? null : payload.is_confidential ? 1 : 0,
+    nextConfidential,
     nowIso(),
     payload.id
   );
   writeAudit(db, user, "customer.update", "customer", payload.id);
+  if (summary) {
+    recordModificationFollow(db, user, {
+      targetType: "customer",
+      targetId: payload.id,
+      summary,
+    });
+  }
   return getCustomer(db, user, payload.id);
 }
 

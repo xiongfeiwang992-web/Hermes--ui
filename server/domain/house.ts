@@ -5,6 +5,7 @@ import {
   houseVisibleTo,
   maskPhone,
 } from "../auth/policy";
+import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
@@ -190,6 +191,80 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (user.role === "agent" && current.agent_id !== user.id) {
     return { ok: false, message: "只能编辑本人接盘房源", code: 403 };
   }
+  const nextPrice = payload.price != null ? Number(payload.price) : null;
+  const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
+  const summary = buildModificationSummary([
+    { label: "标题", provided: payload.title != null, prev: current.title, next: payload.title },
+    {
+      label: "小区",
+      provided: payload.community != null,
+      prev: current.community,
+      next: payload.community,
+    },
+    { label: "地址", provided: payload.address != null, prev: current.address, next: payload.address },
+    {
+      label: "区域",
+      provided: payload.district != null,
+      prev: current.district,
+      next: payload.district,
+    },
+    { label: "价格", provided: payload.price != null, prev: current.price, next: nextPrice },
+    {
+      label: "面积",
+      provided: payload.area_size != null,
+      prev: current.area_size,
+      next: payload.area_size,
+    },
+    { label: "户型", provided: payload.rooms != null, prev: current.rooms, next: payload.rooms },
+    { label: "楼层", provided: payload.floor != null, prev: current.floor, next: payload.floor },
+    {
+      label: "业主",
+      provided: payload.owner_name != null,
+      prev: current.owner_name,
+      next: payload.owner_name,
+    },
+    {
+      label: "业主电话",
+      provided: payload.owner_phone != null,
+      prev: current.owner_phone,
+      next: payload.owner_phone,
+      sensitive: true,
+    },
+    {
+      label: "私盘",
+      provided: payload.is_private != null,
+      prev: current.is_private,
+      next: nextPrivate,
+      bool: true,
+    },
+    { label: "来源", provided: payload.source != null, prev: current.source, next: payload.source },
+    { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
+    {
+      label: "封面",
+      provided: payload.cover_image != null,
+      prev: current.cover_image,
+      next: payload.cover_image,
+      sensitive: true,
+    },
+    {
+      label: "物业类型",
+      provided: payload.property_type != null,
+      prev: current.property_type,
+      next: payload.property_type,
+    },
+    {
+      label: "交易模式",
+      provided: payload.deal_mode != null,
+      prev: current.deal_mode,
+      next: payload.deal_mode,
+    },
+    {
+      label: "可见范围",
+      provided: payload.visibility != null,
+      prev: current.visibility,
+      next: payload.visibility,
+    },
+  ]);
   db.prepare(
     `UPDATE houses SET
       title = COALESCE(?, title),
@@ -216,13 +291,13 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.community ?? null,
     payload.address ?? null,
     payload.district ?? null,
-    payload.price != null ? Number(payload.price) : null,
+    nextPrice,
     payload.area_size ?? null,
     payload.rooms ?? null,
     payload.floor ?? null,
     payload.owner_name ?? null,
     payload.owner_phone ?? null,
-    payload.is_private == null ? null : payload.is_private ? 1 : 0,
+    nextPrivate,
     payload.source ?? null,
     payload.remark ?? null,
     payload.cover_image ?? null,
@@ -233,6 +308,13 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.id
   );
   writeAudit(db, user, "house.update", "house", payload.id);
+  if (summary) {
+    recordModificationFollow(db, user, {
+      targetType: "house",
+      targetId: payload.id,
+      summary,
+    });
+  }
   return getHouse(db, user, payload.id);
 }
 

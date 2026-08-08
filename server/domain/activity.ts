@@ -83,6 +83,83 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
   return { ok: true, data: { id } };
 }
 
+export type ModificationFieldDiff = {
+  label: string;
+  provided: boolean;
+  prev: unknown;
+  next: unknown;
+  sensitive?: boolean;
+  bool?: boolean;
+};
+
+function coerceDiffToken(value: unknown, asBool = false): string {
+  if (value == null) return "";
+  if (asBool || typeof value === "boolean") {
+    if (value === true || value === 1 || value === "1") return "1";
+    if (value === false || value === 0 || value === "0") return "0";
+  }
+  if (typeof value === "number") return String(value);
+  return String(value).trim();
+}
+
+function displayDiffToken(value: unknown, asBool = false): string {
+  const token = coerceDiffToken(value, asBool);
+  if (!token) return "空";
+  if (asBool) return token === "1" ? "是" : "否";
+  return token;
+}
+
+/** Build a human-readable modification summary; null when nothing actually changed. */
+export function buildModificationSummary(fields: ModificationFieldDiff[]): string | null {
+  const parts: string[] = [];
+  for (const field of fields) {
+    if (!field.provided) continue;
+    const prev = coerceDiffToken(field.prev, field.bool);
+    const next = coerceDiffToken(field.next, field.bool);
+    if (prev === next) continue;
+    if (field.sensitive) {
+      parts.push(`${field.label}已更新`);
+    } else {
+      parts.push(
+        `${field.label} ${displayDiffToken(field.prev, field.bool)}→${displayDiffToken(field.next, field.bool)}`
+      );
+    }
+  }
+  if (!parts.length) return null;
+  let summary = `修改：${parts.join("；")}`;
+  if (summary.trim().length < 5) summary = `${summary}（资料已更新）`;
+  return summary;
+}
+
+/** System-generated follow row for house/customer edits (does not mutate target status). */
+export function recordModificationFollow(
+  db: Db,
+  user: SessionUser,
+  input: { targetType: "house" | "customer"; targetId: string; summary: string }
+): void {
+  let content = String(input.summary || "").trim();
+  if (content.length < 5) content = `${content}（资料已更新）`;
+  const id = nextId("FLW");
+  db.prepare(
+    `INSERT INTO follows(id, company_id, store_id, target_type, target_id, content, method,
+     next_follow_at, created_by, voided, created_at, follow_kind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+  ).run(
+    id,
+    user.company_id,
+    user.store_id,
+    input.targetType,
+    input.targetId,
+    content,
+    "other",
+    null,
+    user.id,
+    nowIso(),
+    "modification"
+  );
+  writeAudit(db, user, "follow.create", "follow", id, { auto: "modification" });
+}
+
 export function revealContact(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   if (!payload.target_type || !payload.target_id || !payload.content) {
