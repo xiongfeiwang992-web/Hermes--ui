@@ -106,6 +106,8 @@ async function render() {
     root.appendChild(renderLogin());
     return;
   }
+  const preferences = await api("config.preferences.get");
+  if (preferences.ok) applyPreferences(preferences.data as any);
   root.innerHTML = "";
   const shell = el(`
     <div class="shell">
@@ -116,6 +118,15 @@ async function render() {
   root.appendChild(shell);
   renderSide(shell.querySelector(".side")!);
   await renderMain(shell.querySelector(".main")!);
+}
+
+function applyPreferences(preferences: any) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme =
+    preferences.theme === "system" ? (prefersDark ? "dark" : "light") : preferences.theme;
+  document.body.dataset.theme = theme || "light";
+  document.body.dataset.density = preferences.list_density || "comfortable";
+  document.body.dataset.watermark = preferences.watermark_enabled ? state.user?.display_name : "";
 }
 
 function renderLogin() {
@@ -358,12 +369,14 @@ async function renderHouses(main: HTMLElement) {
           <div><span class="tag">${h.deal_type === "sale" ? "售" : "租"}</span>
           <span class="tag ${h.status === "available" ? "ok" : ""}">${houseStatusLabel(h.status, h.deal_type)}</span>
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
+          ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
           <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}</div>
         </div>
         <div class="ops">
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
+          ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
           ${["available", "suspended", "draft"].includes(h.status) ? `<button class="btn danger" data-withdraw="${h.id}">撤盘</button>` : ""}
         </div>
       </div>`
@@ -389,6 +402,16 @@ async function renderHouses(main: HTMLElement) {
         });
         toast(r.ok ? "已撤盘" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
+      });
+    });
+    list.querySelectorAll("[data-lock]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const result = await api("house.lock", {
+          id: (btn as HTMLElement).dataset.lock,
+          locked: (btn as HTMLElement).dataset.locked === "1",
+        });
+        toast(result.ok ? "房源锁定状态已更新" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
       });
     });
   };
@@ -1831,18 +1854,27 @@ async function renderSystemCenter(main: HTMLElement) {
     state.user.role === "admin"
       ? await api("system.backup.list", {})
       : ({ ok: true, data: [] } as any);
+  const dictionaries =
+    state.user.role === "admin"
+      ? await api("config.dictionary.list", {})
+      : ({ ok: true, data: [] } as any);
+  const templates =
+    state.user.role === "admin"
+      ? await api("contract.templates", {})
+      : ({ ok: true, data: [] } as any);
   main.innerHTML = `
     <div class="header"><h2>系统中心</h2><div class="ops">
       ${canManageSystem ? `<button class="btn ghost" data-blacklist>添加黑名单</button>` : ""}
       <button class="btn ghost" data-password>修改密码</button>
       <button class="btn ghost" data-preferences>界面偏好</button>
-      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button><button class="btn ghost" data-dictionary>数据字典</button><button class="btn ghost" data-template>合同模板</button>` : ""}
       ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
     </div></div>
     ${canManageSystem ? `<h3>业务黑名单</h3><div class="list" data-blacklist-list></div>` : ""}
     ${state.user.role === "admin" ? `<h3>数据库备份</h3><div class="list" data-backups></div>` : ""}
+    ${state.user.role === "admin" ? `<h3>数据字典</h3><div class="list" data-dictionaries></div><h3>合同模板</h3><div class="list" data-templates></div>` : ""}
     ${state.user.role === "admin" ? `<h3>第三方适配器（默认关闭）</h3><div class="list" data-integrations></div>` : ""}
   `;
   const blacklistList = main.querySelector("[data-blacklist-list]");
@@ -1876,6 +1908,28 @@ async function renderSystemCenter(main: HTMLElement) {
           )
           .join("")
       : `<div class="empty">暂无备份</div>`;
+  }
+  const dictionaryList = main.querySelector("[data-dictionaries]");
+  if (dictionaryList) {
+    dictionaryList.innerHTML = (dictionaries.data as any[]).length
+      ? (dictionaries.data as any[])
+          .map(
+            (item) =>
+              `<div class="row"><div><strong>${item.label}</strong><div class="meta">${item.dict_type} · ${item.value}</div></div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无自定义字典</div>`;
+  }
+  const templateList = main.querySelector("[data-templates]");
+  if (templateList) {
+    templateList.innerHTML = (templates.data as any[]).length
+      ? (templates.data as any[])
+          .map(
+            (item) =>
+              `<div class="row"><div><strong>${item.name}</strong><div class="meta">${item.deal_type === "sale" ? "买卖" : "租赁"} · ${item.content.slice(0, 80)}</div></div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无合同模板</div>`;
   }
   const blacklistButton = main.querySelector("[data-blacklist]");
   if (blacklistButton) {
@@ -2003,7 +2057,7 @@ async function renderSystemCenter(main: HTMLElement) {
       "界面偏好",
       `
       <label>列表密度<select name="list_density"><option value="comfortable" ${pref.list_density === "comfortable" ? "selected" : ""}>舒适</option><option value="compact" ${pref.list_density === "compact" ? "selected" : ""}>紧凑</option></select></label>
-      <label>主题<select name="theme"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label>
+      <label>主题<select name="theme"><option value="light" ${pref.theme === "light" ? "selected" : ""}>浅色</option><option value="dark" ${pref.theme === "dark" ? "selected" : ""}>深色</option><option value="system" ${pref.theme === "system" ? "selected" : ""}>跟随系统</option></select></label>
       <label><span><input name="watermark_enabled" type="checkbox" ${pref.watermark_enabled ? "checked" : ""} /> 开启水印</span></label>
       `,
       async (fd) => {
@@ -2013,6 +2067,7 @@ async function renderSystemCenter(main: HTMLElement) {
           watermark_enabled: fd.get("watermark_enabled") === "on",
         });
         toast(result.ok ? "偏好已保存" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) applyPreferences(result.data);
       }
     );
   });
@@ -2069,6 +2124,52 @@ async function renderSystemCenter(main: HTMLElement) {
             pool_rate: Number(fd.get("pool_rate")),
           });
           toast(result.ok ? "提成阶梯已保存" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  const dictionaryButton = main.querySelector("[data-dictionary]");
+  if (dictionaryButton) {
+    dictionaryButton.addEventListener("click", () => {
+      openDialog(
+        "新增数据字典项",
+        `
+        <label>字典类型<input name="dict_type" placeholder="source / follow_method" required /></label>
+        <label>值<input name="value" required /></label>
+        <label>显示名称<input name="label" required /></label>
+        <label>排序<input name="sort_order" type="number" value="0" /></label>
+        `,
+        async (fd) => {
+          const result = await api("config.dictionary.upsert", {
+            dict_type: fd.get("dict_type"),
+            value: fd.get("value"),
+            label: fd.get("label"),
+            sort_order: Number(fd.get("sort_order")),
+          });
+          toast(result.ok ? "字典项已保存" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) render();
+        }
+      );
+    });
+  }
+  const templateButton = main.querySelector("[data-template]");
+  if (templateButton) {
+    templateButton.addEventListener("click", () => {
+      openDialog(
+        "新增自有合同模板",
+        `
+        <label>模板名称<input name="name" required /></label>
+        <label>成交类型<select name="deal_type"><option value="sale">买卖</option><option value="rent">租赁</option></select></label>
+        <label class="full">模板内容<textarea name="content" rows="8" placeholder="支持自定义 {{占位符}}" required></textarea></label>
+        `,
+        async (fd) => {
+          const result = await api("contract.template.save", {
+            name: fd.get("name"),
+            deal_type: fd.get("deal_type"),
+            content: fd.get("content"),
+          });
+          toast(result.ok ? "合同模板已保存" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) render();
         }
       );
     });
