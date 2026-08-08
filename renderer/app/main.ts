@@ -1123,12 +1123,17 @@ async function renderDeals(main: HTMLElement) {
     if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
     const rows = r.data as any[];
     if (!rows.length) return (list.innerHTML = `<div class="empty">暂无成交单</div>`);
+    const checklistEntries = await Promise.all(
+      rows.map(async (deal) => [deal.id, await api("deal.documents.list", { deal_id: deal.id })])
+    );
+    const checklists = new Map(checklistEntries as Array<[string, ApiResult]>);
     list.innerHTML = rows
       .map(
         (d) => `<div class="row"><div>
         <div><span class="tag ${d.status === "approved" ? "ok" : d.status === "rejected" ? "danger" : "warn"}">${d.status}</span>
         <strong>${d.id}</strong> 佣金 ¥${money(d.commission_total)} · 未收 ¥${money(d.unpaid_amount)}</div>
         <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${d.reject_reason}` : ""}</div>
+        ${checklists.get(d.id)?.ok ? `<div class="meta">必传资料 ${(checklists.get(d.id) as any).data.received_count}/${(checklists.get(d.id) as any).data.required_count} ${(checklists.get(d.id) as any).data.complete ? "✓" : ""}</div>` : ""}
       </div>
       <div class="ops">
         ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
@@ -1172,13 +1177,24 @@ async function renderDeals(main: HTMLElement) {
           parent_id: dealId,
         });
         if (!existing.ok) return toast(existing.message, "error");
+        const checklist = await api("deal.documents.list", { deal_id: dealId });
+        const categories = checklist.ok
+          ? (checklist.data as any).items
+              .map((item: any) => `${item.category}=${item.label}`)
+              .join("，")
+          : "";
+        const category = prompt(
+          `附件分类${categories ? `（${categories}）` : ""}`,
+          (checklist.ok && (checklist.data as any).items[0]?.category) || "contract"
+        );
+        if (!category) return;
         const paths = (await desktopShell.chooseFiles()) as string[];
         for (const localPath of paths) {
           const name = localPath.split(/[\\/]/).pop() || "附件";
           const added = await api("attachment.add", {
             parent_type: "deal",
             parent_id: dealId,
-            category: "contract",
+            category,
             name,
             local_path: localPath,
           });
@@ -1190,6 +1206,7 @@ async function renderDeals(main: HTMLElement) {
         });
         const files = refreshed.ok ? (refreshed.data as any[]) : [];
         toast(paths.length ? `已添加 ${paths.length} 个附件，当前共 ${files.length} 个` : `当前共 ${files.length} 个附件`);
+        if (paths.length) draw();
       })
     );
     list.querySelectorAll("[data-sign]").forEach((btn) =>
@@ -1350,6 +1367,27 @@ async function renderEarnest(main: HTMLElement) {
       );
     });
   }
+  const seedButton = main.querySelector("[data-seed]");
+  if (seedButton) {
+    seedButton.addEventListener("click", () => {
+      const options = ((deals.data as any[]) || [])
+        .filter((deal) => deal.status === "approved")
+        .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
+        .join("");
+      openDialog(
+        "从模板补齐过户节点",
+        `<label class="full">已审批成交<select name="deal_id">${options}</select></label>`,
+        async (fd) => {
+          const result = await api("transfer.seed", { deal_id: fd.get("deal_id") });
+          toast(
+            result.ok ? `已补齐 ${(result.data as any).created} 个节点` : result.message,
+            result.ok ? "ok" : "error"
+          );
+          if (result.ok) draw();
+        }
+      );
+    });
+  }
   main.querySelector("[data-status]")!.addEventListener("change", draw);
   await draw();
 }
@@ -1358,7 +1396,7 @@ async function renderTransfer(main: HTMLElement) {
   const deals = await api("deal.list", { status: "approved" });
   const canCreate = ["admin", "store_manager"].includes(state.user.role);
   main.innerHTML = `
-    <div class="header"><h2>过户节点</h2>${canCreate ? `<button class="btn" data-new>新增节点</button>` : ""}</div>
+    <div class="header"><h2>过户节点</h2>${canCreate ? `<div class="ops"><button class="btn ghost" data-seed>从模板补齐</button><button class="btn" data-new>新增节点</button></div>` : ""}</div>
     <div class="filters">
       <select data-status><option value="">全部状态</option><option value="pending">待办理</option><option value="in_progress">办理中</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select>
     </div>
@@ -1862,19 +1900,27 @@ async function renderSystemCenter(main: HTMLElement) {
     state.user.role === "admin"
       ? await api("contract.templates", {})
       : ({ ok: true, data: [] } as any);
+  const documentTemplates =
+    state.user.role === "admin"
+      ? await api("deal.documents.templates", {})
+      : ({ ok: true, data: [] } as any);
+  const transferTemplates =
+    state.user.role === "admin"
+      ? await api("transfer.templates.list", {})
+      : ({ ok: true, data: [] } as any);
   main.innerHTML = `
     <div class="header"><h2>系统中心</h2><div class="ops">
       ${canManageSystem ? `<button class="btn ghost" data-blacklist>添加黑名单</button>` : ""}
       <button class="btn ghost" data-password>修改密码</button>
       <button class="btn ghost" data-preferences>界面偏好</button>
-      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button><button class="btn ghost" data-dictionary>数据字典</button><button class="btn ghost" data-template>合同模板</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button><button class="btn ghost" data-dictionary>数据字典</button><button class="btn ghost" data-template>合同模板</button><button class="btn ghost" data-doc-template>资料清单</button><button class="btn ghost" data-transfer-template>过户模板</button>` : ""}
       ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
     </div></div>
     ${canManageSystem ? `<h3>业务黑名单</h3><div class="list" data-blacklist-list></div>` : ""}
     ${state.user.role === "admin" ? `<h3>数据库备份</h3><div class="list" data-backups></div>` : ""}
-    ${state.user.role === "admin" ? `<h3>数据字典</h3><div class="list" data-dictionaries></div><h3>合同模板</h3><div class="list" data-templates></div>` : ""}
+    ${state.user.role === "admin" ? `<h3>数据字典</h3><div class="list" data-dictionaries></div><h3>合同模板</h3><div class="list" data-templates></div><h3>交易资料模板</h3><div class="list" data-document-templates></div><h3>过户节点模板</h3><div class="list" data-transfer-templates></div>` : ""}
     ${state.user.role === "admin" ? `<h3>第三方适配器（默认关闭）</h3><div class="list" data-integrations></div>` : ""}
   `;
   const blacklistList = main.querySelector("[data-blacklist-list]");
@@ -1930,6 +1976,28 @@ async function renderSystemCenter(main: HTMLElement) {
           )
           .join("")
       : `<div class="empty">暂无合同模板</div>`;
+  }
+  const documentTemplateList = main.querySelector("[data-document-templates]");
+  if (documentTemplateList) {
+    documentTemplateList.innerHTML = (documentTemplates.data as any[]).length
+      ? (documentTemplates.data as any[])
+          .map(
+            (item) =>
+              `<div class="row"><div><strong>${item.label}</strong><div class="meta">${item.deal_type} · ${item.category} · ${item.required ? "必传" : "选传"}</div></div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无交易资料模板</div>`;
+  }
+  const transferTemplateList = main.querySelector("[data-transfer-templates]");
+  if (transferTemplateList) {
+    transferTemplateList.innerHTML = (transferTemplates.data as any[]).length
+      ? (transferTemplates.data as any[])
+          .map(
+            (item) =>
+              `<div class="row"><div><strong>${item.title}</strong><div class="meta">${item.deal_type} · ${item.node_type} · 默认 ${item.default_assignee_role || "不指派"}</div></div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无过户节点模板</div>`;
   }
   const blacklistButton = main.querySelector("[data-blacklist]");
   if (blacklistButton) {
@@ -2083,6 +2151,7 @@ async function renderSystemCenter(main: HTMLElement) {
         <label>个人持盘上限<input name="house_hold_limit" type="number" value="${value.house_hold_limit}" /></label>
         <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
+        <label><span><input name="deal_doc_required" type="checkbox" ${value.deal_doc_required ? "checked" : ""} /> 提交成交前强制资料齐全</span></label>
         <label class="full">成交必录字段（逗号分隔）<input name="deal_required_fields" value="${value.deal_required_fields.join(",")}" placeholder="loan_bank,loan_amount" /></label>
         `,
         async (fd) => {
@@ -2090,6 +2159,7 @@ async function renderSystemCenter(main: HTMLElement) {
             house_hold_limit: Number(fd.get("house_hold_limit")),
             manager_award_rate: Number(fd.get("manager_award_rate")),
             password_min_length: Number(fd.get("password_min_length")),
+            deal_doc_required: fd.get("deal_doc_required") === "on",
             deal_required_fields: String(fd.get("deal_required_fields") || "")
               .split(",")
               .map((item) => item.trim())
@@ -2169,6 +2239,58 @@ async function renderSystemCenter(main: HTMLElement) {
             content: fd.get("content"),
           });
           toast(result.ok ? "合同模板已保存" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) render();
+        }
+      );
+    });
+  }
+  const documentTemplateButton = main.querySelector("[data-doc-template]");
+  if (documentTemplateButton) {
+    documentTemplateButton.addEventListener("click", () => {
+      openDialog(
+        "新增交易资料模板",
+        `
+        <label>成交类型<select name="deal_type"><option value="sale">买卖</option><option value="rent">租赁</option></select></label>
+        <label>分类代码<input name="category" placeholder="property_cert" required /></label>
+        <label>显示名称<input name="label" placeholder="不动产权证" required /></label>
+        <label>排序<input name="sort_order" type="number" value="0" /></label>
+        <label><span><input name="required" type="checkbox" checked /> 必传</span></label>
+        `,
+        async (fd) => {
+          const result = await api("deal.documents.template.save", {
+            deal_type: fd.get("deal_type"),
+            category: fd.get("category"),
+            label: fd.get("label"),
+            sort_order: Number(fd.get("sort_order")),
+            required: fd.get("required") === "on",
+          });
+          toast(result.ok ? "资料模板已保存" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) render();
+        }
+      );
+    });
+  }
+  const transferTemplateButton = main.querySelector("[data-transfer-template]");
+  if (transferTemplateButton) {
+    transferTemplateButton.addEventListener("click", () => {
+      openDialog(
+        "新增过户节点模板",
+        `
+        <label>成交类型<select name="deal_type"><option value="sale">买卖</option><option value="rent">租赁</option></select></label>
+        <label>节点代码<input name="node_type" placeholder="contract / loan / tax" required /></label>
+        <label>节点名称<input name="title" required /></label>
+        <label>排序<input name="sort_order" type="number" value="0" /></label>
+        <label>默认负责人<select name="default_assignee_role"><option value="">不指派</option><option value="agent">成交经纪人</option><option value="store_manager">店长</option><option value="finance">财务</option></select></label>
+        `,
+        async (fd) => {
+          const result = await api("transfer.templates.save", {
+            deal_type: fd.get("deal_type"),
+            node_type: fd.get("node_type"),
+            title: fd.get("title"),
+            sort_order: Number(fd.get("sort_order")),
+            default_assignee_role: fd.get("default_assignee_role"),
+          });
+          toast(result.ok ? "过户模板已保存" : result.message, result.ok ? "ok" : "error");
           if (result.ok) render();
         }
       );

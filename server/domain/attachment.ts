@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { markReceived } from "./dealDocuments";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -33,6 +34,23 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
   if (!fs.existsSync(localPath) || !fs.statSync(localPath).isFile()) {
     return { ok: false, message: "本地文件不存在" };
   }
+  if (payload.parent_type === "deal") {
+    const deal = db
+      .prepare(`SELECT * FROM deals WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const agents = deal ? (JSON.parse(deal.agent_ids || "[]") as string[]) : [];
+    if (
+      !deal ||
+      !(
+        user.role === "admin" ||
+        user.role === "finance" ||
+        (user.role === "store_manager" && deal.store_id === user.store_id) ||
+        (deal.store_id === user.store_id &&
+          (deal.created_by === user.id || agents.includes(user.id)))
+      )
+    )
+      return { ok: false, message: "成交单不存在或无附件权限", code: 403 };
+  }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");
   db.prepare(
@@ -54,6 +72,9 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     user.id,
     nowIso()
   );
+  if (payload.parent_type === "deal") {
+    markReceived(db, payload.parent_id, payload.category, id, user.id);
+  }
   writeAudit(db, user, "attachment.add", "attachment", id, {
     parent_type: payload.parent_type,
     parent_id: payload.parent_id,

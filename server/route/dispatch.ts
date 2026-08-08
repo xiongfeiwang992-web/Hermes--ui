@@ -15,6 +15,7 @@ import * as system from "../domain/system";
 import * as attachment from "../domain/attachment";
 import * as config from "../domain/config";
 import * as contract from "../domain/contract";
+import * as dealDocuments from "../domain/dealDocuments";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -187,6 +188,20 @@ function route(
       return transfer.createTransferNode(db, user!, payload);
     case "transfer.status":
       return transfer.changeTransferStatus(db, user!, payload);
+    case "transfer.templates.list":
+      return transfer.listTransferTemplates(db, user!, payload);
+    case "transfer.templates.save":
+      return transfer.saveTransferTemplate(db, user!, payload);
+    case "transfer.seed":
+      return transfer.seedTransferNodes(db, user!, payload);
+    case "deal.documents.templates":
+      return dealDocuments.listTemplates(db, user!, payload);
+    case "deal.documents.template.save":
+      return dealDocuments.saveTemplate(db, user!, payload);
+    case "deal.documents.init":
+      return dealDocuments.initChecklist(db, user!, payload);
+    case "deal.documents.list":
+      return dealDocuments.listItems(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

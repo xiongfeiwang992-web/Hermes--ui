@@ -7,6 +7,8 @@ import {
 } from "../auth/policy";
 import { writeAudit } from "./audit";
 import { createMessage } from "./message";
+import { initForDeal, readiness } from "./dealDocuments";
+import { seedNodesForDeal } from "./transfer";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -104,6 +106,7 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
     now,
     now
   );
+  initForDeal(db, id);
   writeAudit(db, user, "deal.create", "deal", id);
   return getDeal(db, user, id);
 }
@@ -174,6 +177,18 @@ export function submitDeal(db: Db, user: SessionUser, payload: { id: string }): 
   if (!current) return { ok: false, message: "成交单不存在" };
   if (!["draft", "rejected"].includes(current.status)) {
     return { ok: false, message: "当前状态不可提交" };
+  }
+  const settings = db
+    .prepare(`SELECT deal_doc_required FROM settings WHERE company_id=?`)
+    .get(user.company_id) as any;
+  if (settings?.deal_doc_required) {
+    const documentStatus = readiness(db, current.id);
+    if (!documentStatus.ready) {
+      return {
+        ok: false,
+        message: `交易资料未齐：${documentStatus.missing.join("、")}`,
+      };
+    }
   }
   const now = nowIso();
   db.prepare(
@@ -308,6 +323,7 @@ export function approveDeal(db: Db, user: SessionUser, payload: { id: string }):
         );
       }
     }
+    seedNodesForDeal(db, current.id);
   });
   tx();
   writeAudit(db, user, "deal.approve", "deal", payload.id);

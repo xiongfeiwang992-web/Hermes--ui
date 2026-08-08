@@ -78,8 +78,17 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
     return { ok: false, message: "密码最小长度须为 8～32" };
   db.prepare(
     `UPDATE settings SET house_hold_limit=?, manager_award_rate=?, deal_required_fields=?,
-     password_min_length=?, updated_by=?, updated_at=? WHERE company_id=?`
-  ).run(hold, award, JSON.stringify(p.deal_required_fields || []), min, user.id, nowIso(), user.company_id);
+     password_min_length=?, deal_doc_required=?, updated_by=?, updated_at=? WHERE company_id=?`
+  ).run(
+    hold,
+    award,
+    JSON.stringify(p.deal_required_fields || []),
+    min,
+    p.deal_doc_required ? 1 : 0,
+    user.id,
+    nowIso(),
+    user.company_id
+  );
   writeAudit(db, user, "settings.update", "settings", user.company_id);
   return getSettings(db, user);
 }

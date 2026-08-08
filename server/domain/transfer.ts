@@ -138,3 +138,146 @@ export function changeTransferStatus(db: Db, user: SessionUser, payload: any): A
   });
   return { ok: true, data: { id: node.id, status: payload.status } };
 }
+
+export function listTransferTemplates(
+  db: Db,
+  user: SessionUser,
+  payload: any = {}
+): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  let rows = db
+    .prepare(
+      `SELECT * FROM transfer_templates
+       WHERE company_id=? AND status='active' ORDER BY deal_type, sort_order`
+    )
+    .all(user.company_id) as any[];
+  if (payload.deal_type) rows = rows.filter((row) => row.deal_type === payload.deal_type);
+  return { ok: true, data: rows };
+}
+
+export function saveTransferTemplate(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
+  const roles = ["admin", "store_manager", "agent", "finance", ""];
+  if (
+    !["sale", "rent"].includes(payload.deal_type) ||
+    !payload.node_type ||
+    !payload.title ||
+    !roles.includes(payload.default_assignee_role || "")
+  )
+    return { ok: false, message: "过户模板信息无效" };
+  const current = db
+    .prepare(
+      `SELECT id FROM transfer_templates
+       WHERE company_id=? AND deal_type=? AND node_type=?`
+    )
+    .get(user.company_id, payload.deal_type, payload.node_type) as any;
+  const id = current?.id || nextId("TRT");
+  const now = nowIso();
+  db.prepare(
+    `INSERT INTO transfer_templates(
+       id, company_id, deal_type, node_type, title, sort_order,
+       default_assignee_role, status, created_by, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+     ON CONFLICT(company_id, deal_type, node_type) DO UPDATE SET
+       title=excluded.title, sort_order=excluded.sort_order,
+       default_assignee_role=excluded.default_assignee_role,
+       status='active', updated_at=excluded.updated_at`
+  ).run(
+    id,
+    user.company_id,
+    payload.deal_type,
+    payload.node_type,
+    payload.title,
+    Number(payload.sort_order || 0),
+    payload.default_assignee_role || null,
+    user.id,
+    now,
+    now
+  );
+  writeAudit(db, user, "transfer_template.save", "transfer_template", id, payload);
+  return { ok: true, data: { id } };
+}
+
+function defaultAssignee(db: Db, deal: any, role: string | null): string | null {
+  if (!role) return null;
+  if (role === "agent") {
+    return (JSON.parse(deal.agent_ids || "[]") as string[])[0] || deal.created_by;
+  }
+  const row = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND role=? AND status='active'
+       AND (?='finance' OR store_id=?) ORDER BY created_at LIMIT 1`
+    )
+    .get(deal.company_id, role, role, deal.store_id) as any;
+  return row?.id || null;
+}
+
+export function seedNodesForDeal(db: Db, dealId: string): number {
+  const deal = db.prepare(`SELECT * FROM deals WHERE id=?`).get(dealId) as any;
+  if (!deal) return 0;
+  const templates = db
+    .prepare(
+      `SELECT * FROM transfer_templates
+       WHERE company_id=? AND deal_type=? AND status='active' ORDER BY sort_order`
+    )
+    .all(deal.company_id, deal.deal_type) as any[];
+  let created = 0;
+  const now = nowIso();
+  for (const template of templates) {
+    const exists = db
+      .prepare(`SELECT id FROM transfer_nodes WHERE deal_id=? AND node_type=?`)
+      .get(deal.id, template.node_type);
+    if (exists) continue;
+    const id = nextId("TRN");
+    const assignee = defaultAssignee(db, deal, template.default_assignee_role);
+    db.prepare(
+      `INSERT INTO transfer_nodes(
+         id, company_id, store_id, deal_id, node_type, title, status,
+         assignee_user_id, created_by, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
+    ).run(
+      id,
+      deal.company_id,
+      deal.store_id,
+      deal.id,
+      template.node_type,
+      template.title,
+      assignee,
+      deal.created_by,
+      now,
+      now
+    );
+    if (assignee) {
+      createMessage(db, {
+        company_id: deal.company_id,
+        store_id: deal.store_id,
+        user_id: assignee,
+        title: "新增交易办理节点",
+        body: `${template.title}（成交单 ${deal.id}）`,
+        kind: "transfer_node",
+        ref_type: "deal",
+        ref_id: deal.id,
+      });
+    }
+    created++;
+  }
+  return created;
+}
+
+export function seedTransferNodes(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  const deal = db
+    .prepare(`SELECT * FROM deals WHERE id=? AND company_id=?`)
+    .get(payload.deal_id, user.company_id) as any;
+  if (
+    !deal ||
+    deal.status !== "approved" ||
+    (user.role === "store_manager" && deal.store_id !== user.store_id)
+  )
+    return { ok: false, message: "成交单不存在、未审批或无权限" };
+  const created = seedNodesForDeal(db, deal.id);
+  writeAudit(db, user, "transfer.seed", "deal", deal.id, { created });
+  return { ok: true, data: { created } };
+}
