@@ -236,10 +236,34 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   return getHouse(db, user, payload.id);
 }
 
+function resolveStoreAgent(
+  db: Db,
+  companyId: string,
+  storeId: string,
+  agentId: string
+): { ok: true; agent: any } | { ok: false; message: string; code?: number } {
+  const agent = db
+    .prepare(
+      `SELECT id, display_name, role, store_id, status FROM users
+       WHERE id = ? AND company_id = ?`
+    )
+    .get(agentId, companyId) as any;
+  if (!agent || agent.status !== "active") {
+    return { ok: false, message: "接盘人不存在或已停用" };
+  }
+  if (agent.store_id !== storeId) {
+    return { ok: false, message: "只能指定本店员工为接盘人" };
+  }
+  if (!["agent", "store_manager"].includes(agent.role)) {
+    return { ok: false, message: "接盘人须为经纪人或店长" };
+  }
+  return { ok: true, agent };
+}
+
 export function changeHouseStatus(
   db: Db,
   user: SessionUser,
-  payload: { id: string; status: string; reason?: string }
+  payload: { id: string; status: string; reason?: string; agent_id?: string }
 ): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -255,17 +279,57 @@ export function changeHouseStatus(
   if (payload.status === "withdrawn" && !payload.reason) {
     return { ok: false, message: "撤盘须填写原因" };
   }
-  db.prepare(`UPDATE houses SET status = ?, remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`).run(
-    payload.status,
-    payload.reason || null,
-    nowIso(),
-    payload.id
-  );
+  let nextAgentId = current.agent_id;
+  if (
+    payload.agent_id &&
+    payload.agent_id !== current.agent_id &&
+    payload.status === "available" &&
+    current.status === "suspended"
+  ) {
+    if (!(user.role === "admin" || user.role === "store_manager")) {
+      return { ok: false, message: "仅店长/管理员恢复上架时可改接盘人", code: 403 };
+    }
+    const resolved = resolveStoreAgent(db, user.company_id, current.store_id, payload.agent_id);
+    if (!resolved.ok) return resolved;
+    nextAgentId = payload.agent_id;
+  } else if (payload.agent_id && payload.agent_id !== current.agent_id) {
+    return { ok: false, message: "仅暂缓恢复上架时可顺带改接盘人" };
+  }
+  const now = nowIso();
+  db.prepare(
+    `UPDATE houses SET status = ?, agent_id = ?, remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
+  ).run(payload.status, nextAgentId, payload.reason || null, now, payload.id);
   writeAudit(db, user, "house.status", "house", payload.id, {
     from: current.status,
     to: payload.status,
     reason: payload.reason,
+    agent_from: current.agent_id,
+    agent_to: nextAgentId,
   });
+  if (nextAgentId !== current.agent_id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: nextAgentId,
+      title: "接盘房源已分配",
+      body: `房源「${current.title}」已恢复上架并指定您为接盘人`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: current.id,
+    });
+    if (current.agent_id) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: current.store_id,
+        user_id: current.agent_id,
+        title: "接盘人已变更",
+        body: `房源「${current.title}」恢复上架时接盘人已变更`,
+        kind: "house_agent",
+        ref_type: "house",
+        ref_id: current.id,
+      });
+    }
+  }
   return getHouse(db, user, payload.id);
 }
 
@@ -284,6 +348,15 @@ export function changeHouseAgent(
   if (user.role === "store_manager" && current.store_id !== user.store_id) {
     return { ok: false, message: "只能操作本店房源", code: 403 };
   }
+  if (["closed", "withdrawn"].includes(current.status)) {
+    return { ok: false, message: "已成交或已撤盘房源不可改接盘人" };
+  }
+  if (!payload.agent_id) return { ok: false, message: "须指定接盘人" };
+  if (payload.agent_id === current.agent_id) {
+    return { ok: false, message: "接盘人未变化" };
+  }
+  const resolved = resolveStoreAgent(db, user.company_id, current.store_id, payload.agent_id);
+  if (!resolved.ok) return resolved;
   db.prepare(`UPDATE houses SET agent_id = ?, updated_at = ? WHERE id = ?`).run(
     payload.agent_id,
     nowIso(),
@@ -293,6 +366,28 @@ export function changeHouseAgent(
     from: current.agent_id,
     to: payload.agent_id,
   });
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: current.store_id,
+    user_id: payload.agent_id,
+    title: "接盘房源已分配",
+    body: `房源「${current.title}」已指定您为接盘人`,
+    kind: "house_agent",
+    ref_type: "house",
+    ref_id: current.id,
+  });
+  if (current.agent_id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: current.agent_id,
+      title: "接盘人已变更",
+      body: `房源「${current.title}」接盘人已变更给 ${resolved.agent.display_name}`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: current.id,
+    });
+  }
   return getHouse(db, user, payload.id);
 }
 

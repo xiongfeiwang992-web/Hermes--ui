@@ -37,6 +37,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
     description: "角色人、合作盘、钥匙、验真、委托、过户、按揭",
     kinds: [
       "house_role",
+      "house_agent",
       "house_cooperation",
       "key_borrow",
       "verification_pending",

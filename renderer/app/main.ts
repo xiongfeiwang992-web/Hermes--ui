@@ -387,6 +387,17 @@ function openInfoDialog(title: string, bodyHtml: string) {
 async function renderHouses(main: HTMLElement) {
   const res = await api("house.list", {});
   const desktopShell = (window as any).weilaijia?.shell;
+  const canManageHolder = ["admin", "store_manager"].includes(state.user.role);
+  const storeUsersResult =
+    state.user.role === "finance"
+      ? { ok: false, data: [] as any[] }
+      : await api("org.users.store", {});
+  const allStoreUsers = storeUsersResult.ok ? ((storeUsersResult.data as any[]) || []) : [];
+  const storeUsers = allStoreUsers.filter((user) =>
+    ["agent", "store_manager"].includes(user.role)
+  );
+  const agentName = (id: string) =>
+    allStoreUsers.find((user) => user.id === id)?.display_name || id;
   main.innerHTML = `
     <div class="header">
       <h2>房源</h2>
@@ -446,7 +457,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -454,6 +465,8 @@ async function renderHouses(main: HTMLElement) {
           ${h.force_follow_required ? `<button class="btn" data-reveal-house="${h.id}">写跟进看电话</button>` : ""}
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
+          ${h.status === "suspended" ? `<button class="btn" data-resume="${h.id}" data-agent="${h.agent_id}">恢复上架</button>` : ""}
+          ${canManageHolder && !["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-holder="${h.id}" data-agent="${h.agent_id}">改接盘人</button>` : ""}
           ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
           <button class="btn ghost" data-photos="${h.id}">图片</button>
           <button class="btn ghost" data-related="${h.id}">同业主</button>
@@ -578,6 +591,63 @@ async function renderHouses(main: HTMLElement) {
         const r = await api("house.status", { id, status: to });
         toast(r.ok ? "状态已更新" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
+      });
+    });
+    list.querySelectorAll("[data-resume]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const houseId = (btn as HTMLElement).dataset.resume!;
+        const currentAgent = (btn as HTMLElement).dataset.agent || "";
+        const options = storeUsers
+          .map(
+            (user) =>
+              `<option value="${user.id}" ${user.id === currentAgent ? "selected" : ""}>${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`
+          )
+          .join("");
+        if (canManageHolder && options) {
+          openDialog(
+            "恢复上架",
+            `<label class="full">接盘人（可改）<select name="agent_id">${options}</select></label>`,
+            async (fd) => {
+              const result = await api("house.status", {
+                id: houseId,
+                status: "available",
+                agent_id: fd.get("agent_id"),
+              });
+              toast(result.ok ? "已恢复上架" : result.message, result.ok ? "ok" : "error");
+              if (result.ok) draw();
+            }
+          );
+          return;
+        }
+        api("house.status", { id: houseId, status: "available" }).then((result) => {
+          toast(result.ok ? "已恢复上架" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) draw();
+        });
+      });
+    });
+    list.querySelectorAll("[data-holder]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const houseId = (btn as HTMLElement).dataset.holder!;
+        const currentAgent = (btn as HTMLElement).dataset.agent || "";
+        const options = storeUsers
+          .map(
+            (user) =>
+              `<option value="${user.id}" ${user.id === currentAgent ? "selected" : ""}>${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`
+          )
+          .join("");
+        if (!options) return toast("暂无可指定的接盘人", "error");
+        openDialog(
+          "改接盘人",
+          `<label class="full">接盘人<select name="agent_id" required>${options}</select></label>`,
+          async (fd) => {
+            const result = await api("house.agent", {
+              id: houseId,
+              agent_id: fd.get("agent_id"),
+            });
+            toast(result.ok ? "接盘人已更新" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
       });
     });
     list.querySelectorAll("[data-withdraw]").forEach((btn) => {
