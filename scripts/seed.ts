@@ -48,12 +48,26 @@ export function seedDatabase(dbPath?: string) {
     return id;
   }
 
-  addUser("admin", "系统管理员", "admin", storeA);
+  const adminId = addUser("admin", "系统管理员", "admin", storeA);
   addUser("manager", "一号店长", "store_manager", storeA);
   addUser("agent_a", "经纪人甲", "agent", storeA);
   addUser("agent_b", "经纪人乙", "agent", storeA);
   addUser("finance", "财务小王", "finance", storeA);
   addUser("agent_c", "二号店经纪人", "agent", storeB);
+
+  const followMethods = [
+    ["phone", "电话", 1],
+    ["wechat", "微信", 2],
+    ["visit", "拜访", 3],
+    ["other", "其他", 4],
+  ] as const;
+  for (const [value, label, sortOrder] of followMethods) {
+    db.prepare(
+      `INSERT INTO data_dictionaries(
+        id, company_id, dict_type, value, label, sort_order, status, created_by, created_at, updated_at
+      ) VALUES (?, ?, 'follow_method', ?, ?, ?, 'active', ?, ?, ?)`
+    ).run(nextId("DIC"), companyId, value, label, sortOrder, adminId, now, now);
+  }
 
   return { dbPath: resolved, companyId, storeA, storeB };
 }

@@ -5,7 +5,13 @@ import {
   houseVisibleTo,
   maskPhone,
 } from "../auth/policy";
+import {
+  buildModificationSummary,
+  buildPriceChangeSummary,
+  recordModificationFollow,
+} from "./activity";
 import { writeAudit } from "./audit";
+import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
 import { nextId, nowIso } from "../utils/id";
@@ -29,15 +35,15 @@ const ROLE_TYPES = new Set([
   "entrustment",
 ]);
 
-function presentHouse(user: SessionUser, row: any) {
-  const visiblePhone = canSeeOwnerPhone(user, row)
-    ? row.owner_phone
-    : maskPhone(row.owner_phone);
+function presentHouse(db: Db, user: SessionUser, row: any) {
+  const policyAllows = canSeeOwnerPhone(user, row);
+  const gate = resolvePhoneVisibility(db, user, policyAllows, "house", row.id);
   return {
     ...row,
     is_private: Boolean(row.is_private),
-    owner_phone: visiblePhone,
-    owner_phone_masked: !canSeeOwnerPhone(user, row),
+    owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
+    owner_phone_masked: !gate.showFull,
+    force_follow_required: gate.forceFollowRequired,
   };
 }
 
@@ -69,7 +75,7 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
   }
   if (q.price_min != null) rows = rows.filter((h) => h.price >= Number(q.price_min));
   if (q.price_max != null) rows = rows.filter((h) => h.price <= Number(q.price_max));
-  return { ok: true, data: rows.map((r) => presentHouse(user, r)) };
+  return { ok: true, data: rows.map((r) => presentHouse(db, user, r)) };
 }
 
 export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {
@@ -79,7 +85,7 @@ export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {
   if (!row || !houseVisibleTo(user, row)) {
     return { ok: false, message: "房源不存在或无权限", code: 403 };
   }
-  return { ok: true, data: presentHouse(user, row) };
+  return { ok: true, data: presentHouse(db, user, row) };
 }
 
 export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -189,6 +195,81 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (user.role === "agent" && current.agent_id !== user.id) {
     return { ok: false, message: "只能编辑本人接盘房源", code: 403 };
   }
+  const nextPrice = payload.price != null ? Number(payload.price) : null;
+  const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
+  const priceSummary =
+    payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
+  const summary = buildModificationSummary([
+    { label: "标题", provided: payload.title != null, prev: current.title, next: payload.title },
+    {
+      label: "小区",
+      provided: payload.community != null,
+      prev: current.community,
+      next: payload.community,
+    },
+    { label: "地址", provided: payload.address != null, prev: current.address, next: payload.address },
+    {
+      label: "区域",
+      provided: payload.district != null,
+      prev: current.district,
+      next: payload.district,
+    },
+    {
+      label: "面积",
+      provided: payload.area_size != null,
+      prev: current.area_size,
+      next: payload.area_size,
+    },
+    { label: "户型", provided: payload.rooms != null, prev: current.rooms, next: payload.rooms },
+    { label: "楼层", provided: payload.floor != null, prev: current.floor, next: payload.floor },
+    {
+      label: "业主",
+      provided: payload.owner_name != null,
+      prev: current.owner_name,
+      next: payload.owner_name,
+    },
+    {
+      label: "业主电话",
+      provided: payload.owner_phone != null,
+      prev: current.owner_phone,
+      next: payload.owner_phone,
+      sensitive: true,
+    },
+    {
+      label: "私盘",
+      provided: payload.is_private != null,
+      prev: current.is_private,
+      next: nextPrivate,
+      bool: true,
+    },
+    { label: "来源", provided: payload.source != null, prev: current.source, next: payload.source },
+    { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
+    {
+      label: "封面",
+      provided: payload.cover_image != null,
+      prev: current.cover_image,
+      next: payload.cover_image,
+      sensitive: true,
+    },
+    {
+      label: "物业类型",
+      provided: payload.property_type != null,
+      prev: current.property_type,
+      next: payload.property_type,
+    },
+    {
+      label: "交易模式",
+      provided: payload.deal_mode != null,
+      prev: current.deal_mode,
+      next: payload.deal_mode,
+    },
+    {
+      label: "可见范围",
+      provided: payload.visibility != null,
+      prev: current.visibility,
+      next: payload.visibility,
+    },
+  ]);
   db.prepare(
     `UPDATE houses SET
       title = COALESCE(?, title),
@@ -215,13 +296,13 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.community ?? null,
     payload.address ?? null,
     payload.district ?? null,
-    payload.price != null ? Number(payload.price) : null,
+    nextPrice,
     payload.area_size ?? null,
     payload.rooms ?? null,
     payload.floor ?? null,
     payload.owner_name ?? null,
     payload.owner_phone ?? null,
-    payload.is_private == null ? null : payload.is_private ? 1 : 0,
+    nextPrivate,
     payload.source ?? null,
     payload.remark ?? null,
     payload.cover_image ?? null,
@@ -232,13 +313,52 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.id
   );
   writeAudit(db, user, "house.update", "house", payload.id);
+  if (priceSummary) {
+    recordModificationFollow(db, user, {
+      targetType: "house",
+      targetId: payload.id,
+      summary: priceSummary,
+      followKind: "price_change",
+    });
+  }
+  if (summary) {
+    recordModificationFollow(db, user, {
+      targetType: "house",
+      targetId: payload.id,
+      summary,
+    });
+  }
   return getHouse(db, user, payload.id);
+}
+
+function resolveStoreAgent(
+  db: Db,
+  companyId: string,
+  storeId: string,
+  agentId: string
+): { ok: true; agent: any } | { ok: false; message: string; code?: number } {
+  const agent = db
+    .prepare(
+      `SELECT id, display_name, role, store_id, status FROM users
+       WHERE id = ? AND company_id = ?`
+    )
+    .get(agentId, companyId) as any;
+  if (!agent || agent.status !== "active") {
+    return { ok: false, message: "接盘人不存在或已停用" };
+  }
+  if (agent.store_id !== storeId) {
+    return { ok: false, message: "只能指定本店员工为接盘人" };
+  }
+  if (!["agent", "store_manager"].includes(agent.role)) {
+    return { ok: false, message: "接盘人须为经纪人或店长" };
+  }
+  return { ok: true, agent };
 }
 
 export function changeHouseStatus(
   db: Db,
   user: SessionUser,
-  payload: { id: string; status: string; reason?: string }
+  payload: { id: string; status: string; reason?: string; agent_id?: string }
 ): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -254,17 +374,57 @@ export function changeHouseStatus(
   if (payload.status === "withdrawn" && !payload.reason) {
     return { ok: false, message: "撤盘须填写原因" };
   }
-  db.prepare(`UPDATE houses SET status = ?, remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`).run(
-    payload.status,
-    payload.reason || null,
-    nowIso(),
-    payload.id
-  );
+  let nextAgentId = current.agent_id;
+  if (
+    payload.agent_id &&
+    payload.agent_id !== current.agent_id &&
+    payload.status === "available" &&
+    current.status === "suspended"
+  ) {
+    if (!(user.role === "admin" || user.role === "store_manager")) {
+      return { ok: false, message: "仅店长/管理员恢复上架时可改接盘人", code: 403 };
+    }
+    const resolved = resolveStoreAgent(db, user.company_id, current.store_id, payload.agent_id);
+    if (!resolved.ok) return resolved;
+    nextAgentId = payload.agent_id;
+  } else if (payload.agent_id && payload.agent_id !== current.agent_id) {
+    return { ok: false, message: "仅暂缓恢复上架时可顺带改接盘人" };
+  }
+  const now = nowIso();
+  db.prepare(
+    `UPDATE houses SET status = ?, agent_id = ?, remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
+  ).run(payload.status, nextAgentId, payload.reason || null, now, payload.id);
   writeAudit(db, user, "house.status", "house", payload.id, {
     from: current.status,
     to: payload.status,
     reason: payload.reason,
+    agent_from: current.agent_id,
+    agent_to: nextAgentId,
   });
+  if (nextAgentId !== current.agent_id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: nextAgentId,
+      title: "接盘房源已分配",
+      body: `房源「${current.title}」已恢复上架并指定您为接盘人`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: current.id,
+    });
+    if (current.agent_id) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: current.store_id,
+        user_id: current.agent_id,
+        title: "接盘人已变更",
+        body: `房源「${current.title}」恢复上架时接盘人已变更`,
+        kind: "house_agent",
+        ref_type: "house",
+        ref_id: current.id,
+      });
+    }
+  }
   return getHouse(db, user, payload.id);
 }
 
@@ -283,6 +443,15 @@ export function changeHouseAgent(
   if (user.role === "store_manager" && current.store_id !== user.store_id) {
     return { ok: false, message: "只能操作本店房源", code: 403 };
   }
+  if (["closed", "withdrawn"].includes(current.status)) {
+    return { ok: false, message: "已成交或已撤盘房源不可改接盘人" };
+  }
+  if (!payload.agent_id) return { ok: false, message: "须指定接盘人" };
+  if (payload.agent_id === current.agent_id) {
+    return { ok: false, message: "接盘人未变化" };
+  }
+  const resolved = resolveStoreAgent(db, user.company_id, current.store_id, payload.agent_id);
+  if (!resolved.ok) return resolved;
   db.prepare(`UPDATE houses SET agent_id = ?, updated_at = ? WHERE id = ?`).run(
     payload.agent_id,
     nowIso(),
@@ -292,6 +461,28 @@ export function changeHouseAgent(
     from: current.agent_id,
     to: payload.agent_id,
   });
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: current.store_id,
+    user_id: payload.agent_id,
+    title: "接盘房源已分配",
+    body: `房源「${current.title}」已指定您为接盘人`,
+    kind: "house_agent",
+    ref_type: "house",
+    ref_id: current.id,
+  });
+  if (current.agent_id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: current.agent_id,
+      title: "接盘人已变更",
+      body: `房源「${current.title}」接盘人已变更给 ${resolved.agent.display_name}`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: current.id,
+    });
+  }
   return getHouse(db, user, payload.id);
 }
 
@@ -448,4 +639,38 @@ export function removeHouseRole(db: Db, user: SessionUser, payload: any): ApiRes
     reason: payload.reason,
   });
   return { ok: true, data: { id: role.id } };
+}
+
+export function listRelatedByOwner(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const houseId = payload.id || payload.house_id;
+  if (!houseId) return { ok: false, message: "缺少房源 id" };
+  const current = db
+    .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+    .get(houseId, user.company_id) as any;
+  if (!current || !houseVisibleTo(user, current)) {
+    return { ok: false, message: "房源不存在或无权限", code: 403 };
+  }
+  const rows = db
+    .prepare(
+      `SELECT * FROM houses
+       WHERE company_id = ? AND owner_phone = ? AND id != ?
+       ORDER BY updated_at DESC`
+    )
+    .all(user.company_id, current.owner_phone, current.id) as any[];
+  const related = rows
+    .filter((row) => houseVisibleTo(user, row))
+    .map((row) => presentHouse(db, user, row));
+  return {
+    ok: true,
+    data: {
+      house_id: current.id,
+      owner_name: current.owner_name,
+      owner_phone: canSeeOwnerPhone(user, current)
+        ? current.owner_phone
+        : maskPhone(current.owner_phone),
+      related_count: related.length,
+      items: related,
+    },
+  };
 }

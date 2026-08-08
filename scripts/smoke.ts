@@ -153,6 +153,10 @@ const pay = app.call(
   tokenF
 );
 assert(pay.ok, "create payment");
+assert(
+  app.call("payment.confirm", { id: dataOf<any>(pay).id }, tokenF).ok,
+  "confirm payment"
+);
 
 const commissions = app.call("commission.list", {}, tokenA);
 assert(commissions.ok, "list commissions");

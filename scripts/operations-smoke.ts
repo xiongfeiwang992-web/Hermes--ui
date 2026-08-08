@@ -123,7 +123,7 @@ check(!app.call("report.customersCsv", {}, finance).ok, "finance cannot export c
 const stats = app.call("report.activityStats", { month: new Date().toISOString().slice(0, 7) }, manager);
 check(
   stats.ok &&
-    data<any>(stats).follow_count === 1 &&
+    data<any>(stats).follow_count === 2 &&
     data<any>(stats).view_count === 1 &&
     data<any>(stats).effective_view_count === 1,
   "activity statistics aggregate follow and effective view"

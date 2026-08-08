@@ -46,8 +46,10 @@ assert(
   "upsert data dictionary"
 );
 assert(
-  data<any[]>(app.call("config.dictionary.list", { dict_type: "follow_method" }, agent)).length === 1,
-  "list data dictionary"
+  data<any[]>(app.call("config.dictionary.list", { dict_type: "follow_method" }, agent)).some(
+    (item) => item.value === "video" && item.label === "视频沟通"
+  ),
+  "list data dictionary includes custom follow method"
 );
 assert(
   app.call(
@@ -188,13 +190,15 @@ assert(
   ),
   "apply matching commission tier rate"
 );
+const specializedPay = app.call(
+  "payment.create",
+  { deal_id: dealId, amount: 10000, method: "transfer", payer_side: "customer" },
+  finance
+);
+assert(specializedPay.ok, "create payment before refund");
 assert(
-  app.call(
-    "payment.create",
-    { deal_id: dealId, amount: 10000, method: "transfer", payer_side: "customer" },
-    finance
-  ).ok,
-  "create payment before refund"
+  app.call("payment.confirm", { id: data<any>(specializedPay).id }, finance).ok,
+  "confirm payment before refund"
 );
 assert(
   app.call(

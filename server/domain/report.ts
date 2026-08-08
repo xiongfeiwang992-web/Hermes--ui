@@ -2,6 +2,7 @@ import type { Db } from "../db/database";
 import { listFollows, listViews } from "./activity";
 import { listHouses } from "./house";
 import { listCustomers } from "./customer";
+import { labelCustomerSource, normalizeCustomerSource } from "./config";
 import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
 import { todayDate } from "../utils/id";
@@ -58,9 +59,30 @@ export function dashboard(db: Db, user: SessionUser): ApiResult {
     paidSum += paid.s;
   }
 
+  const company = db
+    .prepare(`SELECT name FROM companies WHERE id = ?`)
+    .get(user.company_id) as { name?: string } | undefined;
+  const storeCount = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM stores WHERE company_id = ? AND status = 'active'`
+      )
+      .get(user.company_id) as { c: number }
+  ).c;
+  const employeeCount = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM users WHERE company_id = ? AND status = 'active'`
+      )
+      .get(user.company_id) as { c: number }
+  ).c;
+
   return {
     ok: true,
     data: {
+      company_name: company?.name || "",
+      store_count: storeCount,
+      employee_count: employeeCount,
       available_houses: availableHouses,
       private_customers: privateCustomers,
       public_customers: publicCustomers,
@@ -272,16 +294,18 @@ export function exportFollowsCsv(db: Db, user: SessionUser, payload: any = {}): 
   const rows = dataRows(listFollows(db, user, payload));
   if (!rows) return { ok: false, message: "无跟进导出权限", code: 403 };
   writeAudit(db, user, "follow.export", "follow", undefined, { rows: rows.length });
+  const kindLabel = (kind: string) =>
+    kind === "price_change" ? "改价跟进" : kind === "modification" ? "资料修改" : "普通跟进";
   return csvFile(
     `跟进明细-${todayDate()}.csv`,
     ["跟进编号", "门店", "对象类型", "对象编号", "方式", "类型", "内容", "下次跟进", "跟进人", "创建时间"],
     rows.map((row) => [
       row.id,
       row.store_id,
-      row.target_type,
+      row.target_type === "house" ? "房源" : row.target_type === "customer" ? "客源" : row.target_type,
       row.target_id,
-      row.method,
-      row.follow_kind,
+      row.method_label || row.method,
+      kindLabel(row.follow_kind || "normal"),
       row.content,
       row.next_follow_at,
       row.created_by,
@@ -363,6 +387,233 @@ export function activityStats(
       ),
     },
   };
+}
+
+function priceBand(dealType: string, price: number): string {
+  if (dealType === "rent") {
+    if (price < 2000) return "<2000";
+    if (price < 4000) return "2000-3999";
+    if (price < 6000) return "4000-5999";
+    if (price < 10000) return "6000-9999";
+    return "10000+";
+  }
+  if (price < 100) return "<100万";
+  if (price < 200) return "100-199万";
+  if (price < 300) return "200-299万";
+  if (price < 500) return "300-499万";
+  return "500万+";
+}
+
+function areaBand(area: number | null | undefined): string {
+  const value = Number(area || 0);
+  if (!(value > 0)) return "未填";
+  if (value < 60) return "<60㎡";
+  if (value < 90) return "60-89㎡";
+  if (value < 120) return "90-119㎡";
+  if (value < 150) return "120-149㎡";
+  return "150㎡+";
+}
+
+function bump(
+  map: Map<string, any>,
+  key: string,
+  base: Record<string, unknown>,
+  amountField?: { field: string; amount: number }
+) {
+  const current = map.get(key) || { ...base, count: 0, commission_total: 0, contract_price_total: 0 };
+  current.count += 1;
+  if (amountField) {
+    current[amountField.field] =
+      Number(current[amountField.field] || 0) + Number(amountField.amount || 0);
+  }
+  map.set(key, current);
+}
+
+function approvedDealsInMonth(db: Db, user: SessionUser, month?: string) {
+  const range = monthRange(month);
+  const rows = db
+    .prepare(
+      `SELECT d.*, h.community, h.deal_type, h.property_type, h.price AS house_price,
+              h.area_size, h.title AS house_title
+       FROM deals d
+       JOIN houses h ON h.id = d.house_id
+       WHERE d.company_id = ? AND d.status = 'approved'
+         AND d.approved_at >= ? AND d.approved_at < ?`
+    )
+    .all(user.company_id, range.start, range.end) as any[];
+  return {
+    range,
+    rows: rows.filter((row) => {
+      if (!scoped(user, row)) return false;
+      if (user.role !== "agent") return true;
+      return (JSON.parse(row.agent_ids || "[]") as string[]).includes(user.id);
+    }),
+  };
+}
+
+export function dealHotspots(
+  db: Db,
+  user: SessionUser,
+  payload: { month?: string } = {}
+): ApiResult {
+  const { range, rows } = approvedDealsInMonth(db, user, payload.month);
+  const byCommunity = new Map<string, any>();
+  const byPrice = new Map<string, any>();
+  const byArea = new Map<string, any>();
+  for (const row of rows) {
+    const community = row.community || "未填小区";
+    bump(byCommunity, community, { community }, { field: "commission_total", amount: row.commission_total });
+    byCommunity.get(community).contract_price_total += Number(row.contract_price || 0);
+    const priceKey = priceBand(row.deal_type || "sale", Number(row.contract_price || row.house_price || 0));
+    bump(byPrice, `${row.deal_type || "sale"}:${priceKey}`, {
+      deal_type: row.deal_type || "sale",
+      price_band: priceKey,
+    });
+    const areaKey = areaBand(row.area_size);
+    bump(byArea, areaKey, { area_band: areaKey });
+  }
+  return {
+    ok: true,
+    data: {
+      month: range.month,
+      deal_count: rows.length,
+      by_community: [...byCommunity.values()].sort((a, b) => b.count - a.count),
+      by_price_band: [...byPrice.values()].sort((a, b) => b.count - a.count),
+      by_area_band: [...byArea.values()].sort((a, b) => b.count - a.count),
+    },
+  };
+}
+
+export function houseAttributes(db: Db, user: SessionUser): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const houses = (
+    db.prepare(`SELECT * FROM houses WHERE company_id = ?`).all(user.company_id) as any[]
+  ).filter((row) => scoped(user, row));
+  const byDealType = new Map<string, any>();
+  const byProperty = new Map<string, any>();
+  const byPrice = new Map<string, any>();
+  for (const row of houses) {
+    bump(byDealType, row.deal_type || "sale", { deal_type: row.deal_type || "sale" });
+    const propertyType = row.property_type || "residential";
+    bump(byProperty, `${row.deal_type || "sale"}:${propertyType}`, {
+      deal_type: row.deal_type || "sale",
+      property_type: propertyType,
+    });
+    const band = priceBand(row.deal_type || "sale", Number(row.price || 0));
+    bump(byPrice, `${row.deal_type || "sale"}:${band}`, {
+      deal_type: row.deal_type || "sale",
+      price_band: band,
+    });
+  }
+  return {
+    ok: true,
+    data: {
+      house_count: houses.length,
+      by_deal_type: [...byDealType.values()].sort((a, b) => b.count - a.count),
+      by_property_type: [...byProperty.values()].sort((a, b) => b.count - a.count),
+      by_price_band: [...byPrice.values()].sort((a, b) => b.count - a.count),
+    },
+  };
+}
+
+export function customerSources(db: Db, user: SessionUser): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const customers = (
+    db.prepare(`SELECT * FROM customers WHERE company_id = ?`).all(user.company_id) as any[]
+  ).filter(
+    (row) =>
+      scoped(user, row) &&
+      !row.merged_into_id &&
+      (user.role !== "agent" || row.agent_id === user.id)
+  );
+  const bySource = new Map<string, any>();
+  for (const row of customers) {
+    const source = normalizeCustomerSource(row.source) || "未填写";
+    const source_label =
+      source === "未填写" ? "未填写" : labelCustomerSource(db, user.company_id, source) || source;
+    bump(bySource, source, { source, source_label });
+  }
+  return {
+    ok: true,
+    data: {
+      customer_count: customers.length,
+      by_source: [...bySource.values()].sort((a, b) => b.count - a.count),
+    },
+  };
+}
+
+export function exportDealHotspotsCsv(
+  db: Db,
+  user: SessionUser,
+  payload: { month?: string } = {}
+): ApiResult {
+  const result = dealHotspots(db, user, payload);
+  if (!result.ok) return result;
+  const data = result.data as any;
+  writeAudit(db, user, "report.dealHotspots.export", "report", undefined, {
+    month: data.month,
+  });
+  return csvFile(
+    `成交热点-${data.month}.csv`,
+    ["维度", "分组", "成交单数", "成交价合计", "佣金合计"],
+    [
+      ...data.by_community.map((row: any) => [
+        "小区",
+        row.community,
+        row.count,
+        row.contract_price_total,
+        row.commission_total,
+      ]),
+      ...data.by_price_band.map((row: any) => [
+        "总价段",
+        `${row.deal_type}/${row.price_band}`,
+        row.count,
+        "",
+        "",
+      ]),
+      ...data.by_area_band.map((row: any) => ["面积段", row.area_band, row.count, "", ""]),
+    ]
+  );
+}
+
+export function exportHouseAttributesCsv(db: Db, user: SessionUser): ApiResult {
+  const result = houseAttributes(db, user);
+  if (!result.ok) return result;
+  const data = result.data as any;
+  writeAudit(db, user, "report.houseAttributes.export", "report", undefined, {
+    rows: data.house_count,
+  });
+  return csvFile(
+    `盘源属性分析-${todayDate()}.csv`,
+    ["维度", "分组", "房源数"],
+    [
+      ...data.by_deal_type.map((row: any) => ["租售", row.deal_type, row.count]),
+      ...data.by_property_type.map((row: any) => [
+        "物业类型",
+        `${row.deal_type}/${row.property_type}`,
+        row.count,
+      ]),
+      ...data.by_price_band.map((row: any) => [
+        "价格段",
+        `${row.deal_type}/${row.price_band}`,
+        row.count,
+      ]),
+    ]
+  );
+}
+
+export function exportCustomerSourcesCsv(db: Db, user: SessionUser): ApiResult {
+  const result = customerSources(db, user);
+  if (!result.ok) return result;
+  const data = result.data as any;
+  writeAudit(db, user, "report.customerSources.export", "report", undefined, {
+    rows: data.customer_count,
+  });
+  return csvFile(
+    `客户来源分析-${todayDate()}.csv`,
+    ["来源", "客户数"],
+    data.by_source.map((row: any) => [row.source_label || row.source, row.count])
+  );
 }
 
 export function exportDealsCsv(

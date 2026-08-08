@@ -35,6 +35,8 @@ import * as performance from "../domain/performance";
 import * as dealExt from "../domain/dealExt";
 import * as propertyExt from "../domain/propertyExt";
 import * as financeAssets from "../domain/financeAssets";
+import * as officeCollab from "../domain/officeCollab";
+import * as mortgageCalc from "../domain/mortgageCalc";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -101,6 +103,8 @@ function route(
       return house.changeHouseAgent(db, user!, payload);
     case "house.lock":
       return house.setHouseLock(db, user!, payload);
+    case "house.relatedByOwner":
+      return house.listRelatedByOwner(db, user!, payload);
     case "house.roles.list":
       return house.listHouseRoles(db, user!, payload);
     case "house.roles.assign":
@@ -139,6 +143,8 @@ function route(
       return activity.createFollow(db, user!, payload);
     case "follow.list":
       return activity.listFollows(db, user!, payload);
+    case "contact.reveal":
+      return activity.revealContact(db, user!, payload);
     case "view.create":
       return activity.createView(db, user!, payload);
     case "view.list":
@@ -164,6 +170,10 @@ function route(
       return deal.rejectDeal(db, user!, payload);
     case "payment.create":
       return deal.createPayment(db, user!, payload);
+    case "payment.confirm":
+      return deal.confirmPayment(db, user!, payload);
+    case "payment.reject":
+      return deal.rejectPayment(db, user!, payload);
     case "payment.list":
       return deal.listPayments(db, user!, payload);
     case "payment.refund":
@@ -633,6 +643,60 @@ function route(
       return financeAssets.postVoucher(db, user!, payload);
     case "finance.vouchers.void":
       return financeAssets.voidVoucher(db, user!, payload);
+    case "officeCollab.options":
+      return officeCollab.officeCollabOptions(db, user!);
+    case "officeCollab.exams.list":
+      return officeCollab.listExams(db, user!, payload);
+    case "officeCollab.exams.save":
+      return officeCollab.saveExam(db, user!, payload);
+    case "officeCollab.exams.publish":
+      return officeCollab.publishExam(db, user!, payload);
+    case "officeCollab.exams.attempt":
+      return officeCollab.submitExamAttempt(db, user!, payload);
+    case "officeCollab.events.list":
+      return officeCollab.listEvents(db, user!, payload);
+    case "officeCollab.events.save":
+      return officeCollab.saveEvent(db, user!, payload);
+    case "officeCollab.events.open":
+      return officeCollab.openEvent(db, user!, payload);
+    case "officeCollab.events.signup":
+      return officeCollab.signupEvent(db, user!, payload);
+    case "officeCollab.workflows.list":
+      return officeCollab.listWorkflows(db, user!, payload);
+    case "officeCollab.workflows.create":
+      return officeCollab.createWorkflow(db, user!, payload);
+    case "officeCollab.workflows.submit":
+      return officeCollab.submitWorkflow(db, user!, payload);
+    case "officeCollab.workflows.decide":
+      return officeCollab.decideWorkflow(db, user!, payload);
+    case "officeCollab.tickets.list":
+      return officeCollab.listTickets(db, user!, payload);
+    case "officeCollab.tickets.create":
+      return officeCollab.createTicket(db, user!, payload);
+    case "officeCollab.tickets.approve":
+      return officeCollab.approveTicket(db, user!, payload);
+    case "officeCollab.tickets.issue":
+      return officeCollab.issueTicket(db, user!, payload);
+    case "officeCollab.tickets.return":
+      return officeCollab.returnTicket(db, user!, payload);
+    case "officeCollab.summaries.list":
+      return officeCollab.listSummaries(db, user!, payload);
+    case "officeCollab.summaries.save":
+      return officeCollab.saveSummary(db, user!, payload);
+    case "officeCollab.summaries.submit":
+      return officeCollab.submitSummary(db, user!, payload);
+    case "officeCollab.summaries.review":
+      return officeCollab.reviewSummary(db, user!, payload);
+    case "officeCollab.circle.list":
+      return officeCollab.listCirclePosts(db, user!, payload);
+    case "officeCollab.circle.create":
+      return officeCollab.createCirclePost(db, user!, payload);
+    case "officeCollab.circle.hide":
+      return officeCollab.hideCirclePost(db, user!, payload);
+    case "officeCollab.calls.list":
+      return officeCollab.listCalls(db, user!, payload);
+    case "officeCollab.calls.create":
+      return officeCollab.createCall(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);
@@ -650,6 +714,18 @@ function route(
       return report.exportViewsCsv(db, user!, payload);
     case "report.activityStats":
       return report.activityStats(db, user!, payload);
+    case "report.dealHotspots":
+      return report.dealHotspots(db, user!, payload);
+    case "report.houseAttributes":
+      return report.houseAttributes(db, user!);
+    case "report.customerSources":
+      return report.customerSources(db, user!);
+    case "report.dealHotspotsCsv":
+      return report.exportDealHotspotsCsv(db, user!, payload);
+    case "report.houseAttributesCsv":
+      return report.exportHouseAttributesCsv(db, user!);
+    case "report.customerSourcesCsv":
+      return report.exportCustomerSourcesCsv(db, user!);
 
     case "suite.modules":
       return suite.modules();
@@ -681,6 +757,8 @@ function route(
       return attachment.listAttachments(db, user!, payload);
     case "attachment.add":
       return attachment.addAttachment(db, user!, payload);
+    case "attachment.delete":
+      return attachment.deleteAttachment(db, user!, payload);
     case "config.preferences.get":
       return config.getPreferences(db, user!);
     case "config.preferences.save":
@@ -689,6 +767,10 @@ function route(
       return config.listDictionary(db, user!, payload);
     case "config.dictionary.upsert":
       return config.upsertDictionary(db, user!, payload);
+    case "config.followMethods":
+      return config.listFollowMethods(db, user!);
+    case "config.customerSources":
+      return config.listCustomerSources(db, user!);
     case "config.settings.get":
       return config.getSettings(db, user!);
     case "config.settings.save":
@@ -711,6 +793,12 @@ function route(
       return { ok: true, data: { count: message.unreadCount(db, user!) } };
     case "message.read":
       return { ok: true, data: message.markRead(db, user!, payload.id) };
+    case "message.subscriptions.get":
+      return message.getSubscriptions(db, user!);
+    case "message.subscriptions.save":
+      return message.saveSubscriptions(db, user!, payload);
+    case "mortgageCalc.compute":
+      return mortgageCalc.computeMortgage(db, user!, payload);
     case "audit.list":
       return { ok: true, data: listAudit(db, user!, payload) };
 

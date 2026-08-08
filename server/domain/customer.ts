@@ -1,19 +1,29 @@
 import type { Db } from "../db/database";
 import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
+import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
+import {
+  isAllowedCustomerSource,
+  labelCustomerSource,
+  normalizeCustomerSource,
+} from "./config";
+import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
-function presentCustomer(user: SessionUser, row: any) {
-  const canFull =
+function presentCustomer(db: Db, user: SessionUser, row: any) {
+  const policyAllows =
     user.role === "admin" ||
     user.role === "store_manager" ||
     user.id === row.agent_id;
+  const gate = resolvePhoneVisibility(db, user, policyAllows, "customer", row.id);
   return {
     ...row,
-    phone: canFull ? row.phone : maskPhone(row.phone),
-    phone_masked: !canFull,
+    phone: gate.showFull ? row.phone : maskPhone(row.phone),
+    phone_masked: !gate.showFull,
+    force_follow_required: gate.forceFollowRequired,
+    source_label: labelCustomerSource(db, user.company_id, row.source),
   };
 }
 
@@ -29,11 +39,15 @@ export function listCustomers(db: Db, user: SessionUser, q: any = {}): ApiResult
   if (q.visibility) rows = rows.filter((c) => c.visibility === q.visibility);
   if (q.status) rows = rows.filter((c) => c.status === q.status);
   if (q.agent_id) rows = rows.filter((c) => c.agent_id === q.agent_id);
+  if (q.source) {
+    const source = normalizeCustomerSource(q.source);
+    rows = rows.filter((c) => normalizeCustomerSource(c.source) === source);
+  }
   if (q.keyword) {
     const k = String(q.keyword);
     rows = rows.filter((c) => c.name.includes(k) || c.phone.includes(k) || (c.need || "").includes(k));
   }
-  return { ok: true, data: rows.map((r) => presentCustomer(user, r)) };
+  return { ok: true, data: rows.map((r) => presentCustomer(db, user, r)) };
 }
 
 export function getCustomer(db: Db, user: SessionUser, id: string): ApiResult {
@@ -43,7 +57,7 @@ export function getCustomer(db: Db, user: SessionUser, id: string): ApiResult {
   if (!row || !customerVisibleTo(user, row)) {
     return { ok: false, message: "客源不存在或无权限", code: 403 };
   }
-  return { ok: true, data: presentCustomer(user, row) };
+  return { ok: true, data: presentCustomer(db, user, row) };
 }
 
 export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -53,6 +67,10 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   }
   if (!["buy", "rent"].includes(payload.intent)) {
     return { ok: false, message: "intent 无效" };
+  }
+  const source = normalizeCustomerSource(payload.source);
+  if (source && !isAllowedCustomerSource(db, user.company_id, source)) {
+    return { ok: false, message: "客户来源不在当前字典中" };
   }
   const dup = db
     .prepare(`SELECT id, name FROM customers WHERE company_id = ? AND phone = ?`)
@@ -77,7 +95,7 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.need || null,
     payload.level || "B",
     user.id,
-    payload.source || null,
+    source,
     payload.remark || null,
     payload.is_confidential ? 1 : 0,
     now,
@@ -108,6 +126,58 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (user.role === "agent" && current.agent_id !== user.id && current.visibility !== "public") {
     return { ok: false, message: "只能编辑本人私客", code: 403 };
   }
+  const nextConfidential =
+    payload.is_confidential == null ? null : payload.is_confidential ? 1 : 0;
+  const sourceProvided = Object.prototype.hasOwnProperty.call(payload, "source");
+  const nextSource = sourceProvided ? normalizeCustomerSource(payload.source) : null;
+  if (sourceProvided && nextSource && !isAllowedCustomerSource(db, user.company_id, nextSource)) {
+    return { ok: false, message: "客户来源不在当前字典中" };
+  }
+  const summary = buildModificationSummary([
+    { label: "姓名", provided: payload.name != null, prev: current.name, next: payload.name },
+    {
+      label: "电话",
+      provided: payload.phone != null,
+      prev: current.phone,
+      next: payload.phone,
+      sensitive: true,
+    },
+    { label: "意图", provided: payload.intent != null, prev: current.intent, next: payload.intent },
+    {
+      label: "预算下限",
+      provided: payload.budget_min != null,
+      prev: current.budget_min,
+      next: payload.budget_min,
+    },
+    {
+      label: "预算上限",
+      provided: payload.budget_max != null,
+      prev: current.budget_max,
+      next: payload.budget_max,
+    },
+    {
+      label: "预算说明",
+      provided: payload.budget_note != null,
+      prev: current.budget_note,
+      next: payload.budget_note,
+    },
+    { label: "需求", provided: payload.need != null, prev: current.need, next: payload.need },
+    { label: "等级", provided: payload.level != null, prev: current.level, next: payload.level },
+    {
+      label: "来源",
+      provided: sourceProvided,
+      prev: current.source,
+      next: nextSource,
+    },
+    { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
+    {
+      label: "保密客",
+      provided: payload.is_confidential != null,
+      prev: current.is_confidential,
+      next: nextConfidential,
+      bool: true,
+    },
+  ]);
   db.prepare(
     `UPDATE customers SET
       name = COALESCE(?, name),
@@ -132,13 +202,20 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.budget_note ?? null,
     payload.need ?? null,
     payload.level ?? null,
-    payload.source ?? null,
+    sourceProvided ? nextSource : null,
     payload.remark ?? null,
-    payload.is_confidential == null ? null : payload.is_confidential ? 1 : 0,
+    nextConfidential,
     nowIso(),
     payload.id
   );
   writeAudit(db, user, "customer.update", "customer", payload.id);
+  if (summary) {
+    recordModificationFollow(db, user, {
+      targetType: "customer",
+      targetId: payload.id,
+      summary,
+    });
+  }
   return getCustomer(db, user, payload.id);
 }
 

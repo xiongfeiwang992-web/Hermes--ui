@@ -1,6 +1,17 @@
 import type { Db } from "../db/database";
-import { canWriteListing, customerVisibleTo, houseVisibleTo } from "../auth/policy";
+import {
+  canSeeOwnerPhone,
+  canWriteListing,
+  customerVisibleTo,
+  houseVisibleTo,
+} from "../auth/policy";
 import { writeAudit } from "./audit";
+import {
+  isAllowedFollowMethod,
+  normalizeFollowMethod,
+  resolveFollowMethods,
+} from "./config";
+import { getContactGateSettings } from "./contactGate";
 import { createMessage } from "./message";
 import { nextId, nowIso, todayDate } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -16,6 +27,10 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
   const followKind = payload.follow_kind || "normal";
   if (!["normal", "price_change", "modification"].includes(followKind)) {
     return { ok: false, message: "跟进类型无效" };
+  }
+  const method = normalizeFollowMethod(payload.method || "other");
+  if (!isAllowedFollowMethod(db, user.company_id, method)) {
+    return { ok: false, message: "跟进方式不在当前字典中" };
   }
   if (payload.target_type === "house") {
     const house = db
@@ -55,7 +70,7 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
     payload.target_type,
     payload.target_id,
     payload.content.trim(),
-    payload.method || "other",
+    method,
     payload.next_follow_at || null,
     user.id,
     nowIso(),
@@ -66,6 +81,165 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
   }
   writeAudit(db, user, "follow.create", "follow", id);
   return { ok: true, data: { id } };
+}
+
+export type ModificationFieldDiff = {
+  label: string;
+  provided: boolean;
+  prev: unknown;
+  next: unknown;
+  sensitive?: boolean;
+  bool?: boolean;
+};
+
+function coerceDiffToken(value: unknown, asBool = false): string {
+  if (value == null) return "";
+  if (asBool || typeof value === "boolean") {
+    if (value === true || value === 1 || value === "1") return "1";
+    if (value === false || value === 0 || value === "0") return "0";
+  }
+  if (typeof value === "number") return String(value);
+  return String(value).trim();
+}
+
+function displayDiffToken(value: unknown, asBool = false): string {
+  const token = coerceDiffToken(value, asBool);
+  if (!token) return "空";
+  if (asBool) return token === "1" ? "是" : "否";
+  return token;
+}
+
+/** Build a human-readable modification summary; null when nothing actually changed. */
+export function buildModificationSummary(fields: ModificationFieldDiff[]): string | null {
+  const parts: string[] = [];
+  for (const field of fields) {
+    if (!field.provided) continue;
+    const prev = coerceDiffToken(field.prev, field.bool);
+    const next = coerceDiffToken(field.next, field.bool);
+    if (prev === next) continue;
+    if (field.sensitive) {
+      parts.push(`${field.label}已更新`);
+    } else {
+      parts.push(
+        `${field.label} ${displayDiffToken(field.prev, field.bool)}→${displayDiffToken(field.next, field.bool)}`
+      );
+    }
+  }
+  if (!parts.length) return null;
+  let summary = `修改：${parts.join("；")}`;
+  if (summary.trim().length < 5) summary = `${summary}（资料已更新）`;
+  return summary;
+}
+
+/** System-generated follow row for house/customer edits (does not mutate target status). */
+export function recordModificationFollow(
+  db: Db,
+  user: SessionUser,
+  input: {
+    targetType: "house" | "customer";
+    targetId: string;
+    summary: string;
+    followKind?: "modification" | "price_change";
+  }
+): void {
+  const followKind = input.followKind || "modification";
+  let content = String(input.summary || "").trim();
+  if (content.length < 5) content = `${content}（资料已更新）`;
+  const id = nextId("FLW");
+  db.prepare(
+    `INSERT INTO follows(id, company_id, store_id, target_type, target_id, content, method,
+     next_follow_at, created_by, voided, created_at, follow_kind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+  ).run(
+    id,
+    user.company_id,
+    user.store_id,
+    input.targetType,
+    input.targetId,
+    content,
+    "other",
+    null,
+    user.id,
+    nowIso(),
+    followKind
+  );
+  writeAudit(db, user, "follow.create", "follow", id, { auto: followKind });
+}
+
+export function buildPriceChangeSummary(prev: unknown, next: unknown): string | null {
+  const from = coerceDiffToken(prev);
+  const to = coerceDiffToken(next);
+  if (from === to) return null;
+  return `改价：${displayDiffToken(prev)}→${displayDiffToken(next)}`;
+}
+
+export function revealContact(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  if (!payload.target_type || !payload.target_id || !payload.content) {
+    return { ok: false, message: "须指定目标并填写跟进内容" };
+  }
+  if (!["house", "customer"].includes(payload.target_type)) {
+    return { ok: false, message: "target_type 无效" };
+  }
+  const follow = createFollow(db, user, {
+    target_type: payload.target_type,
+    target_id: payload.target_id,
+    content: payload.content,
+    method: payload.method || "phone",
+    next_follow_at: payload.next_follow_at || null,
+    follow_kind: payload.follow_kind || "normal",
+  });
+  if (!follow.ok) return follow;
+
+  if (payload.target_type === "house") {
+    const house = db
+      .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+      .get(payload.target_id, user.company_id) as any;
+    if (!house || !houseVisibleTo(user, house)) {
+      return { ok: false, message: "房源不可见", code: 403 };
+    }
+    if (!canSeeOwnerPhone(user, house)) {
+      return { ok: false, message: "无权查看该业主电话", code: 403 };
+    }
+    writeAudit(db, user, "contact.reveal", "house", house.id, {
+      follow_id: (follow.data as any).id,
+    });
+    return {
+      ok: true,
+      data: {
+        target_type: "house",
+        target_id: house.id,
+        phone: house.owner_phone,
+        follow_id: (follow.data as any).id,
+      },
+    };
+  }
+
+  const customer = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.target_id, user.company_id) as any;
+  if (!customer || !customerVisibleTo(user, customer)) {
+    return { ok: false, message: "客源不可见", code: 403 };
+  }
+  const canFull =
+    user.role === "admin" ||
+    user.role === "store_manager" ||
+    user.id === customer.agent_id;
+  if (!canFull) {
+    return { ok: false, message: "无权查看该客户电话", code: 403 };
+  }
+  writeAudit(db, user, "contact.reveal", "customer", customer.id, {
+    follow_id: (follow.data as any).id,
+  });
+  return {
+    ok: true,
+    data: {
+      target_type: "customer",
+      target_id: customer.id,
+      phone: customer.phone,
+      follow_id: (follow.data as any).id,
+    },
+  };
 }
 
 export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
@@ -82,6 +256,7 @@ export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
   }
   if (q.target_type) rows = rows.filter((f) => f.target_type === q.target_type);
   if (q.target_id) rows = rows.filter((f) => f.target_id === q.target_id);
+  if (q.follow_kind) rows = rows.filter((f) => f.follow_kind === q.follow_kind);
   if (q.due === "today" || q.due === "overdue") {
     const today = todayDate();
     rows = rows.filter((f) => {
@@ -91,7 +266,16 @@ export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
     });
     if (user.role === "agent") rows = rows.filter((f) => f.created_by === user.id);
   }
-  return { ok: true, data: rows };
+  const labels = new Map(
+    resolveFollowMethods(db, user.company_id).map((item) => [item.value, item.label])
+  );
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      method_label: labels.get(row.method) || row.method || "",
+    })),
+  };
 }
 
 export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -137,6 +321,23 @@ export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
       now,
       customer.id
     );
+  }
+  const viewerId = payload.agent_id || user.id;
+  const gate = getContactGateSettings(db, user.company_id);
+  if (gate.non_holder_view_remind && house.agent_id && house.agent_id !== viewerId) {
+    const viewer = db
+      .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+      .get(viewerId, user.company_id) as { display_name?: string } | undefined;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: "非接盘人带看提醒",
+      body: `${viewer?.display_name || "同事"} 登记了您盘源「${house.title}」的带看`,
+      kind: "view_non_holder",
+      ref_type: "view",
+      ref_id: id,
+    });
   }
   writeAudit(db, user, "view.create", "view", id);
   return getView(db, user, id);
