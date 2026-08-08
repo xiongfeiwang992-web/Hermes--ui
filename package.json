@@ -42,7 +42,8 @@
     "smoke:property-ext": "tsx scripts/property-ext-smoke.ts",
     "smoke:finance-assets": "tsx scripts/finance-assets-smoke.ts",
     "smoke:office-collab": "tsx scripts/office-collab-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense && npm run smoke:attendance && npm run smoke:cashbook && npm run smoke:workforce && npm run smoke:recruitment && npm run smoke:employee-contract && npm run smoke:payroll && npm run smoke:office-content && npm run smoke:rental && npm run smoke:customer-care && npm run smoke:marketing && npm run smoke:performance && npm run smoke:deal-ext && npm run smoke:property-ext && npm run smoke:finance-assets && npm run smoke:office-collab"
+    "smoke:force-follow": "tsx scripts/force-follow-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense && npm run smoke:attendance && npm run smoke:cashbook && npm run smoke:workforce && npm run smoke:recruitment && npm run smoke:employee-contract && npm run smoke:payroll && npm run smoke:office-content && npm run smoke:rental && npm run smoke:customer-care && npm run smoke:marketing && npm run smoke:performance && npm run smoke:deal-ext && npm run smoke:property-ext && npm run smoke:finance-assets && npm run smoke:office-collab && npm run smoke:force-follow"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

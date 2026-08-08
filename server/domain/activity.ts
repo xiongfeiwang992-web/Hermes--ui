@@ -1,6 +1,12 @@
 import type { Db } from "../db/database";
-import { canWriteListing, customerVisibleTo, houseVisibleTo } from "../auth/policy";
+import {
+  canSeeOwnerPhone,
+  canWriteListing,
+  customerVisibleTo,
+  houseVisibleTo,
+} from "../auth/policy";
 import { writeAudit } from "./audit";
+import { getContactGateSettings } from "./contactGate";
 import { createMessage } from "./message";
 import { nextId, nowIso, todayDate } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -66,6 +72,75 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
   }
   writeAudit(db, user, "follow.create", "follow", id);
   return { ok: true, data: { id } };
+}
+
+export function revealContact(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  if (!payload.target_type || !payload.target_id || !payload.content) {
+    return { ok: false, message: "须指定目标并填写跟进内容" };
+  }
+  if (!["house", "customer"].includes(payload.target_type)) {
+    return { ok: false, message: "target_type 无效" };
+  }
+  const follow = createFollow(db, user, {
+    target_type: payload.target_type,
+    target_id: payload.target_id,
+    content: payload.content,
+    method: payload.method || "phone",
+    next_follow_at: payload.next_follow_at || null,
+    follow_kind: payload.follow_kind || "normal",
+  });
+  if (!follow.ok) return follow;
+
+  if (payload.target_type === "house") {
+    const house = db
+      .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+      .get(payload.target_id, user.company_id) as any;
+    if (!house || !houseVisibleTo(user, house)) {
+      return { ok: false, message: "房源不可见", code: 403 };
+    }
+    if (!canSeeOwnerPhone(user, house)) {
+      return { ok: false, message: "无权查看该业主电话", code: 403 };
+    }
+    writeAudit(db, user, "contact.reveal", "house", house.id, {
+      follow_id: (follow.data as any).id,
+    });
+    return {
+      ok: true,
+      data: {
+        target_type: "house",
+        target_id: house.id,
+        phone: house.owner_phone,
+        follow_id: (follow.data as any).id,
+      },
+    };
+  }
+
+  const customer = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.target_id, user.company_id) as any;
+  if (!customer || !customerVisibleTo(user, customer)) {
+    return { ok: false, message: "客源不可见", code: 403 };
+  }
+  const canFull =
+    user.role === "admin" ||
+    user.role === "store_manager" ||
+    user.id === customer.agent_id;
+  if (!canFull) {
+    return { ok: false, message: "无权查看该客户电话", code: 403 };
+  }
+  writeAudit(db, user, "contact.reveal", "customer", customer.id, {
+    follow_id: (follow.data as any).id,
+  });
+  return {
+    ok: true,
+    data: {
+      target_type: "customer",
+      target_id: customer.id,
+      phone: customer.phone,
+      follow_id: (follow.data as any).id,
+    },
+  };
 }
 
 export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
@@ -137,6 +212,23 @@ export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
       now,
       customer.id
     );
+  }
+  const viewerId = payload.agent_id || user.id;
+  const gate = getContactGateSettings(db, user.company_id);
+  if (gate.non_holder_view_remind && house.agent_id && house.agent_id !== viewerId) {
+    const viewer = db
+      .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+      .get(viewerId, user.company_id) as { display_name?: string } | undefined;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: "非接盘人带看提醒",
+      body: `${viewer?.display_name || "同事"} 登记了您盘源「${house.title}」的带看`,
+      kind: "view_non_holder",
+      ref_type: "view",
+      ref_id: id,
+    });
   }
   writeAudit(db, user, "view.create", "view", id);
   return getView(db, user, id);

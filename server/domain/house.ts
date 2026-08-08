@@ -6,6 +6,7 @@ import {
   maskPhone,
 } from "../auth/policy";
 import { writeAudit } from "./audit";
+import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
 import { nextId, nowIso } from "../utils/id";
@@ -29,15 +30,15 @@ const ROLE_TYPES = new Set([
   "entrustment",
 ]);
 
-function presentHouse(user: SessionUser, row: any) {
-  const visiblePhone = canSeeOwnerPhone(user, row)
-    ? row.owner_phone
-    : maskPhone(row.owner_phone);
+function presentHouse(db: Db, user: SessionUser, row: any) {
+  const policyAllows = canSeeOwnerPhone(user, row);
+  const gate = resolvePhoneVisibility(db, user, policyAllows, "house", row.id);
   return {
     ...row,
     is_private: Boolean(row.is_private),
-    owner_phone: visiblePhone,
-    owner_phone_masked: !canSeeOwnerPhone(user, row),
+    owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
+    owner_phone_masked: !gate.showFull,
+    force_follow_required: gate.forceFollowRequired,
   };
 }
 
@@ -69,7 +70,7 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
   }
   if (q.price_min != null) rows = rows.filter((h) => h.price >= Number(q.price_min));
   if (q.price_max != null) rows = rows.filter((h) => h.price <= Number(q.price_max));
-  return { ok: true, data: rows.map((r) => presentHouse(user, r)) };
+  return { ok: true, data: rows.map((r) => presentHouse(db, user, r)) };
 }
 
 export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {
@@ -79,7 +80,7 @@ export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {
   if (!row || !houseVisibleTo(user, row)) {
     return { ok: false, message: "房源不存在或无权限", code: 403 };
   }
-  return { ok: true, data: presentHouse(user, row) };
+  return { ok: true, data: presentHouse(db, user, row) };
 }
 
 export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult {

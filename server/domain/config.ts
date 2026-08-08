@@ -68,6 +68,9 @@ export function getSettings(db: Db, user: SessionUser): ApiResult {
 
 export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
   if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
+  const current = db
+    .prepare(`SELECT * FROM settings WHERE company_id = ?`)
+    .get(user.company_id) as any;
   const hold = Number(p.house_hold_limit);
   const award = Number(p.manager_award_rate);
   const min = Number(p.password_min_length);
@@ -79,9 +82,22 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
     return { ok: false, message: "密码最小长度须为 8～32" };
   if (!Number.isInteger(protectionDays) || protectionDays < 0 || protectionDays > 365)
     return { ok: false, message: "角色保护期须为 0～365 天" };
+  const forceFollow =
+    p.force_follow_before_phone === undefined
+      ? Number(current?.force_follow_before_phone || 0)
+      : p.force_follow_before_phone
+        ? 1
+        : 0;
+  const nonHolderRemind =
+    p.non_holder_view_remind === undefined
+      ? Number(current?.non_holder_view_remind ?? 1)
+      : p.non_holder_view_remind
+        ? 1
+        : 0;
   db.prepare(
     `UPDATE settings SET house_hold_limit=?, manager_award_rate=?, deal_required_fields=?,
      password_min_length=?, deal_doc_required=?, house_role_protection_days=?,
+     force_follow_before_phone=?, non_holder_view_remind=?,
      updated_by=?, updated_at=? WHERE company_id=?`
   ).run(
     hold,
@@ -90,6 +106,8 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
     min,
     p.deal_doc_required ? 1 : 0,
     protectionDays,
+    forceFollow,
+    nonHolderRemind,
     user.id,
     nowIso(),
     user.company_id

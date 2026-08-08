@@ -140,6 +140,8 @@ function route(
       return activity.createFollow(db, user!, payload);
     case "follow.list":
       return activity.listFollows(db, user!, payload);
+    case "contact.reveal":
+      return activity.revealContact(db, user!, payload);
     case "view.create":
       return activity.createView(db, user!, payload);
     case "view.list":

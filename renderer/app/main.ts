@@ -422,11 +422,12 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}</div>
+          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
         <div class="ops">
+          ${h.force_follow_required ? `<button class="btn" data-reveal-house="${h.id}">写跟进看电话</button>` : ""}
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
           ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
@@ -437,6 +438,27 @@ async function renderHouses(main: HTMLElement) {
       </div>`
       )
       .join("");
+    list.querySelectorAll("[data-reveal-house]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const houseId = (btn as HTMLElement).dataset.revealHouse!;
+        openDialog(
+          "写跟进后查看业主电话",
+          `<label class="full">跟进内容<textarea name="content" rows="4" required placeholder="至少 5 个字"></textarea></label>
+           <label>方式<select name="method"><option value="phone">电话</option><option value="wechat">微信</option><option value="visit">拜访</option><option value="other">其他</option></select></label>`,
+          async (fd) => {
+            const result = await api("contact.reveal", {
+              target_type: "house",
+              target_id: houseId,
+              content: fd.get("content"),
+              method: fd.get("method"),
+            });
+            if (!result.ok) return toast(result.message, "error");
+            toast(`业主电话：${(result.data as any).phone}`, "ok");
+            draw();
+          }
+        );
+      });
+    });
     list.querySelectorAll("[data-status]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = (btn as HTMLElement).dataset.status!;
@@ -945,10 +967,11 @@ async function renderCustomers(main: HTMLElement) {
         <div><span class="tag">${c.visibility === "private" ? "私客" : "公客"}</span>
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag">${c.level}级</span>
-        <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}</div>
+        <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
         <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}</div>
       </div>
       <div class="ops">
+        ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
         <button class="btn ghost" data-match="${c.id}">匹配房源</button>
         <button class="btn ghost" data-contacts="${c.id}">联系人</button>
         ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-merge="${c.id}">合并</button>` : ""}
@@ -956,6 +979,27 @@ async function renderCustomers(main: HTMLElement) {
       </div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-reveal-customer]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const customerId = (btn as HTMLElement).dataset.revealCustomer!;
+        openDialog(
+          "写跟进后查看客户电话",
+          `<label class="full">跟进内容<textarea name="content" rows="4" required placeholder="至少 5 个字"></textarea></label>
+           <label>方式<select name="method"><option value="phone">电话</option><option value="wechat">微信</option><option value="visit">拜访</option><option value="other">其他</option></select></label>`,
+          async (fd) => {
+            const result = await api("contact.reveal", {
+              target_type: "customer",
+              target_id: customerId,
+              content: fd.get("content"),
+              method: fd.get("method"),
+            });
+            if (!result.ok) return toast(result.message, "error");
+            toast(`客户电话：${(result.data as any).phone}`, "ok");
+            draw();
+          }
+        );
+      });
+    });
     list.querySelectorAll("[data-public]").forEach((btn) =>
       btn.addEventListener("click", async () => {
         const reason = prompt("转公客原因") || "转公";
@@ -6485,6 +6529,8 @@ async function renderSystemCenter(main: HTMLElement) {
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
         <label>房源角色保护期（天）<input name="house_role_protection_days" type="number" min="0" max="365" value="${value.house_role_protection_days}" /></label>
         <label><span><input name="deal_doc_required" type="checkbox" ${value.deal_doc_required ? "checked" : ""} /> 提交成交前强制资料齐全</span></label>
+        <label><span><input name="force_follow_before_phone" type="checkbox" ${value.force_follow_before_phone ? "checked" : ""} /> 经纪人查看电话前强制写跟进</span></label>
+        <label><span><input name="non_holder_view_remind" type="checkbox" ${value.non_holder_view_remind ? "checked" : ""} /> 非接盘人带看提醒接盘人</span></label>
         <label class="full">成交必录字段（逗号分隔）<input name="deal_required_fields" value="${value.deal_required_fields.join(",")}" placeholder="loan_bank,loan_amount" /></label>
         `,
         async (fd) => {
@@ -6494,6 +6540,8 @@ async function renderSystemCenter(main: HTMLElement) {
             password_min_length: Number(fd.get("password_min_length")),
             house_role_protection_days: Number(fd.get("house_role_protection_days")),
             deal_doc_required: fd.get("deal_doc_required") === "on",
+            force_follow_before_phone: fd.get("force_follow_before_phone") === "on",
+            non_holder_view_remind: fd.get("non_holder_view_remind") === "on",
             deal_required_fields: String(fd.get("deal_required_fields") || "")
               .split(",")
               .map((item) => item.trim())

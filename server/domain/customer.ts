@@ -1,19 +1,22 @@
 import type { Db } from "../db/database";
 import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
 import { writeAudit } from "./audit";
+import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
-function presentCustomer(user: SessionUser, row: any) {
-  const canFull =
+function presentCustomer(db: Db, user: SessionUser, row: any) {
+  const policyAllows =
     user.role === "admin" ||
     user.role === "store_manager" ||
     user.id === row.agent_id;
+  const gate = resolvePhoneVisibility(db, user, policyAllows, "customer", row.id);
   return {
     ...row,
-    phone: canFull ? row.phone : maskPhone(row.phone),
-    phone_masked: !canFull,
+    phone: gate.showFull ? row.phone : maskPhone(row.phone),
+    phone_masked: !gate.showFull,
+    force_follow_required: gate.forceFollowRequired,
   };
 }
 
@@ -33,7 +36,7 @@ export function listCustomers(db: Db, user: SessionUser, q: any = {}): ApiResult
     const k = String(q.keyword);
     rows = rows.filter((c) => c.name.includes(k) || c.phone.includes(k) || (c.need || "").includes(k));
   }
-  return { ok: true, data: rows.map((r) => presentCustomer(user, r)) };
+  return { ok: true, data: rows.map((r) => presentCustomer(db, user, r)) };
 }
 
 export function getCustomer(db: Db, user: SessionUser, id: string): ApiResult {
@@ -43,7 +46,7 @@ export function getCustomer(db: Db, user: SessionUser, id: string): ApiResult {
   if (!row || !customerVisibleTo(user, row)) {
     return { ok: false, message: "客源不存在或无权限", code: 403 };
   }
-  return { ok: true, data: presentCustomer(user, row) };
+  return { ok: true, data: presentCustomer(db, user, row) };
 }
 
 export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResult {
