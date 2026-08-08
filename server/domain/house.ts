@@ -11,6 +11,7 @@ import {
   recordModificationFollow,
 } from "./activity";
 import { writeAudit } from "./audit";
+import { isBlacklistedPhone } from "./blacklist";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
@@ -98,6 +99,9 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   if (!["sale", "rent"].includes(payload.deal_type)) {
     return { ok: false, message: "deal_type 无效" };
+  }
+  if (isBlacklistedPhone(db, user.company_id, payload.owner_phone)) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
   }
   if (user.role === "agent") {
     const setting = db
@@ -194,6 +198,13 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (!houseVisibleTo(user, current)) return { ok: false, message: "无权限", code: 403 };
   if (user.role === "agent" && current.agent_id !== user.id) {
     return { ok: false, message: "只能编辑本人接盘房源", code: 403 };
+  }
+  if (
+    payload.owner_phone != null &&
+    String(payload.owner_phone).trim() !== String(current.owner_phone || "").trim() &&
+    isBlacklistedPhone(db, user.company_id, payload.owner_phone)
+  ) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
   }
   const nextPrice = payload.price != null ? Number(payload.price) : null;
   const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
