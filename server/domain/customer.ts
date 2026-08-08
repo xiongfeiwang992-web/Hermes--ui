@@ -2,6 +2,11 @@ import type { Db } from "../db/database";
 import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
 import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
+import {
+  isAllowedCustomerSource,
+  labelCustomerSource,
+  normalizeCustomerSource,
+} from "./config";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
@@ -18,6 +23,7 @@ function presentCustomer(db: Db, user: SessionUser, row: any) {
     phone: gate.showFull ? row.phone : maskPhone(row.phone),
     phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
+    source_label: labelCustomerSource(db, user.company_id, row.source),
   };
 }
 
@@ -33,6 +39,10 @@ export function listCustomers(db: Db, user: SessionUser, q: any = {}): ApiResult
   if (q.visibility) rows = rows.filter((c) => c.visibility === q.visibility);
   if (q.status) rows = rows.filter((c) => c.status === q.status);
   if (q.agent_id) rows = rows.filter((c) => c.agent_id === q.agent_id);
+  if (q.source) {
+    const source = normalizeCustomerSource(q.source);
+    rows = rows.filter((c) => normalizeCustomerSource(c.source) === source);
+  }
   if (q.keyword) {
     const k = String(q.keyword);
     rows = rows.filter((c) => c.name.includes(k) || c.phone.includes(k) || (c.need || "").includes(k));
@@ -58,6 +68,10 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (!["buy", "rent"].includes(payload.intent)) {
     return { ok: false, message: "intent 无效" };
   }
+  const source = normalizeCustomerSource(payload.source);
+  if (source && !isAllowedCustomerSource(db, user.company_id, source)) {
+    return { ok: false, message: "客户来源不在当前字典中" };
+  }
   const dup = db
     .prepare(`SELECT id, name FROM customers WHERE company_id = ? AND phone = ?`)
     .get(user.company_id, payload.phone) as any;
@@ -81,7 +95,7 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.need || null,
     payload.level || "B",
     user.id,
-    payload.source || null,
+    source,
     payload.remark || null,
     payload.is_confidential ? 1 : 0,
     now,
@@ -114,6 +128,11 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   }
   const nextConfidential =
     payload.is_confidential == null ? null : payload.is_confidential ? 1 : 0;
+  const sourceProvided = Object.prototype.hasOwnProperty.call(payload, "source");
+  const nextSource = sourceProvided ? normalizeCustomerSource(payload.source) : null;
+  if (sourceProvided && nextSource && !isAllowedCustomerSource(db, user.company_id, nextSource)) {
+    return { ok: false, message: "客户来源不在当前字典中" };
+  }
   const summary = buildModificationSummary([
     { label: "姓名", provided: payload.name != null, prev: current.name, next: payload.name },
     {
@@ -144,7 +163,12 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     },
     { label: "需求", provided: payload.need != null, prev: current.need, next: payload.need },
     { label: "等级", provided: payload.level != null, prev: current.level, next: payload.level },
-    { label: "来源", provided: payload.source != null, prev: current.source, next: payload.source },
+    {
+      label: "来源",
+      provided: sourceProvided,
+      prev: current.source,
+      next: nextSource,
+    },
     { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
     {
       label: "保密客",
@@ -178,7 +202,7 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.budget_note ?? null,
     payload.need ?? null,
     payload.level ?? null,
-    payload.source ?? null,
+    sourceProvided ? nextSource : null,
     payload.remark ?? null,
     nextConfidential,
     nowIso(),

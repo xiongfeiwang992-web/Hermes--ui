@@ -2,6 +2,7 @@ import type { Db } from "../db/database";
 import { listFollows, listViews } from "./activity";
 import { listHouses } from "./house";
 import { listCustomers } from "./customer";
+import { labelCustomerSource, normalizeCustomerSource } from "./config";
 import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
 import { todayDate } from "../utils/id";
@@ -525,8 +526,10 @@ export function customerSources(db: Db, user: SessionUser): ApiResult {
   );
   const bySource = new Map<string, any>();
   for (const row of customers) {
-    const source = String(row.source || "").trim() || "未填写";
-    bump(bySource, source, { source });
+    const source = normalizeCustomerSource(row.source) || "未填写";
+    const source_label =
+      source === "未填写" ? "未填写" : labelCustomerSource(db, user.company_id, source) || source;
+    bump(bySource, source, { source, source_label });
   }
   return {
     ok: true,
@@ -607,7 +610,7 @@ export function exportCustomerSourcesCsv(db: Db, user: SessionUser): ApiResult {
   return csvFile(
     `客户来源分析-${todayDate()}.csv`,
     ["来源", "客户数"],
-    data.by_source.map((row: any) => [row.source, row.count])
+    data.by_source.map((row: any) => [row.source_label || row.source, row.count])
   );
 }
 

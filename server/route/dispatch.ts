@@ -769,6 +769,8 @@ function route(
       return config.upsertDictionary(db, user!, payload);
     case "config.followMethods":
       return config.listFollowMethods(db, user!);
+    case "config.customerSources":
+      return config.listCustomerSources(db, user!);
     case "config.settings.get":
       return config.getSettings(db, user!);
     case "config.settings.save":

@@ -86,6 +86,28 @@ async function followMethodSelectHtml(selected = "phone") {
     .join("");
 }
 
+async function customerSourceSelectHtml(selected = "", includeEmpty = true) {
+  const result = await api("config.customerSources", {});
+  const sources = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "门店到访", label: "门店到访" },
+        { value: "转介", label: "转介" },
+        { value: "官网", label: "官网" },
+        { value: "来电", label: "来电" },
+        { value: "其他", label: "其他" },
+      ];
+  const options = sources
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+  return includeEmpty
+    ? `<option value="">未填写</option>${options}`
+    : options;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1127,10 +1149,13 @@ async function renderCustomers(main: HTMLElement) {
     <div class="filters">
       <select data-f="visibility"><option value="">全部可见性</option><option value="private">私客</option><option value="public">公客</option></select>
       <select data-f="intent"><option value="">全部意图</option><option value="buy">求购</option><option value="rent">求租</option></select>
+      <select data-f="source"><option value="">全部来源</option></select>
       <input data-f="keyword" placeholder="搜索姓名/电话" />
     </div>
     <div class="list" data-list></div>
   `;
+  const sourceFilter = main.querySelector("[data-f=source]") as HTMLSelectElement;
+  sourceFilter.innerHTML = `<option value="">全部来源</option>${await customerSourceSelectHtml("", false)}`;
   const list = main.querySelector("[data-list]")!;
   const draw = async () => {
     const q: any = {};
@@ -1150,7 +1175,7 @@ async function renderCustomers(main: HTMLElement) {
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag">${c.level}级</span>
         <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
-        <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}</div>
+        <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
       <div class="ops">
         ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
@@ -1286,7 +1311,8 @@ async function renderCustomers(main: HTMLElement) {
       })
     );
   };
-  main.querySelector("[data-new]")!.addEventListener("click", () => {
+  main.querySelector("[data-new]")!.addEventListener("click", async () => {
+    const sourceOptions = await customerSourceSelectHtml("");
     openDialog(
       "新建客源",
       `
@@ -1294,6 +1320,7 @@ async function renderCustomers(main: HTMLElement) {
       <label>电话<input name="phone" required /></label>
       <label>意图<select name="intent"><option value="buy">求购</option><option value="rent">求租</option></select></label>
       <label>等级<select name="level"><option>A</option><option selected>B</option><option>C</option></select></label>
+      <label>来源<select name="source">${sourceOptions}</select></label>
       <label>预算下限<input name="budget_min" type="number" step="0.01" /></label>
       <label>预算上限<input name="budget_max" type="number" step="0.01" /></label>
       <label><span><input name="is_confidential" type="checkbox" /> 保密客</span></label>
@@ -1305,6 +1332,7 @@ async function renderCustomers(main: HTMLElement) {
           phone: fd.get("phone"),
           intent: fd.get("intent"),
           level: fd.get("level"),
+          source: fd.get("source") || null,
           budget_min: fd.get("budget_min") ? Number(fd.get("budget_min")) : null,
           budget_max: fd.get("budget_max") ? Number(fd.get("budget_max")) : null,
           is_confidential: fd.get("is_confidential") === "on",
@@ -1315,6 +1343,7 @@ async function renderCustomers(main: HTMLElement) {
         } else {
           toast(res.ok ? "客源已创建" : res.message, res.ok ? "ok" : "error");
         }
+        if (res.ok) draw();
       }
     );
   });
@@ -2238,7 +2267,7 @@ async function renderReports(main: HTMLElement) {
               src.by_source
                 .map(
                   (item: any) =>
-                    `<div class="row"><div><strong>${escapeHtml(item.source)}</strong><div class="meta">${item.count} 人</div></div></div>`
+                    `<div class="row"><div><strong>${escapeHtml(item.source_label || item.source)}</strong><div class="meta">${item.count} 人</div></div></div>`
                 )
                 .join("")
             )
@@ -6894,7 +6923,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="source / follow_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

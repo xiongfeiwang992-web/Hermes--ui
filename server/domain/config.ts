@@ -63,6 +63,57 @@ export function listFollowMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveFollowMethods(db, user.company_id) };
 }
 
+export const DEFAULT_CUSTOMER_SOURCES = [
+  { value: "门店到访", label: "门店到访", sort_order: 1 },
+  { value: "转介", label: "转介", sort_order: 2 },
+  { value: "官网", label: "官网", sort_order: 3 },
+  { value: "来电", label: "来电", sort_order: 4 },
+  { value: "小程序", label: "小程序", sort_order: 5 },
+  { value: "其他", label: "其他", sort_order: 6 },
+];
+
+const CUSTOMER_SOURCE_ALIASES: Record<string, string> = {
+  walk_in: "门店到访",
+  referral: "转介",
+  website: "官网",
+  online: "官网",
+  phone_in: "来电",
+  phone: "来电",
+  other: "其他",
+};
+
+export function resolveCustomerSources(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'customer_source' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_CUSTOMER_SOURCES.map((item) => ({ ...item }));
+}
+
+export function normalizeCustomerSource(source: unknown): string | null {
+  const raw = String(source ?? "").trim();
+  if (!raw) return null;
+  return CUSTOMER_SOURCE_ALIASES[raw] || raw;
+}
+
+export function isAllowedCustomerSource(db: Db, companyId: string, source: string): boolean {
+  return resolveCustomerSources(db, companyId).some((item) => item.value === source);
+}
+
+export function labelCustomerSource(db: Db, companyId: string, source: unknown): string {
+  const normalized = normalizeCustomerSource(source);
+  if (!normalized) return "";
+  const hit = resolveCustomerSources(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveCustomerSources(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,
