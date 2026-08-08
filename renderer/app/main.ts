@@ -2739,7 +2739,7 @@ async function renderOffboarding(main: HTMLElement) {
         });
         toast(
           result.ok
-            ? `交接完成：房 ${(result.data as any).houses}、客 ${(result.data as any).customers}、钥匙 ${(result.data as any).keys}`
+            ? `交接完成：房 ${(result.data as any).houses}、客 ${(result.data as any).customers}、钥匙 ${(result.data as any).keys}、待办成交 ${(result.data as any).deals || 0}`
             : result.message,
           result.ok ? "ok" : "error"
         );
@@ -2776,7 +2776,7 @@ async function renderOffboarding(main: HTMLElement) {
         if (!result.ok) return toast(result.message, "error");
         const value = result.data as any;
         toast(
-          `房源 ${value.houses.length}、客源 ${value.customers.length}、钥匙 ${value.keys.length}、角色 ${value.roles.length}`,
+          `房源 ${value.houses.length}、客源 ${value.customers.length}、钥匙 ${value.keys.length}、角色 ${value.roles.length}、待办成交 ${(value.deals || []).length}`,
           "warn"
         );
       }
