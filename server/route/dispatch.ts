@@ -714,6 +714,18 @@ function route(
       return report.exportViewsCsv(db, user!, payload);
     case "report.activityStats":
       return report.activityStats(db, user!, payload);
+    case "report.dealHotspots":
+      return report.dealHotspots(db, user!, payload);
+    case "report.houseAttributes":
+      return report.houseAttributes(db, user!);
+    case "report.customerSources":
+      return report.customerSources(db, user!);
+    case "report.dealHotspotsCsv":
+      return report.exportDealHotspotsCsv(db, user!, payload);
+    case "report.houseAttributesCsv":
+      return report.exportHouseAttributesCsv(db, user!);
+    case "report.customerSourcesCsv":
+      return report.exportCustomerSourcesCsv(db, user!);
 
     case "suite.modules":
       return suite.modules();

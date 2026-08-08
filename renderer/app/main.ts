@@ -2005,25 +2005,39 @@ async function renderCommissions(main: HTMLElement) {
 
 async function renderReports(main: HTMLElement) {
   const defaultMonth = new Date().toISOString().slice(0, 7);
+  const canAnalyze = state.user.role !== "finance";
   main.innerHTML = `
     <div class="header"><h2>经营报表</h2><div class="ops">
       <button class="btn ghost" data-export="deals">成交 CSV</button>
-      ${state.user.role !== "finance" ? `<button class="btn ghost" data-export="houses">房源 CSV</button><button class="btn ghost" data-export="customers">客源 CSV</button><button class="btn ghost" data-export="follows">跟进 CSV</button><button class="btn ghost" data-export="views">带看 CSV</button>` : ""}
+      <button class="btn ghost" data-export="dealHotspots">热点 CSV</button>
+      ${canAnalyze ? `<button class="btn ghost" data-export="houses">房源 CSV</button><button class="btn ghost" data-export="customers">客源 CSV</button><button class="btn ghost" data-export="follows">跟进 CSV</button><button class="btn ghost" data-export="views">带看 CSV</button><button class="btn ghost" data-export="houseAttributes">属性 CSV</button><button class="btn ghost" data-export="customerSources">来源 CSV</button>` : ""}
     </div></div>
     <div class="filters"><input data-month type="month" value="${defaultMonth}" /></div>
     <div data-report></div>
   `;
+  const listBlock = (title: string, rowsHtml: string) =>
+    `<h3>${title}</h3><div class="list">${rowsHtml || `<div class="empty">暂无数据</div>`}</div>`;
   const draw = async () => {
     const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
-    const [result, activity] = await Promise.all([
+    const [result, activity, hotspots, attributes, sources] = await Promise.all([
       api("report.business", { month }),
-      state.user.role === "finance"
-        ? Promise.resolve({ ok: false, message: "无权限" } as ApiResult)
-        : api("report.activityStats", { month }),
+      canAnalyze
+        ? api("report.activityStats", { month })
+        : Promise.resolve({ ok: false, message: "无权限" } as ApiResult),
+      api("report.dealHotspots", { month }),
+      canAnalyze
+        ? api("report.houseAttributes", {})
+        : Promise.resolve({ ok: false, message: "无权限" } as ApiResult),
+      canAnalyze
+        ? api("report.customerSources", {})
+        : Promise.resolve({ ok: false, message: "无权限" } as ApiResult),
     ]);
     const container = main.querySelector("[data-report]")!;
     if (!result.ok) return (container.innerHTML = `<div class="error">${result.message}</div>`);
     const report = result.data as any;
+    const hot = hotspots.ok ? (hotspots.data as any) : null;
+    const attrs = attributes.ok ? (attributes.data as any) : null;
+    const src = sources.ok ? (sources.data as any) : null;
     container.innerHTML = `
       <div class="stats">
         <div class="stat"><div class="n">${report.houses_added}</div><div class="l">新增房源</div></div>
@@ -2064,6 +2078,81 @@ async function renderReports(main: HTMLElement) {
         .join("") || `<div class="empty">本月暂无跟进与带看</div>`}</div>`
           : ""
       }
+      ${
+        hot
+          ? `${listBlock(
+              `成交热点 · 小区（${hot.deal_count} 单）`,
+              hot.by_community
+                .map(
+                  (item: any) =>
+                    `<div class="row"><div><strong>${escapeHtml(item.community)}</strong><div class="meta">${item.count} 单 · 成交价合计 ¥${money(item.contract_price_total)} · 佣金 ¥${money(item.commission_total)}</div></div></div>`
+                )
+                .join("")
+            )}
+      ${listBlock(
+        "成交热点 · 总价段",
+        hot.by_price_band
+          .map(
+            (item: any) =>
+              `<div class="row"><div><strong>${item.deal_type === "rent" ? "租" : "售"} · ${escapeHtml(item.price_band)}</strong><div class="meta">${item.count} 单</div></div></div>`
+          )
+          .join("")
+      )}
+      ${listBlock(
+        "成交热点 · 面积段",
+        hot.by_area_band
+          .map(
+            (item: any) =>
+              `<div class="row"><div><strong>${escapeHtml(item.area_band)}</strong><div class="meta">${item.count} 单</div></div></div>`
+          )
+          .join("")
+      )}`
+          : ""
+      }
+      ${
+        attrs
+          ? `${listBlock(
+              `盘源属性 · 租售（${attrs.house_count} 套）`,
+              attrs.by_deal_type
+                .map(
+                  (item: any) =>
+                    `<div class="row"><div><strong>${item.deal_type === "rent" ? "出租" : "出售"}</strong><div class="meta">${item.count} 套</div></div></div>`
+                )
+                .join("")
+            )}
+      ${listBlock(
+        "盘源属性 · 物业类型",
+        attrs.by_property_type
+          .map(
+            (item: any) =>
+              `<div class="row"><div><strong>${item.deal_type === "rent" ? "租" : "售"} · ${escapeHtml(item.property_type)}</strong><div class="meta">${item.count} 套</div></div></div>`
+          )
+          .join("")
+      )}
+      ${listBlock(
+        "盘源属性 · 价格段",
+        attrs.by_price_band
+          .map(
+            (item: any) =>
+              `<div class="row"><div><strong>${item.deal_type === "rent" ? "租" : "售"} · ${escapeHtml(item.price_band)}</strong><div class="meta">${item.count} 套</div></div></div>`
+          )
+          .join("")
+      )}`
+          : ""
+      }
+      ${
+        src
+          ? listBlock(
+              `客户来源分析（${src.customer_count} 人）`,
+              src.by_source
+                .map(
+                  (item: any) =>
+                    `<div class="row"><div><strong>${escapeHtml(item.source)}</strong><div class="meta">${item.count} 人</div></div></div>`
+                )
+                .join("")
+            )
+          : ""
+      }
     `;
   };
   main.querySelector("[data-month]")!.addEventListener("change", draw);
@@ -2071,7 +2160,8 @@ async function renderReports(main: HTMLElement) {
     button.addEventListener("click", async () => {
       const kind = (button as HTMLElement).dataset.export!;
       const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
-      const result = await api(`report.${kind}Csv`, kind === "deals" ? { month } : {});
+      const needsMonth = ["deals", "dealHotspots"].includes(kind);
+      const result = await api(`report.${kind}Csv`, needsMonth ? { month } : {});
       if (!result.ok) return toast(result.message, "error");
       const file = result.data as any;
       const blob = new Blob([file.content], { type: file.mime });
