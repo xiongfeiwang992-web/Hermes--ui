@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -54,6 +54,17 @@ app.whenReady().then(() => {
     const target = path.join(directory, filename);
     fs.writeFileSync(target, image.toPNG());
     return { path: target, filename };
+  });
+  ipcMain.handle("shell:chooseFiles", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择业务附件",
+      properties: ["openFile", "multiSelections"],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+  ipcMain.handle("shell:openPath", async (_event, target) => {
+    if (!path.isAbsolute(target)) throw new Error("附件路径无效");
+    return shell.openPath(target);
   });
   createWindow();
 });

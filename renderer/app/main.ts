@@ -327,6 +327,7 @@ async function renderHouses(main: HTMLElement) {
     </div>
     <div class="filters">
       <select data-f="deal_type"><option value="">全部类型</option><option value="sale">出售</option><option value="rent">出租</option></select>
+      <select data-f="property_type"><option value="">全部物业</option><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select>
       <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="closed">已成交</option></select>
       <input data-f="keyword" placeholder="搜索小区/标题" />
     </div>
@@ -397,6 +398,8 @@ async function renderHouses(main: HTMLElement) {
       `
       <label>标题<input name="title" required /></label>
       <label>类型<select name="deal_type"><option value="sale">出售</option><option value="rent">出租</option></select></label>
+      <label>物业<select name="property_type"><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select></label>
+      <label>交易模式<select name="deal_mode"><option value="normal">普通</option><option value="auction">拍卖</option><option value="exclusive">包销/独家</option></select></label>
       <label>小区<input name="community" required /></label>
       <label>价格<input name="price" type="number" step="0.01" required /></label>
       <label>业主姓名<input name="owner_name" required /></label>
@@ -411,6 +414,8 @@ async function renderHouses(main: HTMLElement) {
         const res = await api("house.create", {
           title: fd.get("title"),
           deal_type: fd.get("deal_type"),
+          property_type: fd.get("property_type"),
+          deal_mode: fd.get("deal_mode"),
           community: fd.get("community"),
           price: Number(fd.get("price")),
           owner_name: fd.get("owner_name"),
@@ -422,7 +427,11 @@ async function renderHouses(main: HTMLElement) {
           is_private: fd.get("is_private") === "on",
           status: "available",
         });
-        toast(res.ok ? "房源已创建" : res.message, res.ok ? "ok" : "error");
+        if (res.ok && (res.data as any).duplicate_hint) {
+          toast(`房源已创建，但可能重复：${(res.data as any).duplicate_hint.title}`, "warn");
+        } else {
+          toast(res.ok ? "房源已创建" : res.message, res.ok ? "ok" : "error");
+        }
       }
     );
   });
@@ -975,6 +984,7 @@ async function renderFollows(main: HTMLElement) {
 async function renderViews(main: HTMLElement) {
   const houses = await api("house.list", { status: "available" });
   const customers = await api("customer.list", {});
+  const storeUsers = await api("org.users.store", {});
   main.innerHTML = `
     <div class="header"><h2>带看</h2><button class="btn" data-new>新建带看</button></div>
     <div class="list" data-list></div>
@@ -1045,18 +1055,24 @@ async function renderViews(main: HTMLElement) {
     const cusOpts = ((customers.data as any[]) || [])
       .map((c) => `<option value="${c.id}">${c.name}</option>`)
       .join("");
+    const userOpts = ((storeUsers.data as any[]) || [])
+      .filter((u) => u.id !== state.user.id)
+      .map((u) => `<option value="${u.id}">${u.display_name}</option>`)
+      .join("");
     openDialog(
       "新建带看",
       `
       <label>客户<select name="customer_id">${cusOpts}</select></label>
       <label>房源<select name="house_id">${houseOpts}</select></label>
       <label class="full">时间<input name="view_at" type="datetime-local" required /></label>
+      <label class="full">陪看人（可多选）<select name="accompany_ids" multiple size="4">${userOpts}</select></label>
       `,
       async (fd) => {
         const res = await api("view.create", {
           customer_id: fd.get("customer_id"),
           house_id: fd.get("house_id"),
           view_at: new Date(String(fd.get("view_at"))).toISOString(),
+          accompany_ids: fd.getAll("accompany_ids"),
         });
         toast(res.ok ? "带看已创建" : res.message, res.ok ? "ok" : "error");
       }
@@ -1068,6 +1084,7 @@ async function renderViews(main: HTMLElement) {
 async function renderDeals(main: HTMLElement) {
   const houses = await api("house.list", {});
   const customers = await api("customer.list", {});
+  const desktopShell = (window as any).weilaijia?.shell;
   const prefill = state.cache.prefillDeal || {};
   main.innerHTML = `
     <div class="header"><h2>成交</h2><button class="btn" data-new>新建成交单</button></div>
@@ -1087,6 +1104,7 @@ async function renderDeals(main: HTMLElement) {
         <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${d.reject_reason}` : ""}</div>
       </div>
       <div class="ops">
+        ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
         ${["draft", "rejected"].includes(d.status) ? `<button class="btn" data-submit="${d.id}">提交审批</button>` : ""}
         ${d.status === "pending_approval" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${d.id}">通过</button><button class="btn danger" data-reject="${d.id}">驳回</button>` : ""}
       </div></div>`
@@ -1116,6 +1134,34 @@ async function renderDeals(main: HTMLElement) {
         });
         toast(r.ok ? "已驳回" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-files]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const dealId = (btn as HTMLElement).dataset.files!;
+        const existing = await api("attachment.list", {
+          parent_type: "deal",
+          parent_id: dealId,
+        });
+        if (!existing.ok) return toast(existing.message, "error");
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const name = localPath.split(/[\\/]/).pop() || "附件";
+          const added = await api("attachment.add", {
+            parent_type: "deal",
+            parent_id: dealId,
+            category: "contract",
+            name,
+            local_path: localPath,
+          });
+          if (!added.ok) return toast(added.message, "error");
+        }
+        const refreshed = await api("attachment.list", {
+          parent_type: "deal",
+          parent_id: dealId,
+        });
+        const files = refreshed.ok ? (refreshed.data as any[]) : [];
+        toast(paths.length ? `已添加 ${paths.length} 个附件，当前共 ${files.length} 个` : `当前共 ${files.length} 个附件`);
       })
     );
   };
@@ -1980,20 +2026,67 @@ async function renderOrg(main: HTMLElement) {
 }
 
 async function renderAudit(main: HTMLElement) {
-  const r = await api("audit.list");
-  main.innerHTML = `<div class="header"><h2>审计日志</h2></div><div class="list" data-list></div>`;
+  main.innerHTML = `
+    <div class="header"><h2>审计日志</h2><button class="btn ghost" data-export>导出 CSV</button></div>
+    <div class="filters">
+      <input data-action placeholder="动作，如 deal" />
+      <input data-target placeholder="对象类型，如 customer" />
+      <input data-start type="date" />
+      <input data-end type="date" />
+    </div>
+    <div class="list" data-list></div>
+  `;
   const list = main.querySelector("[data-list]")!;
-  if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
-  const rows = r.data as any[];
-  if (!rows.length) return (list.innerHTML = `<div class="empty">暂无日志</div>`);
-  list.innerHTML = rows
-    .map(
-      (a) => `<div class="row"><div>
-      <div><strong>${a.action}</strong></div>
-      <div class="meta">${a.user_id || "-"} · ${a.target_type || ""} ${a.target_id || ""} · ${a.created_at}</div>
-    </div></div>`
-    )
-    .join("");
+  let currentRows: any[] = [];
+  const draw = async () => {
+    const action = (main.querySelector("[data-action]") as HTMLInputElement).value;
+    const targetType = (main.querySelector("[data-target]") as HTMLInputElement).value;
+    const start = (main.querySelector("[data-start]") as HTMLInputElement).value;
+    const end = (main.querySelector("[data-end]") as HTMLInputElement).value;
+    const result = await api("audit.list", {
+      action: action || undefined,
+      target_type: targetType || undefined,
+      start_at: start ? `${start}T00:00:00.000Z` : undefined,
+      end_at: end ? `${end}T23:59:59.999Z` : undefined,
+      limit: 500,
+    });
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    currentRows = result.data as any[];
+    list.innerHTML =
+      currentRows
+        .map(
+          (a) => `<div class="row"><div>
+          <div><strong>${a.action}</strong></div>
+          <div class="meta">${a.user_id || "-"} · ${a.target_type || ""} ${a.target_id || ""} · ${a.created_at}</div>
+        </div></div>`
+        )
+        .join("") || `<div class="empty">暂无日志</div>`;
+  };
+  main.querySelectorAll(".filters input").forEach((input) =>
+    input.addEventListener("change", draw)
+  );
+  main.querySelector("[data-action]")!.addEventListener("input", draw);
+  main.querySelector("[data-export]")!.addEventListener("click", () => {
+    const cell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      ["动作", "用户", "对象类型", "对象ID", "时间"].map(cell).join(","),
+      ...currentRows.map((row) =>
+        [row.action, row.user_id, row.target_type, row.target_id, row.created_at]
+          .map(cell)
+          .join(",")
+      ),
+    ];
+    const blob = new Blob([`\uFEFF${lines.join("\r\n")}`], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `审计日志-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+  await draw();
 }
 
 async function boot() {

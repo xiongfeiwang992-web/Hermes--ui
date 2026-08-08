@@ -39,6 +39,8 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
     .all(user.company_id) as any[];
   rows = rows.filter((h) => houseVisibleTo(user, h));
   if (q.deal_type) rows = rows.filter((h) => h.deal_type === q.deal_type);
+  if (q.property_type) rows = rows.filter((h) => h.property_type === q.property_type);
+  if (q.deal_mode) rows = rows.filter((h) => h.deal_mode === q.deal_mode);
   if (q.status) rows = rows.filter((h) => h.status === q.status);
   if (q.community)
     rows = rows.filter((h) =>
@@ -80,6 +82,22 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (!["sale", "rent"].includes(payload.deal_type)) {
     return { ok: false, message: "deal_type 无效" };
   }
+  const duplicate = db
+    .prepare(
+      `SELECT id, title FROM houses
+       WHERE company_id = ? AND status NOT IN ('closed','withdrawn')
+       AND (
+         owner_phone = ?
+         OR (community = ? AND area_size IS NOT NULL AND ABS(area_size - ?) <= 5)
+       )
+       LIMIT 1`
+    )
+    .get(
+      user.company_id,
+      payload.owner_phone,
+      payload.community,
+      Number(payload.area_size || 0)
+    ) as any;
   const id = nextId("H");
   const storeId = user.role === "admin" && payload.store_id ? payload.store_id : user.store_id;
   const agentId = payload.agent_id || user.id;
@@ -89,8 +107,9 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     `INSERT INTO houses(
       id, company_id, store_id, title, deal_type, status, community, address, district,
       price, price_unit, area_size, rooms, floor, owner_name, owner_phone,
-      listing_user_id, agent_id, is_private, source, remark, cover_image, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      listing_user_id, agent_id, is_private, source, remark, cover_image,
+      property_type, deal_mode, visibility, is_locked, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     user.company_id,
@@ -114,11 +133,25 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.source || null,
     payload.remark || null,
     payload.cover_image || null,
+    payload.property_type || "residential",
+    payload.deal_mode || "normal",
+    payload.visibility || "store",
+    payload.is_locked ? 1 : 0,
     now,
     now
   );
   writeAudit(db, user, "house.create", "house", id, { title: payload.title });
-  return getHouse(db, user, id);
+  const created = getHouse(db, user, id);
+  if (created.ok && duplicate) {
+    return {
+      ok: true,
+      data: {
+        ...(created.data as object),
+        duplicate_hint: { id: duplicate.id, title: duplicate.title },
+      },
+    };
+  }
+  return created;
 }
 
 export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -147,6 +180,10 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       source = COALESCE(?, source),
       remark = COALESCE(?, remark),
       cover_image = COALESCE(?, cover_image),
+      property_type = COALESCE(?, property_type),
+      deal_mode = COALESCE(?, deal_mode),
+      visibility = COALESCE(?, visibility),
+      is_locked = COALESCE(?, is_locked),
       updated_at = ?
      WHERE id = ?`
   ).run(
@@ -164,6 +201,10 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.source ?? null,
     payload.remark ?? null,
     payload.cover_image ?? null,
+    payload.property_type ?? null,
+    payload.deal_mode ?? null,
+    payload.visibility ?? null,
+    payload.is_locked == null ? null : payload.is_locked ? 1 : 0,
     nowIso(),
     payload.id
   );

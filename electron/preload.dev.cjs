@@ -8,5 +8,7 @@ contextBridge.exposeInMainWorld("weilaijia", {
     toggleFullscreen: () => ipcRenderer.invoke("shell:fullscreen"),
     clearCache: () => ipcRenderer.invoke("shell:clearCache"),
     screenshot: () => ipcRenderer.invoke("shell:screenshot"),
+    chooseFiles: () => ipcRenderer.invoke("shell:chooseFiles"),
+    openPath: (path) => ipcRenderer.invoke("shell:openPath", path),
   },
 });

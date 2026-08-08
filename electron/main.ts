@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -56,6 +56,17 @@ app.whenReady().then(() => {
     const target = path.join(directory, filename);
     fs.writeFileSync(target, image.toPNG());
     return { path: target, filename };
+  });
+  ipcMain.handle("shell:chooseFiles", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择业务附件",
+      properties: ["openFile", "multiSelections"],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+  ipcMain.handle("shell:openPath", async (_event, target: string) => {
+    if (!path.isAbsolute(target)) throw new Error("附件路径无效");
+    return shell.openPath(target);
   });
   createWindow();
 });

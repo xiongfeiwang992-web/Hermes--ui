@@ -33,6 +33,76 @@ const manager = login("manager");
 const agent = login("agent_a");
 const finance = login("finance");
 
+const detailedHouse = app.call(
+  "house.create",
+  {
+    title: "商铺专项房源",
+    deal_type: "sale",
+    property_type: "shop",
+    deal_mode: "exclusive",
+    community: "中心商业街",
+    area_size: 88,
+    price: 380,
+    owner_name: "商铺业主",
+    owner_phone: "13622223333",
+    status: "available",
+  },
+  agent
+);
+assert(detailedHouse.ok, "create property-type house");
+assert(
+  detailedHouse.ok &&
+    dataOf<any>(detailedHouse).property_type === "shop" &&
+    dataOf<any>(detailedHouse).deal_mode === "exclusive",
+  "persist property type and deal mode"
+);
+const duplicateHouse = app.call(
+  "house.create",
+  {
+    title: "疑似重复商铺",
+    deal_type: "sale",
+    property_type: "shop",
+    community: "中心商业街",
+    area_size: 90,
+    price: 390,
+    owner_name: "商铺业主",
+    owner_phone: "13622223333",
+    status: "available",
+  },
+  agent
+);
+assert(
+  duplicateHouse.ok && Boolean(dataOf<any>(duplicateHouse).duplicate_hint),
+  "house duplicate soft hint"
+);
+
+const attachmentFixture = path.resolve("data", "attachment-fixture.txt");
+fs.writeFileSync(attachmentFixture, "contract fixture", "utf8");
+const attachment = app.call(
+  "attachment.add",
+  {
+    parent_type: "house",
+    parent_id: dataOf<any>(detailedHouse).id,
+    category: "entrustment",
+    name: "委托书.txt",
+    local_path: attachmentFixture,
+  },
+  agent
+);
+assert(attachment.ok, "add local business attachment");
+const attachmentList = app.call(
+  "attachment.list",
+  {
+    parent_type: "house",
+    parent_id: dataOf<any>(detailedHouse).id,
+  },
+  agent
+);
+assert(
+  attachmentList.ok && dataOf<any[]>(attachmentList).length === 1,
+  "list local business attachment"
+);
+
 const cases = [
   { module: "property_ext", type: "entrustment", actor: agent, approver: manager },
   { module: "deal_ext", type: "mortgage", actor: agent, approver: manager },
@@ -94,6 +164,18 @@ assert(
       (item) => item.display_value === "138****5678" && !JSON.stringify(item).includes("13812345678")
     ),
   "blacklist masks original value"
+);
+const filteredAudit = app.call(
+  "audit.list",
+  { action: "blacklist", target_type: "blacklist", limit: 500 },
+  manager
+);
+assert(
+  filteredAudit.ok &&
+    dataOf<any[]>(filteredAudit).every(
+      (item) => item.action.includes("blacklist") && item.target_type === "blacklist"
+    ),
+  "audit filters by action and target"
 );
 
 assert(

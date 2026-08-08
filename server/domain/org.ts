@@ -110,6 +110,26 @@ export function listUsers(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: rows };
 }
 
+export function listStoreUsers(db: Db, user: SessionUser): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const rows =
+    user.role === "admin"
+      ? db
+          .prepare(
+            `SELECT id, store_id, display_name, role FROM users
+             WHERE company_id = ? AND status = 'active' ORDER BY display_name`
+          )
+          .all(user.company_id)
+      : db
+          .prepare(
+            `SELECT id, store_id, display_name, role FROM users
+             WHERE company_id = ? AND store_id = ? AND status = 'active'
+             ORDER BY display_name`
+          )
+          .all(user.company_id, user.store_id);
+  return { ok: true, data: rows };
+}
+
 export function upsertUser(
   db: Db,
   user: SessionUser,

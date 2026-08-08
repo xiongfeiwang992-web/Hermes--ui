@@ -12,6 +12,7 @@ import * as earnest from "../domain/earnest";
 import * as transfer from "../domain/transfer";
 import * as suite from "../domain/suite";
 import * as system from "../domain/system";
+import * as attachment from "../domain/attachment";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -59,6 +60,8 @@ function route(
       return org.upsertStore(db, user!, payload);
     case "org.users.list":
       return org.listUsers(db, user!);
+    case "org.users.store":
+      return org.listStoreUsers(db, user!);
     case "org.users.upsert":
       return org.upsertUser(db, user!, payload);
 
@@ -212,6 +215,10 @@ function route(
       return system.createBackup(db, user!);
     case "system.backup.list":
       return system.listBackups(user!);
+    case "attachment.list":
+      return attachment.listAttachments(db, user!, payload);
+    case "attachment.add":
+      return attachment.addAttachment(db, user!, payload);
     case "message.list":
       return { ok: true, data: message.listMessages(db, user!) };
     case "message.unread":
@@ -219,7 +226,7 @@ function route(
     case "message.read":
       return { ok: true, data: message.markRead(db, user!, payload.id) };
     case "audit.list":
-      return { ok: true, data: listAudit(db, user!) };
+      return { ok: true, data: listAudit(db, user!, payload) };
 
     default:
       return { ok: false, message: `未知动作：${action}`, code: 404 };
