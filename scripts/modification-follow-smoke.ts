@@ -53,11 +53,14 @@ const houseUpdate = app.call(
 );
 assert(houseUpdate.ok, "house update with changes");
 const houseFollows = data<any[]>(app.call("follow.list", { target_id: houseId }, agent));
+const housePrice = houseFollows.find((row) => row.follow_kind === "price_change");
 const houseMod = houseFollows.find((row) => row.follow_kind === "modification");
-assert(!!houseMod, "house modification follow created");
-assert(String(houseMod?.content || "").includes("价格"), "house follow mentions price");
-assert(String(houseMod?.content || "").includes("200→218"), "house follow has price diff");
+assert(!!housePrice, "house price_change follow created");
+assert(String(housePrice?.content || "").includes("改价"), "price follow mentions 改价");
+assert(String(housePrice?.content || "").includes("200→218"), "price follow has price diff");
+assert(!!houseMod, "house modification follow created for non-price fields");
 assert(String(houseMod?.content || "").includes("标题"), "house follow mentions title");
+assert(!String(houseMod?.content || "").includes("价格"), "price excluded from modification follow");
 assert(houseMod?.method === "other", "house modification method is other");
 
 const phoneUpdate = app.call(

@@ -5,7 +5,11 @@ import {
   houseVisibleTo,
   maskPhone,
 } from "../auth/policy";
-import { buildModificationSummary, recordModificationFollow } from "./activity";
+import {
+  buildModificationSummary,
+  buildPriceChangeSummary,
+  recordModificationFollow,
+} from "./activity";
 import { writeAudit } from "./audit";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
@@ -193,6 +197,8 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   const nextPrice = payload.price != null ? Number(payload.price) : null;
   const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
+  const priceSummary =
+    payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
   const summary = buildModificationSummary([
     { label: "标题", provided: payload.title != null, prev: current.title, next: payload.title },
     {
@@ -208,7 +214,6 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       prev: current.district,
       next: payload.district,
     },
-    { label: "价格", provided: payload.price != null, prev: current.price, next: nextPrice },
     {
       label: "面积",
       provided: payload.area_size != null,
@@ -308,6 +313,14 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.id
   );
   writeAudit(db, user, "house.update", "house", payload.id);
+  if (priceSummary) {
+    recordModificationFollow(db, user, {
+      targetType: "house",
+      targetId: payload.id,
+      summary: priceSummary,
+      followKind: "price_change",
+    });
+  }
   if (summary) {
     recordModificationFollow(db, user, {
       targetType: "house",

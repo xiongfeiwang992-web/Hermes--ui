@@ -1389,18 +1389,29 @@ async function renderCustomers(main: HTMLElement) {
 }
 
 async function renderFollows(main: HTMLElement) {
+  const kindText = (kind: string) =>
+    kind === "price_change" ? "改价" : kind === "modification" ? "修改" : "普通";
   main.innerHTML = `
-    <div class="header"><h2>跟进</h2><button class="btn" data-new>写跟进</button></div>
+    <div class="header"><h2>跟进</h2><div class="ops">
+      <button class="btn ghost" data-export>导出 CSV</button>
+      <button class="btn" data-new>写跟进</button>
+    </div></div>
     <div class="filters">
-      <select data-f="due"><option value="">全部</option><option value="today">今日待跟进</option><option value="overdue">逾期</option></select>
+      <select data-f="due"><option value="">全部待办</option><option value="today">今日待跟进</option><option value="overdue">逾期</option></select>
+      <select data-f="target_type"><option value="">全部对象</option><option value="house">房源</option><option value="customer">客源</option></select>
+      <select data-f="follow_kind"><option value="">全部类型</option><option value="normal">普通跟进</option><option value="price_change">改价跟进</option><option value="modification">资料修改</option></select>
     </div>
     <div class="list" data-list></div>
   `;
   const houses = await api("house.list", {});
   const customers = await api("customer.list", {});
   const draw = async () => {
-    const due = (main.querySelector("[data-f=due]") as HTMLSelectElement).value;
-    const r = await api("follow.list", due ? { due } : {});
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLSelectElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    const r = await api("follow.list", q);
     const list = main.querySelector("[data-list]")!;
     if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
     const rows = r.data as any[];
@@ -1408,7 +1419,9 @@ async function renderFollows(main: HTMLElement) {
     list.innerHTML = rows
       .map(
         (f) => `<div class="row"><div>
-        <div><span class="tag">${f.target_type === "house" ? "房" : "客"}</span><strong>${escapeHtml(f.content)}</strong></div>
+        <div><span class="tag">${f.target_type === "house" ? "房" : "客"}</span>
+        <span class="tag">${kindText(f.follow_kind || "normal")}</span>
+        <strong>${escapeHtml(f.content)}</strong></div>
         <div class="meta">${escapeHtml(f.method_label || f.method || "")} · 下次 ${f.next_follow_at || "未设置"} · ${f.created_at}</div>
       </div></div>`
       )
@@ -1443,10 +1456,29 @@ async function renderFollows(main: HTMLElement) {
           next_follow_at: next ? new Date(next).toISOString() : null,
         });
         toast(res.ok ? "跟进已保存" : res.message, res.ok ? "ok" : "error");
+        if (res.ok) draw();
       }
     );
   });
-  main.querySelector("[data-f=due]")!.addEventListener("change", draw);
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLSelectElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    const result = await api("report.followsCsv", q);
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "跟进明细.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("跟进已导出", "ok");
+  });
+  main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
   await draw();
 }
 

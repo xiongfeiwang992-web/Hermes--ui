@@ -135,8 +135,14 @@ export function buildModificationSummary(fields: ModificationFieldDiff[]): strin
 export function recordModificationFollow(
   db: Db,
   user: SessionUser,
-  input: { targetType: "house" | "customer"; targetId: string; summary: string }
+  input: {
+    targetType: "house" | "customer";
+    targetId: string;
+    summary: string;
+    followKind?: "modification" | "price_change";
+  }
 ): void {
+  const followKind = input.followKind || "modification";
   let content = String(input.summary || "").trim();
   if (content.length < 5) content = `${content}（资料已更新）`;
   const id = nextId("FLW");
@@ -155,9 +161,16 @@ export function recordModificationFollow(
     null,
     user.id,
     nowIso(),
-    "modification"
+    followKind
   );
-  writeAudit(db, user, "follow.create", "follow", id, { auto: "modification" });
+  writeAudit(db, user, "follow.create", "follow", id, { auto: followKind });
+}
+
+export function buildPriceChangeSummary(prev: unknown, next: unknown): string | null {
+  const from = coerceDiffToken(prev);
+  const to = coerceDiffToken(next);
+  if (from === to) return null;
+  return `改价：${displayDiffToken(prev)}→${displayDiffToken(next)}`;
 }
 
 export function revealContact(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -243,6 +256,7 @@ export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
   }
   if (q.target_type) rows = rows.filter((f) => f.target_type === q.target_type);
   if (q.target_id) rows = rows.filter((f) => f.target_id === q.target_id);
+  if (q.follow_kind) rows = rows.filter((f) => f.follow_kind === q.follow_kind);
   if (q.due === "today" || q.due === "overdue") {
     const today = todayDate();
     rows = rows.filter((f) => {

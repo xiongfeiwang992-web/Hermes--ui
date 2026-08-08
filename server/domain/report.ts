@@ -294,16 +294,18 @@ export function exportFollowsCsv(db: Db, user: SessionUser, payload: any = {}): 
   const rows = dataRows(listFollows(db, user, payload));
   if (!rows) return { ok: false, message: "无跟进导出权限", code: 403 };
   writeAudit(db, user, "follow.export", "follow", undefined, { rows: rows.length });
+  const kindLabel = (kind: string) =>
+    kind === "price_change" ? "改价跟进" : kind === "modification" ? "资料修改" : "普通跟进";
   return csvFile(
     `跟进明细-${todayDate()}.csv`,
     ["跟进编号", "门店", "对象类型", "对象编号", "方式", "类型", "内容", "下次跟进", "跟进人", "创建时间"],
     rows.map((row) => [
       row.id,
       row.store_id,
-      row.target_type,
+      row.target_type === "house" ? "房源" : row.target_type === "customer" ? "客源" : row.target_type,
       row.target_id,
-      row.method,
-      row.follow_kind,
+      row.method_label || row.method,
+      kindLabel(row.follow_kind || "normal"),
       row.content,
       row.next_follow_at,
       row.created_by,
