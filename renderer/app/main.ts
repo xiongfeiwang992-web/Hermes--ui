@@ -108,7 +108,6 @@ async function customerSourceSelectHtml(selected = "", includeEmpty = true) {
     : options;
 }
 
-
 async function payTypeSelectHtml(selected = "commission", excludeRefund = true) {
   const result = await api("config.payTypes", {});
   const types = result.ok
