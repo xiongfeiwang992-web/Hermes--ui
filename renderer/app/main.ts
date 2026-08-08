@@ -6695,10 +6695,27 @@ async function renderSystemCenter(main: HTMLElement) {
       ? ((backups.data as any[]) || [])
           .map(
             (item) =>
-              `<div class="row"><div><strong>${item.filename}</strong><div class="meta">${money(item.size)} bytes · ${item.created_at}</div></div></div>`
+              `<div class="row"><div><strong>${escapeHtml(item.filename)}</strong><div class="meta">${money(item.size)} bytes · ${escapeHtml(item.created_at)}</div></div><div class="ops"><button class="btn ghost" data-restore="${escapeHtml(item.filename)}">恢复</button></div></div>`
           )
           .join("")
       : `<div class="empty">暂无备份</div>`;
+    backupList.querySelectorAll("[data-restore]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const filename = (button as HTMLElement).getAttribute("data-restore") || "";
+        if (!filename) return;
+        if (!confirm(`确认从备份「${filename}」恢复？当前库会先自动打一份安全备份，然后被覆盖。`)) {
+          return;
+        }
+        const result = await api("system.backup.restore", { filename });
+        toast(
+          result.ok
+            ? `已恢复：${filename}（安全备份 ${(result.data as any).safety_backup}）`
+            : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) render();
+      });
+    });
   }
   const dictionaryList = main.querySelector("[data-dictionaries]");
   if (dictionaryList) {
