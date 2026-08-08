@@ -136,6 +136,22 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     )
       return { ok: false, message: "租赁工单不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "customer_care_case") {
+    const careCase = db
+      .prepare(`SELECT * FROM customer_care_cases WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !careCase ||
+      user.role === "finance" ||
+      !(
+        user.role === "admin" ||
+        (user.role === "store_manager" && careCase.store_id === user.store_id) ||
+        careCase.created_by === user.id ||
+        careCase.assignee_user_id === user.id
+      )
+    )
+      return { ok: false, message: "客户关怀案件不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -321,6 +337,28 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     if (payload.category !== "work_order_evidence")
       return { ok: false, message: "工单附件分类无效" };
     attachmentStoreId = workOrder.store_id;
+  }
+  if (payload.parent_type === "customer_care_case") {
+    const careCase = db
+      .prepare(`SELECT * FROM customer_care_cases WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const canUpload =
+      careCase &&
+      !["closed", "withdrawn"].includes(careCase.status) &&
+      user.role !== "finance" &&
+      (user.role === "admin" ||
+        (user.role === "store_manager" && careCase.store_id === user.store_id) ||
+        careCase.created_by === user.id ||
+        careCase.assignee_user_id === user.id);
+    if (!canUpload)
+      return { ok: false, message: "客户关怀案件不存在或当前状态无附件上传权限", code: 403 };
+    const allowed =
+      careCase.case_type === "lawsuit"
+        ? ["legal_document", "resolution_evidence"]
+        : ["complaint_evidence", "resolution_evidence"];
+    if (!allowed.includes(payload.category))
+      return { ok: false, message: "客户关怀案件附件分类无效" };
+    attachmentStoreId = careCase.store_id;
   }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");

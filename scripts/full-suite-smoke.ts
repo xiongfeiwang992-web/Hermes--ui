@@ -122,7 +122,7 @@ const cases = [
   { module: "office", type: "event", actor: agent, approver: manager },
   { module: "marketing", type: "lead", actor: manager, approver: manager },
   { module: "office", type: "workflow", actor: agent, approver: manager },
-  { module: "customer_care", type: "complaint", actor: manager, approver: manager },
+  { module: "office", type: "ticket", actor: agent, approver: manager },
   { module: "performance", type: "points", actor: manager, approver: manager },
 ];
 

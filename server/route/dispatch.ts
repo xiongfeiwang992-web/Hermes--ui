@@ -29,6 +29,7 @@ import * as employeeContract from "../domain/employeeContract";
 import * as payroll from "../domain/payroll";
 import * as officeContent from "../domain/officeContent";
 import * as rental from "../domain/rental";
+import * as customerCare from "../domain/customerCare";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -433,6 +434,32 @@ function route(
       return rental.cancelWorkOrder(db, user!, payload);
     case "rental.events":
       return rental.listEvents(db, user!, payload);
+    case "customerCare.options":
+      return customerCare.careOptions(db, user!);
+    case "customerCare.cases.list":
+      return customerCare.listCases(db, user!, payload);
+    case "customerCare.cases.create":
+      return customerCare.createCase(db, user!, payload);
+    case "customerCare.cases.assign":
+      return customerCare.assignCase(db, user!, payload);
+    case "customerCare.cases.investigate":
+      return customerCare.investigateCase(db, user!, payload);
+    case "customerCare.cases.resolve":
+      return customerCare.resolveCase(db, user!, payload);
+    case "customerCare.cases.close":
+      return customerCare.closeCase(db, user!, payload);
+    case "customerCare.cases.withdraw":
+      return customerCare.withdrawCase(db, user!, payload);
+    case "customerCare.tasks.list":
+      return customerCare.listTasks(db, user!, payload);
+    case "customerCare.tasks.create":
+      return customerCare.createTask(db, user!, payload);
+    case "customerCare.tasks.complete":
+      return customerCare.completeTask(db, user!, payload);
+    case "customerCare.tasks.cancel":
+      return customerCare.cancelTask(db, user!, payload);
+    case "customerCare.events":
+      return customerCare.listCareEvents(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

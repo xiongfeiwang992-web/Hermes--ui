@@ -92,6 +92,7 @@ function canSee(tab: string) {
   if (tab === "cashbook") return ["admin", "finance", "store_manager"].includes(role);
   if (tab === "workforce") return ["admin", "store_manager"].includes(role);
   if (tab === "recruitment") return ["admin", "store_manager"].includes(role);
+  if (tab === "customer-care") return role !== "finance";
   if (
     [
       "houses",
@@ -108,7 +109,7 @@ function canSee(tab: string) {
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
   if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
   if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
-  if (["suite-performance", "suite-marketing", "suite-care"].includes(tab))
+  if (["suite-performance", "suite-marketing"].includes(tab))
     return ["admin", "store_manager"].includes(role);
   return true;
 }
@@ -207,7 +208,7 @@ function renderSide(side: HTMLElement) {
     ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
     ["rental", "租赁托管"],
-    ["suite-care", "客户关怀"],
+    ["customer-care", "客户关怀"],
     ["suite-marketing", "营销线索"],
     ["suite-performance", "积分分红"],
     ["system-center", "系统中心"],
@@ -276,13 +277,13 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "payroll") return renderPayroll(main);
   if (state.tab === "office-content") return renderOfficeContent(main);
   if (state.tab === "rental") return renderRental(main);
+  if (state.tab === "customer-care") return renderCustomerCare(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
       "suite-deal": "deal_ext",
       "suite-finance": "finance",
       "suite-office": "office",
-      "suite-care": "customer_care",
       "suite-marketing": "marketing",
       "suite-performance": "performance",
     };
@@ -4003,6 +4004,324 @@ async function renderRental(main: HTMLElement) {
   await drawAll();
 }
 
+async function renderCustomerCare(main: HTMLElement) {
+  const isManagerial = ["admin", "store_manager"].includes(state.user.role);
+  const optionsResult = await api("customerCare.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { customers: [], deals: [], users: [] };
+  const caseTypeLabels: Record<string, string> = {
+    complaint: "客户投诉",
+    lawsuit: "诉讼案件",
+  };
+  const taskTypeLabels: Record<string, string> = {
+    survey: "满意度调查",
+    callback: "客户回访",
+  };
+  const severityLabels: Record<string, string> = {
+    low: "低",
+    medium: "中",
+    high: "高",
+    critical: "重大",
+  };
+  const statusLabels: Record<string, string> = {
+    open: "待分派",
+    assigned: "已分派",
+    investigating: "处理中",
+    resolved: "已解决",
+    closed: "已结案",
+    withdrawn: "已撤回",
+    pending: "待执行",
+    overdue: "已超期",
+    completed: "已完成",
+    cancelled: "已取消",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>客户关怀</h2><div class="ops">
+      <button class="btn ghost" data-new-care-case>登记投诉/诉讼</button>
+      <button class="btn" data-new-care-task>发起调查/回访</button>
+    </div></div>
+    <div class="filters">
+      <select data-care-kind><option value="">全部业务</option><option value="complaint">投诉</option><option value="lawsuit">诉讼</option><option value="survey">满意度调查</option><option value="callback">客户回访</option></select>
+      <select data-care-status><option value="">全部状态</option><option value="open">待分派</option><option value="assigned">已分派</option><option value="investigating">处理中</option><option value="resolved">已解决</option><option value="closed">已结案</option><option value="pending">待执行</option><option value="overdue">已超期</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select>
+    </div>
+    <section><h3>投诉与诉讼</h3><div class="list" data-care-cases></div></section>
+    <section><h3>满意度调查与客户回访</h3><div class="list" data-care-tasks></div></section>
+  `;
+  let cases: any[] = [];
+  const showEvents = async (entityType: string, entityId: string, title: string) => {
+    const result = await api("customerCare.events", {
+      entity_type: entityType,
+      entity_id: entityId,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${title}履历`,
+      (result.data as any[])
+        .map(
+          (event) =>
+            `<div class="row"><div><strong>${escapeHtml(event.event_type)}</strong><div class="meta">${escapeHtml(event.created_by_name)} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${escapeHtml(event.details)}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无履历</div>`
+    );
+  };
+  const uploadCaseFile = async (careCase: any) => {
+    if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传处理凭证", "error");
+    const paths = (await desktopShell.chooseFiles()) as string[];
+    const category =
+      careCase.case_type === "lawsuit" ? "legal_document" : "complaint_evidence";
+    for (const localPath of paths) {
+      const result = await api("attachment.add", {
+        parent_type: "customer_care_case",
+        parent_id: careCase.id,
+        category,
+        name: localPath.split(/[\\/]/).pop() || "客户关怀凭证",
+        local_path: localPath,
+      });
+      if (!result.ok) return toast(result.message, "error");
+    }
+    toast(paths.length ? `已上传 ${paths.length} 个处理凭证` : "未选择文件");
+    if (paths.length) draw();
+  };
+  const drawCases = async (kind: string, status: string) => {
+    if (["survey", "callback"].includes(kind)) {
+      cases = [];
+      main.querySelector("[data-care-cases]")!.innerHTML =
+        `<div class="empty">当前筛选不包含投诉或诉讼</div>`;
+      return;
+    }
+    const result = await api("customerCare.cases.list", {
+      case_type: ["complaint", "lawsuit"].includes(kind) ? kind : undefined,
+      status: ["open", "assigned", "investigating", "resolved", "closed", "withdrawn"].includes(
+        status
+      )
+        ? status
+        : undefined,
+    });
+    const list = main.querySelector("[data-care-cases]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    cases = result.data as any[];
+    list.innerHTML =
+      cases
+        .map((careCase) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" &&
+              careCase.store_id === state.user.store_id);
+          const canOperate = canManage || careCase.assignee_user_id === state.user.id;
+          const canUpload =
+            !["closed", "withdrawn"].includes(careCase.status) &&
+            (canOperate || careCase.created_by === state.user.id);
+          return `<div class="row"><div>
+            <div><span class="tag ${careCase.status === "closed" ? "ok" : careCase.severity === "critical" ? "danger" : "warn"}">${statusLabels[careCase.status]}</span><span class="tag">${caseTypeLabels[careCase.case_type]}</span><span class="tag">${severityLabels[careCase.severity]}</span><strong>${escapeHtml(careCase.title)}</strong></div>
+            <div>${escapeHtml(careCase.description)}</div>
+            <div class="meta">${escapeHtml(careCase.store_name)} · 客户 ${escapeHtml(careCase.customer_name)} ${escapeHtml(careCase.customer_phone)} · 发起 ${escapeHtml(careCase.creator_name)}${careCase.assignee_name ? ` · 处理 ${escapeHtml(careCase.assignee_name)}` : ""}${careCase.due_date ? ` · 期限 ${careCase.due_date}` : ""} · 附件 ${careCase.attachment_count}${careCase.legal_case_no ? ` · ${escapeHtml(careCase.legal_case_no)} · ${escapeHtml(careCase.court_name)}` : ""}${careCase.resolution ? ` · 结果：${escapeHtml(careCase.resolution)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-care-events="case:${careCase.id}:${caseTypeLabels[careCase.case_type]}">履历</button>
+            ${canUpload ? `<button class="btn ghost" data-care-case-file="${careCase.id}">上传凭证</button>` : ""}
+            ${canManage && ["open", "assigned", "investigating"].includes(careCase.status) ? `<button class="btn ghost" data-assign-care-case="${careCase.id}">分派</button>` : ""}
+            ${canOperate && careCase.status === "assigned" ? `<button class="btn" data-investigate-care-case="${careCase.id}">开始处理</button>` : ""}
+            ${canOperate && ["assigned", "investigating"].includes(careCase.status) ? `<button class="btn" data-resolve-care-case="${careCase.id}">解决</button>` : ""}
+            ${canManage && careCase.status === "resolved" ? `<button class="btn" data-close-care-case="${careCase.id}">结案</button>` : ""}
+            ${careCase.created_by === state.user.id && careCase.status === "open" ? `<button class="btn danger" data-withdraw-care-case="${careCase.id}">撤回</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无投诉或诉讼案件</div>`;
+    list.querySelectorAll("[data-care-case-file]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const careCase = cases.find(
+          (item) => item.id === (button as HTMLElement).dataset.careCaseFile
+        );
+        if (careCase) uploadCaseFile(careCase);
+      })
+    );
+    list.querySelectorAll("[data-assign-care-case]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "分派客户关怀案件",
+          `<label>处理人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label><label>处理期限<input name="due_date" type="date" required /></label>`,
+          async (fd) => {
+            const result = await api("customerCare.cases.assign", {
+              id: (button as HTMLElement).dataset.assignCareCase,
+              assignee_user_id: fd.get("assignee_user_id"),
+              due_date: fd.get("due_date"),
+            });
+            toast(result.ok ? "案件已分派" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-investigate-care-case]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("customerCare.cases.investigate", {
+          id: (button as HTMLElement).dataset.investigateCareCase,
+        });
+        toast(result.ok ? "案件已进入处理" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-resolve-care-case]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记解决方案",
+          `<label class="full">解决方案<textarea name="resolution" rows="5" required></textarea></label>`,
+          async (fd) => {
+            const result = await api("customerCare.cases.resolve", {
+              id: (button as HTMLElement).dataset.resolveCareCase,
+              resolution: fd.get("resolution"),
+            });
+            toast(result.ok ? "案件已解决" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-close-care-case]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("customerCare.cases.close", {
+          id: (button as HTMLElement).dataset.closeCareCase,
+        });
+        toast(result.ok ? "案件已结案" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-withdraw-care-case]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("案件撤回原因");
+        if (!reason) return;
+        const result = await api("customerCare.cases.withdraw", {
+          id: (button as HTMLElement).dataset.withdrawCareCase,
+          reason,
+        });
+        toast(result.ok ? "案件已撤回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const drawTasks = async (kind: string, status: string) => {
+    if (["complaint", "lawsuit"].includes(kind)) {
+      main.querySelector("[data-care-tasks]")!.innerHTML =
+        `<div class="empty">当前筛选不包含调查或回访</div>`;
+      return;
+    }
+    const result = await api("customerCare.tasks.list", {
+      task_type: ["survey", "callback"].includes(kind) ? kind : undefined,
+      status: ["pending", "overdue", "completed", "cancelled"].includes(status)
+        ? status
+        : undefined,
+    });
+    const list = main.querySelector("[data-care-tasks]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((task) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" && task.store_id === state.user.store_id);
+          const canComplete = canManage || task.assignee_user_id === state.user.id;
+          const canCancel = canManage || task.created_by === state.user.id;
+          return `<div class="row"><div>
+            <div><span class="tag ${task.status === "completed" ? "ok" : task.status === "overdue" ? "danger" : "warn"}">${statusLabels[task.status]}</span><span class="tag">${taskTypeLabels[task.task_type]}</span><strong>${escapeHtml(task.customer_name)}</strong> · ${escapeHtml(task.customer_phone)}</div>
+            <div>${escapeHtml(task.purpose)}</div><div class="meta">执行 ${escapeHtml(task.assignee_name)} · 计划 ${new Date(task.due_at).toLocaleString("zh-CN")}${task.result ? ` · 结果：${escapeHtml(task.result)}` : ""}${task.satisfaction_score ? ` · 满意度 ${task.satisfaction_score}/5` : ""}${task.cancel_reason ? ` · 取消：${escapeHtml(task.cancel_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-care-events="task:${task.id}:${taskTypeLabels[task.task_type]}">履历</button>
+            ${canComplete && ["pending", "overdue"].includes(task.status) ? `<button class="btn" data-complete-care-task="${task.id}" data-task-type="${task.task_type}">完成</button>` : ""}
+            ${canCancel && ["pending", "overdue"].includes(task.status) ? `<button class="btn danger" data-cancel-care-task="${task.id}">取消</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无满意度调查或客户回访</div>`;
+    list.querySelectorAll("[data-complete-care-task]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const element = button as HTMLElement;
+        openDialog(
+          `完成${taskTypeLabels[element.dataset.taskType!]}`,
+          `<label class="full">结果<textarea name="result" rows="4" required></textarea></label><label>满意度评分（1-5）<input name="satisfaction_score" type="number" min="1" max="5" ${element.dataset.taskType === "survey" ? "required" : ""} /></label>`,
+          async (fd) => {
+            const result = await api("customerCare.tasks.complete", {
+              id: element.dataset.completeCareTask,
+              result: fd.get("result"),
+              satisfaction_score: fd.get("satisfaction_score")
+                ? Number(fd.get("satisfaction_score"))
+                : null,
+            });
+            toast(result.ok ? "关怀任务已完成" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
+      })
+    );
+    list.querySelectorAll("[data-cancel-care-task]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("任务取消原因");
+        if (!reason) return;
+        const result = await api("customerCare.tasks.cancel", {
+          id: (button as HTMLElement).dataset.cancelCareTask,
+          reason,
+        });
+        toast(result.ok ? "关怀任务已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const bindEvents = () => {
+    main.querySelectorAll("[data-care-events]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [entityType, entityId, title] = String(
+          (button as HTMLElement).dataset.careEvents
+        ).split(":");
+        showEvents(entityType, entityId, title);
+      })
+    );
+  };
+  const draw = async () => {
+    const kind = (main.querySelector("[data-care-kind]") as HTMLSelectElement).value;
+    const status = (main.querySelector("[data-care-status]") as HTMLSelectElement).value;
+    await Promise.all([drawCases(kind, status), drawTasks(kind, status)]);
+    bindEvents();
+  };
+  main.querySelector("[data-new-care-case]")!.addEventListener("click", () => {
+    openDialog(
+      "登记客户投诉或诉讼",
+      `<label>类型<select name="case_type"><option value="complaint">客户投诉</option>${isManagerial ? `<option value="lawsuit">诉讼案件</option>` : ""}</select></label><label>客户<select name="customer_id">${options.customers.map((customer: any) => `<option value="${customer.id}">${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}</select></label><label>关联成交<select name="deal_id"><option value="">不关联</option>${options.deals.map((deal: any) => `<option value="${deal.id}">${escapeHtml(deal.id)} · ¥${money(deal.contract_price)}</option>`).join("")}</select></label><label>严重程度<select name="severity"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="critical">重大</option></select></label><label class="full">标题<input name="title" required /></label><label class="full">情况描述<textarea name="description" rows="5" required></textarea></label><label>诉讼案号<input name="legal_case_no" /></label><label>法院<input name="court_name" /></label>`,
+      async (fd) => {
+        const result = await api("customerCare.cases.create", {
+          case_type: fd.get("case_type"),
+          customer_id: fd.get("customer_id"),
+          deal_id: fd.get("deal_id") || null,
+          severity: fd.get("severity"),
+          title: fd.get("title"),
+          description: fd.get("description"),
+          legal_case_no: fd.get("legal_case_no"),
+          court_name: fd.get("court_name"),
+        });
+        toast(result.ok ? "客户关怀案件已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+  });
+  main.querySelector("[data-new-care-task]")!.addEventListener("click", () => {
+    openDialog(
+      "发起满意度调查或客户回访",
+      `<label>类型<select name="task_type">${isManagerial ? `<option value="survey">满意度调查</option>` : ""}<option value="callback">客户回访</option></select></label><label>客户<select name="customer_id">${options.customers.map((customer: any) => `<option value="${customer.id}">${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}</select></label>${isManagerial ? `<label>执行人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label>` : `<label>执行人<input value="${escapeHtml(state.user.display_name)}（本人）" disabled /></label>`}<label>计划完成<input name="due_at" type="datetime-local" required /></label><label class="full">调查/回访目的<textarea name="purpose" rows="4" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("customerCare.tasks.create", {
+          task_type: fd.get("task_type"),
+          customer_id: fd.get("customer_id"),
+          assignee_user_id: fd.get("assignee_user_id"),
+          due_at: fd.get("due_at"),
+          purpose: fd.get("purpose"),
+        });
+        toast(result.ok ? "客户关怀任务已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+  });
+  main.querySelector("[data-care-kind]")!.addEventListener("change", draw);
+  main.querySelector("[data-care-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -4051,15 +4370,6 @@ const suiteMeta: Record<
       ["work_summary", "工作总结"],
       ["circle_post", "同事圈"],
       ["call_record", "来电记录"],
-    ],
-  },
-  customer_care: {
-    title: "客户关怀",
-    types: [
-      ["complaint", "投诉"],
-      ["lawsuit", "诉讼"],
-      ["survey", "满意度问卷"],
-      ["callback", "客户回访"],
     ],
   },
   marketing: {

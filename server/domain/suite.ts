@@ -29,13 +29,11 @@ const TYPES: Record<string, Set<string>> = {
     "call_record",
   ]),
   marketing: new Set(["website_page", "online_entrustment", "lead", "campaign"]),
-  customer_care: new Set(["complaint", "lawsuit", "survey", "callback"]),
   performance: new Set(["points", "bonus", "dividend", "target"]),
 };
 
 const MANAGER_ONLY = new Set([
   "finance",
-  "customer_care",
   "performance",
   "marketing",
 ]);
