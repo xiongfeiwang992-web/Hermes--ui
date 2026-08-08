@@ -46,8 +46,10 @@ assert(
   "upsert data dictionary"
 );
 assert(
-  data<any[]>(app.call("config.dictionary.list", { dict_type: "follow_method" }, agent)).length === 1,
-  "list data dictionary"
+  data<any[]>(app.call("config.dictionary.list", { dict_type: "follow_method" }, agent)).some(
+    (item) => item.value === "video" && item.label === "视频沟通"
+  ),
+  "list data dictionary includes custom follow method"
 );
 assert(
   app.call(

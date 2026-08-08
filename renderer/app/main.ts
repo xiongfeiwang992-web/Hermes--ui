@@ -68,6 +68,24 @@ function money(n: number) {
   return Number(n || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
+async function followMethodSelectHtml(selected = "phone") {
+  const result = await api("config.followMethods", {});
+  const methods = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "phone", label: "电话" },
+        { value: "wechat", label: "微信" },
+        { value: "visit", label: "拜访" },
+        { value: "other", label: "其他" },
+      ];
+  return methods
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -447,12 +465,13 @@ async function renderHouses(main: HTMLElement) {
       )
       .join("");
     list.querySelectorAll("[data-reveal-house]").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const houseId = (btn as HTMLElement).dataset.revealHouse!;
+        const methodOptions = await followMethodSelectHtml("phone");
         openDialog(
           "写跟进后查看业主电话",
           `<label class="full">跟进内容<textarea name="content" rows="4" required placeholder="至少 5 个字"></textarea></label>
-           <label>方式<select name="method"><option value="phone">电话</option><option value="wechat">微信</option><option value="visit">拜访</option><option value="other">其他</option></select></label>`,
+           <label>方式<select name="method">${methodOptions}</select></label>`,
           async (fd) => {
             const result = await api("contact.reveal", {
               target_type: "house",
@@ -1073,12 +1092,13 @@ async function renderCustomers(main: HTMLElement) {
       )
       .join("");
     list.querySelectorAll("[data-reveal-customer]").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const customerId = (btn as HTMLElement).dataset.revealCustomer!;
+        const methodOptions = await followMethodSelectHtml("phone");
         openDialog(
           "写跟进后查看客户电话",
           `<label class="full">跟进内容<textarea name="content" rows="4" required placeholder="至少 5 个字"></textarea></label>
-           <label>方式<select name="method"><option value="phone">电话</option><option value="wechat">微信</option><option value="visit">拜访</option><option value="other">其他</option></select></label>`,
+           <label>方式<select name="method">${methodOptions}</select></label>`,
           async (fd) => {
             const result = await api("contact.reveal", {
               target_type: "customer",
@@ -1289,24 +1309,25 @@ async function renderFollows(main: HTMLElement) {
     list.innerHTML = rows
       .map(
         (f) => `<div class="row"><div>
-        <div><span class="tag">${f.target_type === "house" ? "房" : "客"}</span><strong>${f.content}</strong></div>
-        <div class="meta">${f.method || ""} · 下次 ${f.next_follow_at || "未设置"} · ${f.created_at}</div>
+        <div><span class="tag">${f.target_type === "house" ? "房" : "客"}</span><strong>${escapeHtml(f.content)}</strong></div>
+        <div class="meta">${escapeHtml(f.method_label || f.method || "")} · 下次 ${f.next_follow_at || "未设置"} · ${f.created_at}</div>
       </div></div>`
       )
       .join("");
   };
-  main.querySelector("[data-new]")!.addEventListener("click", () => {
+  main.querySelector("[data-new]")!.addEventListener("click", async () => {
     const houseOpts = ((houses.data as any[]) || [])
       .map((h) => `<option value="house:${h.id}">房 · ${h.title}</option>`)
       .join("");
     const cusOpts = ((customers.data as any[]) || [])
       .map((c) => `<option value="customer:${c.id}">客 · ${c.name}</option>`)
       .join("");
+    const methodOptions = await followMethodSelectHtml("phone");
     openDialog(
       "写跟进",
       `
       <label class="full">对象<select name="target">${cusOpts}${houseOpts}</select></label>
-      <label>方式<select name="method"><option value="call">电话</option><option value="wechat">微信</option><option value="visit">拜访</option><option value="other">其他</option></select></label>
+      <label>方式<select name="method">${methodOptions}</select></label>
       <label>类型<select name="follow_kind"><option value="normal">普通跟进</option><option value="price_change">改价跟进</option><option value="modification">资料修改</option></select></label>
       <label>下次跟进<input name="next_follow_at" type="datetime-local" /></label>
       <label class="full">内容<textarea name="content" rows="4" required></textarea></label>

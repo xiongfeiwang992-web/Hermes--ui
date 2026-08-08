@@ -30,6 +30,39 @@ export function savePreferences(db: Db, user: SessionUser, p: any): ApiResult {
   return getPreferences(db, user);
 }
 
+export const DEFAULT_FOLLOW_METHODS = [
+  { value: "phone", label: "电话", sort_order: 1 },
+  { value: "wechat", label: "微信", sort_order: 2 },
+  { value: "visit", label: "拜访", sort_order: 3 },
+  { value: "other", label: "其他", sort_order: 4 },
+];
+
+export function resolveFollowMethods(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'follow_method' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_FOLLOW_METHODS.map((item) => ({ ...item }));
+}
+
+export function normalizeFollowMethod(method: unknown): string {
+  const value = String(method || "other").trim();
+  if (value === "call") return "phone";
+  return value || "other";
+}
+
+export function isAllowedFollowMethod(db: Db, companyId: string, method: string): boolean {
+  const normalized = normalizeFollowMethod(method);
+  return resolveFollowMethods(db, companyId).some((item) => item.value === normalized);
+}
+
+export function listFollowMethods(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveFollowMethods(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,

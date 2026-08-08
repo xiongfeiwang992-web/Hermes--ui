@@ -6,6 +6,11 @@ import {
   houseVisibleTo,
 } from "../auth/policy";
 import { writeAudit } from "./audit";
+import {
+  isAllowedFollowMethod,
+  normalizeFollowMethod,
+  resolveFollowMethods,
+} from "./config";
 import { getContactGateSettings } from "./contactGate";
 import { createMessage } from "./message";
 import { nextId, nowIso, todayDate } from "../utils/id";
@@ -22,6 +27,10 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
   const followKind = payload.follow_kind || "normal";
   if (!["normal", "price_change", "modification"].includes(followKind)) {
     return { ok: false, message: "跟进类型无效" };
+  }
+  const method = normalizeFollowMethod(payload.method || "other");
+  if (!isAllowedFollowMethod(db, user.company_id, method)) {
+    return { ok: false, message: "跟进方式不在当前字典中" };
   }
   if (payload.target_type === "house") {
     const house = db
@@ -61,7 +70,7 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
     payload.target_type,
     payload.target_id,
     payload.content.trim(),
-    payload.method || "other",
+    method,
     payload.next_follow_at || null,
     user.id,
     nowIso(),
@@ -166,7 +175,16 @@ export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
     });
     if (user.role === "agent") rows = rows.filter((f) => f.created_by === user.id);
   }
-  return { ok: true, data: rows };
+  const labels = new Map(
+    resolveFollowMethods(db, user.company_id).map((item) => [item.value, item.label])
+  );
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      method_label: labels.get(row.method) || row.method || "",
+    })),
+  };
 }
 
 export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
