@@ -27,6 +27,7 @@ import * as workforce from "../domain/workforce";
 import * as recruitment from "../domain/recruitment";
 import * as employeeContract from "../domain/employeeContract";
 import * as payroll from "../domain/payroll";
+import * as officeContent from "../domain/officeContent";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -379,6 +380,24 @@ function route(
       return payroll.listPayrollEvents(db, user!, payload);
     case "payroll.export":
       return payroll.exportPayroll(db, user!, payload);
+    case "officeContent.options":
+      return officeContent.officeContentOptions(db, user!);
+    case "officeContent.list":
+      return officeContent.listDocuments(db, user!, payload);
+    case "officeContent.create":
+      return officeContent.createDocument(db, user!, payload);
+    case "officeContent.update":
+      return officeContent.updateDocument(db, user!, payload);
+    case "officeContent.publish":
+      return officeContent.publishDocument(db, user!, payload);
+    case "officeContent.archive":
+      return officeContent.archiveDocument(db, user!, payload);
+    case "officeContent.read":
+      return officeContent.markDocumentRead(db, user!, payload);
+    case "officeContent.unread":
+      return officeContent.unreadDocuments(db, user!);
+    case "officeContent.versions":
+      return officeContent.listVersions(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

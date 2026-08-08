@@ -65,6 +65,23 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     )
       return { ok: false, message: "员工合同不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "office_document") {
+    const document = db
+      .prepare(`SELECT * FROM office_documents WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const canManage =
+      document &&
+      (user.role === "admin" ||
+        (user.role === "store_manager" &&
+          document.scope_type === "store" &&
+          document.store_id === user.store_id));
+    const canRead =
+      document &&
+      document.status === "published" &&
+      (document.scope_type === "company" || document.store_id === user.store_id);
+    if (!canManage && !canRead)
+      return { ok: false, message: "文档不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -187,6 +204,23 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     if (!canUpload)
       return { ok: false, message: "员工合同不存在或当前状态无附件上传权限", code: 403 };
     attachmentStoreId = contract.store_id;
+  }
+  if (payload.parent_type === "office_document") {
+    const document = db
+      .prepare(`SELECT * FROM office_documents WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    const canUpload =
+      document &&
+      document.status !== "archived" &&
+      (user.role === "admin" ||
+        (user.role === "store_manager" &&
+          document.scope_type === "store" &&
+          document.store_id === user.store_id));
+    if (!canUpload)
+      return { ok: false, message: "文档不存在或当前状态无附件上传权限", code: 403 };
+    if (payload.category !== "office_document")
+      return { ok: false, message: "办公文档附件分类无效" };
+    attachmentStoreId = document.store_id;
   }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");

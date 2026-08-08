@@ -68,6 +68,15 @@ function money(n: number) {
   return Number(n || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function el(html: string) {
   const box = document.createElement("div");
   box.innerHTML = html.trim();
@@ -189,6 +198,7 @@ function renderSide(side: HTMLElement) {
     ["suite-finance", "财务管理"],
     ["cashbook", "收支流水"],
     ["expenses", "费用报销"],
+    ["office-content", "公告知识"],
     ["suite-office", "办公协同"],
     ["payroll", "薪酬工资条"],
     ["workforce", "岗位调动"],
@@ -264,6 +274,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "recruitment") return renderRecruitment(main);
   if (state.tab === "employee-contracts") return renderEmployeeContracts(main);
   if (state.tab === "payroll") return renderPayroll(main);
+  if (state.tab === "office-content") return renderOfficeContent(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -3412,6 +3423,226 @@ async function renderPayroll(main: HTMLElement) {
   await Promise.all([drawProfiles(), drawBatches()]);
 }
 
+async function renderOfficeContent(main: HTMLElement) {
+  const canCreate = ["admin", "store_manager"].includes(state.user.role);
+  const optionsResult = await api("officeContent.options");
+  const stores = optionsResult.ok ? (optionsResult.data as any).stores : [];
+  const kindLabels: Record<string, string> = {
+    announcement: "公告",
+    knowledge: "知识文章",
+  };
+  const categoryLabels: Record<string, string> = {
+    news: "资讯",
+    policy: "制度",
+    training: "培训",
+    process: "流程",
+    other: "其他",
+  };
+  const statusLabels: Record<string, string> = {
+    draft: "草稿",
+    published: "已发布",
+    archived: "已归档",
+  };
+  main.innerHTML = `
+    <div class="header"><div><h2>公告与知识库</h2><div class="meta" data-office-unread></div></div>
+      ${canCreate ? `<button class="btn" data-new-office-document>新建文档</button>` : ""}
+    </div>
+    <div class="filters">
+      <select data-office-kind><option value="">全部类型</option><option value="announcement">公告</option><option value="knowledge">知识文章</option></select>
+      <select data-office-status><option value="">全部状态</option><option value="draft">草稿</option><option value="published">已发布</option><option value="archived">已归档</option></select>
+    </div>
+    <div class="list" data-office-document-list></div>
+  `;
+  const showAttachments = async (document: any) => {
+    const result = await api("attachment.list", {
+      parent_type: "office_document",
+      parent_id: document.id,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${kindLabels[document.document_kind]}附件`,
+      (result.data as any[])
+        .map(
+          (file) =>
+            `<div class="row"><div><strong>${escapeHtml(file.name)}</strong><div class="meta">${money(file.size_bytes)} 字节 · ${new Date(file.created_at).toLocaleString("zh-CN")}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无附件</div>`
+    );
+  };
+  const showVersions = async (document: any) => {
+    const result = await api("officeContent.versions", { id: document.id });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${escapeHtml(document.title)} · 版本记录`,
+      (result.data as any[])
+        .map(
+          (version) =>
+            `<div class="row"><div><strong>V${version.version_no} · ${escapeHtml(version.title)}</strong><div class="meta">${escapeHtml(version.changed_by_name)} · ${new Date(version.changed_at).toLocaleString("zh-CN")}</div><div>${escapeHtml(version.content).replaceAll("\n", "<br />")}</div></div></div>`
+        )
+        .join("")
+    );
+  };
+  const openEditor = (document?: any) => {
+    const isAdmin = state.user.role === "admin";
+    openDialog(
+      document ? "修改文档（保存后需重新发布）" : "新建公告或知识文章",
+      `
+      <label>类型<select name="document_kind" ${document ? "disabled" : ""}>${Object.entries(kindLabels).map(([value, label]) => `<option value="${value}" ${document?.document_kind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      <label>分类<select name="category">${Object.entries(categoryLabels).map(([value, label]) => `<option value="${value}" ${document?.category === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      ${
+        document
+          ? `<label>发布范围<input value="${document.scope_type === "company" ? "全公司" : escapeHtml(document.store_name)}" disabled /></label>`
+          : isAdmin
+            ? `<label>发布范围<select name="scope_type"><option value="company">全公司</option><option value="store">指定门店</option></select></label><label>指定门店<select name="store_id"><option value="">请选择</option>${stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label>`
+            : `<label>发布范围<input value="本门店" disabled /></label>`
+      }
+      <label class="full">标题<input name="title" value="${escapeHtml(document?.title)}" required /></label>
+      <label class="full">正文<textarea name="content" rows="9" required>${escapeHtml(document?.content)}</textarea></label>
+      <label><input name="is_pinned" type="checkbox" ${document?.is_pinned ? "checked" : ""} /> 置顶显示</label>
+      `,
+      async (fd) => {
+        const result = await api(
+          document ? "officeContent.update" : "officeContent.create",
+          document
+            ? {
+                id: document.id,
+                title: fd.get("title"),
+                content: fd.get("content"),
+                category: fd.get("category"),
+                is_pinned: fd.get("is_pinned") === "on",
+              }
+            : {
+                document_kind: fd.get("document_kind"),
+                scope_type: isAdmin ? fd.get("scope_type") : "store",
+                store_id: fd.get("store_id"),
+                title: fd.get("title"),
+                content: fd.get("content"),
+                category: fd.get("category"),
+                is_pinned: fd.get("is_pinned") === "on",
+              }
+        );
+        toast(result.ok ? (document ? "文档已保存为新草稿" : "文档草稿已创建") : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+  };
+  const drawUnread = async () => {
+    const result = await api("officeContent.unread");
+    if (result.ok) {
+      const unread = result.data as any;
+      main.querySelector("[data-office-unread]")!.textContent =
+        `未读 ${unread.count} · 公告 ${unread.announcements} · 知识 ${unread.knowledge}`;
+    }
+  };
+  const draw = async () => {
+    const documentKind = (main.querySelector("[data-office-kind]") as HTMLSelectElement).value;
+    const status = (main.querySelector("[data-office-status]") as HTMLSelectElement).value;
+    const result = await api("officeContent.list", {
+      document_kind: documentKind || undefined,
+      status: status || undefined,
+    });
+    const list = main.querySelector("[data-office-document-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const documents = result.data as any[];
+    list.innerHTML =
+      documents
+        .map((document) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" &&
+              document.scope_type === "store" &&
+              document.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div>${document.is_pinned ? `<span class="tag warn">置顶</span>` : ""}<span class="tag">${kindLabels[document.document_kind]}</span><span class="tag ${document.status === "published" ? "ok" : document.status === "draft" ? "warn" : ""}">${statusLabels[document.status]}</span><strong>${escapeHtml(document.title)}</strong></div>
+            <div class="meta">${categoryLabels[document.category]} · ${document.scope_type === "company" ? "全公司" : escapeHtml(document.store_name)} · V${document.version_no} · ${escapeHtml(document.creator_name)}${document.published_at ? ` · 发布 ${new Date(document.published_at).toLocaleString("zh-CN")}` : ""} · 阅读 ${document.read_count} · 附件 ${document.attachment_count}</div>
+            <div>${escapeHtml(document.content).replaceAll("\n", "<br />")}</div>
+          </div><div class="ops">
+            ${document.status === "published" && !document.is_read ? `<button class="btn" data-read-document="${document.id}">标记已读</button>` : ""}
+            <button class="btn ghost" data-document-versions="${document.id}">版本</button>
+            <button class="btn ghost" data-document-attachments="${document.id}">附件</button>
+            ${canManage && document.status !== "archived" ? `<button class="btn ghost" data-upload-office-document="${document.id}">上传附件</button><button class="btn ghost" data-edit-office-document="${document.id}">修改</button>` : ""}
+            ${canManage && document.status === "draft" ? `<button class="btn" data-publish-document="${document.id}">发布</button>` : ""}
+            ${canManage && document.status === "published" ? `<button class="btn danger" data-archive-document="${document.id}">归档</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无公告或知识文章</div>`;
+    list.querySelectorAll("[data-read-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const marked = await api("officeContent.read", {
+          id: (button as HTMLElement).dataset.readDocument,
+        });
+        toast(marked.ok ? "已记录阅读回执" : marked.message, marked.ok ? "ok" : "error");
+        if (marked.ok) await Promise.all([draw(), drawUnread()]);
+      })
+    );
+    list.querySelectorAll("[data-document-versions]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const document = documents.find(
+          (item) => item.id === (button as HTMLElement).dataset.documentVersions
+        );
+        if (document) showVersions(document);
+      })
+    );
+    list.querySelectorAll("[data-document-attachments]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const document = documents.find(
+          (item) => item.id === (button as HTMLElement).dataset.documentAttachments
+        );
+        if (document) showAttachments(document);
+      })
+    );
+    list.querySelectorAll("[data-edit-office-document]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const document = documents.find(
+          (item) => item.id === (button as HTMLElement).dataset.editOfficeDocument
+        );
+        if (document) openEditor(document);
+      })
+    );
+    list.querySelectorAll("[data-upload-office-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传附件", "error");
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const added = await api("attachment.add", {
+            parent_type: "office_document",
+            parent_id: (button as HTMLElement).dataset.uploadOfficeDocument,
+            category: "office_document",
+            name: localPath.split(/[\\/]/).pop() || "办公文档附件",
+            local_path: localPath,
+          });
+          if (!added.ok) return toast(added.message, "error");
+        }
+        toast(paths.length ? `已上传 ${paths.length} 个附件` : "未选择文件");
+        if (paths.length) draw();
+      })
+    );
+    list.querySelectorAll("[data-publish-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const published = await api("officeContent.publish", {
+          id: (button as HTMLElement).dataset.publishDocument,
+        });
+        toast(published.ok ? "文档已发布" : published.message, published.ok ? "ok" : "error");
+        if (published.ok) await Promise.all([draw(), drawUnread()]);
+      })
+    );
+    list.querySelectorAll("[data-archive-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("归档后普通员工将无法继续查看，是否继续？")) return;
+        const archived = await api("officeContent.archive", {
+          id: (button as HTMLElement).dataset.archiveDocument,
+        });
+        toast(archived.ok ? "文档已归档" : archived.message, archived.ok ? "ok" : "error");
+        if (archived.ok) await Promise.all([draw(), drawUnread()]);
+      })
+    );
+  };
+  main.querySelector("[data-new-office-document]")?.addEventListener("click", () => openEditor());
+  main.querySelector("[data-office-kind]")!.addEventListener("change", draw);
+  main.querySelector("[data-office-status]")!.addEventListener("change", draw);
+  await Promise.all([draw(), drawUnread()]);
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -3453,8 +3684,6 @@ const suiteMeta: Record<
   office: {
     title: "办公协同",
     types: [
-      ["announcement", "公告"],
-      ["knowledge", "知识文章"],
       ["exam", "考试"],
       ["event", "会议活动"],
       ["workflow", "流程会签"],

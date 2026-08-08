@@ -20,8 +20,6 @@ const TYPES: Record<string, Set<string>> = {
   ]),
   finance: new Set(["asset", "voucher"]),
   office: new Set([
-    "announcement",
-    "knowledge",
     "exam",
     "event",
     "workflow",
@@ -68,7 +66,7 @@ function visible(user: SessionUser, row: any): boolean {
   if (user.role === "finance") return row.module === "finance" || row.module === "performance";
   if (row.store_id && row.store_id !== user.store_id) return false;
   if (user.role === "store_manager") return true;
-  if (row.module === "office" && ["announcement", "knowledge", "event"].includes(row.record_type)) {
+  if (row.module === "office" && row.record_type === "event") {
     return row.status === "active" || row.status === "approved" || row.created_by === user.id;
   }
   return (

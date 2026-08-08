@@ -33,7 +33,8 @@
     "smoke:recruitment": "tsx scripts/recruitment-smoke.ts",
     "smoke:employee-contract": "tsx scripts/employee-contract-smoke.ts",
     "smoke:payroll": "tsx scripts/payroll-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense && npm run smoke:attendance && npm run smoke:cashbook && npm run smoke:workforce && npm run smoke:recruitment && npm run smoke:employee-contract && npm run smoke:payroll"
+    "smoke:office-content": "tsx scripts/office-content-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense && npm run smoke:attendance && npm run smoke:cashbook && npm run smoke:workforce && npm run smoke:recruitment && npm run smoke:employee-contract && npm run smoke:payroll && npm run smoke:office-content"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
