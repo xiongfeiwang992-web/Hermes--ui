@@ -6,13 +6,6 @@ import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
 
 const TYPES: Record<string, Set<string>> = {
-  property_ext: new Set([
-    "listing_lock",
-    "cooperation",
-    "media",
-    "auction",
-    "exclusive_agency",
-  ]),
   finance: new Set(["asset", "voucher"]),
   office: new Set([
     "exam",

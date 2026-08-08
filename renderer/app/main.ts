@@ -96,6 +96,7 @@ function canSee(tab: string) {
   if (tab === "marketing") return role !== "finance";
   if (tab === "performance") return true;
   if (tab === "deal-ext") return true;
+  if (tab === "property-ext") return role !== "finance";
   if (
     [
       "houses",
@@ -194,7 +195,7 @@ function renderSide(side: HTMLElement) {
     ["payments", "收款"],
     ["commissions", "提成"],
     ["reports", "经营报表"],
-    ["suite-property", "房源扩展"],
+    ["property-ext", "房源扩展"],
     ["deal-ext", "交易扩展"],
     ["suite-newhome", "新房分销"],
     ["suite-finance", "财务管理"],
@@ -282,9 +283,9 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "marketing") return renderMarketing(main);
   if (state.tab === "performance") return renderPerformance(main);
   if (state.tab === "deal-ext") return renderDealExt(main);
+  if (state.tab === "property-ext") return renderPropertyExt(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
-      "suite-property": "property_ext",
       "suite-finance": "finance",
       "suite-office": "office",
     };
@@ -463,9 +464,13 @@ async function renderHouses(main: HTMLElement) {
     });
     list.querySelectorAll("[data-lock]").forEach((btn) => {
       btn.addEventListener("click", async () => {
+        const locking = (btn as HTMLElement).dataset.locked === "1";
+        const reason = prompt(locking ? "锁定原因" : "解锁原因");
+        if (!reason) return;
         const result = await api("house.lock", {
           id: (btn as HTMLElement).dataset.lock,
-          locked: (btn as HTMLElement).dataset.locked === "1",
+          locked: locking,
+          reason,
         });
         toast(result.ok ? "房源锁定状态已更新" : result.message, result.ok ? "ok" : "error");
         if (result.ok) draw();
@@ -5164,6 +5169,233 @@ async function renderPerformance(main: HTMLElement) {
   await draw();
 }
 
+async function renderPropertyExt(main: HTMLElement) {
+  const canWrite = state.user.role !== "finance";
+  const options = await api("propertyExt.options", {});
+  const houseOptions = options.ok
+    ? ((options.data as any).houses || [])
+        .map(
+          (house: any) =>
+            `<option value="${house.id}">${house.title} · ${house.community}</option>`
+        )
+        .join("")
+    : "";
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
+  main.innerHTML = `
+    <div class="header"><h2>房源锁定、合作与业态</h2><div class="ops">
+      ${canWrite ? `<button class="btn ghost" data-lock>锁定房源</button><button class="btn ghost" data-coop>建立合作</button><button class="btn ghost" data-media>登记媒体</button><button class="btn ghost" data-auction>拍卖资料</button><button class="btn" data-exclusive>独家/包销</button>` : ""}
+    </div></div>
+    <h3>锁定盘</h3><div class="list" data-locks></div>
+    <h3>合作盘</h3><div class="list" data-coops></div>
+    <h3>视频/全景</h3><div class="list" data-media-list></div>
+  `;
+  const drawLocks = async () => {
+    const result = await api("propertyExt.locks.list", {});
+    const list = main.querySelector("[data-locks]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag warn">锁定</span><strong>${item.title}</strong> · ${item.community}</div>
+            <div class="meta">${item.lock_reason || ""}${item.lock_until ? ` · 至 ${item.lock_until}` : ""} · ${item.locked_by_name || ""}${item.locked_at ? ` · ${item.locked_at.slice(0, 16).replace("T", " ")}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn danger" data-unlock="${item.id}">解锁</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无锁定盘</div>`;
+    list.querySelectorAll("[data-unlock]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("解锁原因");
+        if (!reason) return;
+        const updated = await api("propertyExt.locks.set", {
+          id: (button as HTMLElement).dataset.unlock,
+          locked: false,
+          reason,
+        });
+        toast(updated.ok ? "已解锁" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawLocks();
+      })
+    );
+  };
+  const drawCoops = async () => {
+    const result = await api("propertyExt.cooperations.list", { status: "active" });
+    const list = main.querySelector("[data-coops]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ok">合作</span><strong>${item.house_title}</strong> · ${item.partner_name}</div>
+            <div class="meta">${item.partner_user_name || item.partner_phone || "外部合作"}${item.share_ratio != null ? ` · 分成 ${item.share_ratio}%` : ""}${item.note ? ` · ${item.note}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn danger" data-end-coop="${item.id}">结束</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无有效合作</div>`;
+    list.querySelectorAll("[data-end-coop]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("结束原因");
+        if (!reason) return;
+        const updated = await api("propertyExt.cooperations.end", {
+          id: (button as HTMLElement).dataset.endCoop,
+          reason,
+        });
+        toast(updated.ok ? "合作已结束" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawCoops();
+      })
+    );
+  };
+  const drawMedia = async () => {
+    const result = await api("propertyExt.media.list", { status: "active" });
+    const list = main.querySelector("[data-media-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag">${item.media_type === "video" ? "视频" : "全景"}</span><strong>${item.title}</strong> · ${item.house_title}</div>
+            <div class="meta">${item.local_path}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn danger" data-archive-media="${item.id}">归档</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无视频/全景</div>`;
+    list.querySelectorAll("[data-archive-media]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("propertyExt.media.archive", {
+          id: (button as HTMLElement).dataset.archiveMedia,
+        });
+        toast(updated.ok ? "媒体已归档" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawMedia();
+      })
+    );
+  };
+  main.querySelector("[data-lock]")?.addEventListener("click", () =>
+    openDialog(
+      "锁定房源",
+      `<label class="full">房源<select name="id">${houseOptions}</select></label>
+       <label class="full">原因<input name="reason" required /></label>
+       <label>到期日<input name="lock_until" type="date" /></label>`,
+      async (fd) => {
+        const result = await api("propertyExt.locks.set", {
+          id: fd.get("id"),
+          locked: true,
+          reason: fd.get("reason"),
+          lock_until: fd.get("lock_until") || null,
+        });
+        toast(result.ok ? "房源已锁定" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawLocks();
+      }
+    )
+  );
+  main.querySelector("[data-coop]")?.addEventListener("click", () =>
+    openDialog(
+      "建立合作",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>合作员工<select name="partner_user_id"><option value="">外部合作</option>${userOptions}</select></label>
+       <label>合作方名称<input name="partner_name" required /></label>
+       <label>电话<input name="partner_phone" /></label>
+       <label>分成%<input name="share_ratio" type="number" min="1" max="99" /></label>
+       <label class="full">备注<input name="note" /></label>`,
+      async (fd) => {
+        const result = await api("propertyExt.cooperations.create", {
+          house_id: fd.get("house_id"),
+          partner_user_id: fd.get("partner_user_id") || null,
+          partner_name: fd.get("partner_name"),
+          partner_phone: fd.get("partner_phone"),
+          share_ratio: fd.get("share_ratio") || null,
+          note: fd.get("note"),
+        });
+        toast(result.ok ? "合作已建立" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawCoops();
+      }
+    )
+  );
+  main.querySelector("[data-media]")?.addEventListener("click", () =>
+    openDialog(
+      "登记视频/全景",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>类型<select name="media_type"><option value="video">视频</option><option value="panorama">全景</option></select></label>
+       <label>标题<input name="title" required /></label>
+       <label class="full">本地路径<input name="local_path" required /></label>`,
+      async (fd) => {
+        const result = await api("propertyExt.media.add", {
+          house_id: fd.get("house_id"),
+          media_type: fd.get("media_type"),
+          title: fd.get("title"),
+          local_path: fd.get("local_path"),
+        });
+        toast(result.ok ? "媒体已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawMedia();
+      }
+    )
+  );
+  main.querySelector("[data-auction]")?.addEventListener("click", () =>
+    openDialog(
+      "拍卖资料",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>法院<input name="court_name" /></label>
+       <label>案号<input name="case_no" /></label>
+       <label>起拍价<input name="starting_price" type="number" min="0.01" step="0.01" required /></label>
+       <label>保留价<input name="reserve_price" type="number" min="0" step="0.01" /></label>
+       <label class="full">备注<input name="remark" /></label>`,
+      async (fd) => {
+        const saved = await api("propertyExt.auction.save", {
+          house_id: fd.get("house_id"),
+          court_name: fd.get("court_name"),
+          case_no: fd.get("case_no"),
+          starting_price: Number(fd.get("starting_price")),
+          reserve_price: fd.get("reserve_price") || null,
+          remark: fd.get("remark"),
+        });
+        if (!saved.ok) return toast(saved.message, "error");
+        const activated = await api("propertyExt.auction.activate", {
+          house_id: fd.get("house_id"),
+        });
+        toast(
+          activated.ok ? "拍卖资料已启用" : activated.message,
+          activated.ok ? "ok" : "error"
+        );
+      }
+    )
+  );
+  main.querySelector("[data-exclusive]")?.addEventListener("click", () =>
+    openDialog(
+      "独家/包销",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>类型<select name="agency_type"><option value="exclusive">独家</option><option value="package">包销</option></select></label>
+       <label>开始日期<input name="start_date" type="date" required /></label>
+       <label>结束日期<input name="end_date" type="date" required /></label>
+       <label>包销价<input name="package_price" type="number" min="0" step="0.01" /></label>
+       <label class="full">佣金规则<input name="commission_rule" /></label>`,
+      async (fd) => {
+        const saved = await api("propertyExt.exclusive.save", {
+          house_id: fd.get("house_id"),
+          agency_type: fd.get("agency_type"),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          package_price: fd.get("package_price") || null,
+          commission_rule: fd.get("commission_rule"),
+        });
+        if (!saved.ok) return toast(saved.message, "error");
+        const activated = await api("propertyExt.exclusive.activate", {
+          house_id: fd.get("house_id"),
+        });
+        toast(
+          activated.ok ? "独家/包销已启用" : activated.message,
+          activated.ok ? "ok" : "error"
+        );
+      }
+    )
+  );
+  await Promise.all([drawLocks(), drawCoops(), drawMedia()]);
+}
+
 async function renderDealExt(main: HTMLElement) {
   const canManage = ["admin", "store_manager"].includes(state.user.role);
   const canWrite = state.user.role !== "finance";
@@ -5406,16 +5638,6 @@ const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
 > = {
-  property_ext: {
-    title: "房源扩展",
-    types: [
-      ["listing_lock", "锁定盘"],
-      ["cooperation", "合作盘"],
-      ["media", "视频/全景"],
-      ["auction", "拍卖模式"],
-      ["exclusive_agency", "包销/独家代理"],
-    ],
-  },
   finance: {
     title: "财务管理",
     types: [

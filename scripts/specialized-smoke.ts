@@ -106,7 +106,14 @@ assert(
   ).ok,
   "enforce personal house hold limit"
 );
-assert(app.call("house.lock", { id: data<any>(house).id, locked: true }, agent).ok, "lock own house");
+assert(
+  app.call(
+    "house.lock",
+    { id: data<any>(house).id, locked: true, reason: "重点盘保护" },
+    agent
+  ).ok,
+  "lock own house"
+);
 
 const customer = app.call(
   "customer.create",

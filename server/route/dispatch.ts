@@ -33,6 +33,7 @@ import * as customerCare from "../domain/customerCare";
 import * as marketing from "../domain/marketing";
 import * as performance from "../domain/performance";
 import * as dealExt from "../domain/dealExt";
+import * as propertyExt from "../domain/propertyExt";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -577,6 +578,40 @@ function route(
       return dealExt.rejectRename(db, user!, payload);
     case "dealExt.renames.cancel":
       return dealExt.cancelRename(db, user!, payload);
+    case "propertyExt.options":
+      return propertyExt.propertyExtOptions(db, user!);
+    case "propertyExt.locks.list":
+      return propertyExt.listLocks(db, user!, payload);
+    case "propertyExt.locks.set":
+      return propertyExt.setLock(db, user!, payload);
+    case "propertyExt.cooperations.list":
+      return propertyExt.listCooperations(db, user!, payload);
+    case "propertyExt.cooperations.create":
+      return propertyExt.createCooperation(db, user!, payload);
+    case "propertyExt.cooperations.end":
+      return propertyExt.endCooperation(db, user!, payload);
+    case "propertyExt.media.list":
+      return propertyExt.listMedia(db, user!, payload);
+    case "propertyExt.media.add":
+      return propertyExt.addMedia(db, user!, payload);
+    case "propertyExt.media.archive":
+      return propertyExt.archiveMedia(db, user!, payload);
+    case "propertyExt.auction.get":
+      return propertyExt.getAuction(db, user!, payload);
+    case "propertyExt.auction.save":
+      return propertyExt.saveAuction(db, user!, payload);
+    case "propertyExt.auction.activate":
+      return propertyExt.activateAuction(db, user!, payload);
+    case "propertyExt.auction.complete":
+      return propertyExt.completeAuction(db, user!, payload);
+    case "propertyExt.exclusive.get":
+      return propertyExt.getExclusive(db, user!, payload);
+    case "propertyExt.exclusive.save":
+      return propertyExt.saveExclusive(db, user!, payload);
+    case "propertyExt.exclusive.activate":
+      return propertyExt.activateExclusive(db, user!, payload);
+    case "propertyExt.exclusive.end":
+      return propertyExt.endExclusive(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

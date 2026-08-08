@@ -7,6 +7,7 @@ import {
 } from "../auth/policy";
 import { writeAudit } from "./audit";
 import { createMessage } from "./message";
+import { setLock as setPropertyLock } from "./propertyExt";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -297,32 +298,11 @@ export function changeHouseAgent(
 export function setHouseLock(
   db: Db,
   user: SessionUser,
-  payload: { id: string; locked: boolean }
+  payload: { id: string; locked: boolean; reason?: string; lock_until?: string }
 ): ApiResult {
-  const house = db
-    .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
-    .get(payload.id, user.company_id) as any;
-  if (!house || !houseVisibleTo(user, house))
-    return { ok: false, message: "房源不存在或无权限", code: 403 };
-  if (
-    !(
-      user.role === "admin" ||
-      (user.role === "store_manager" && house.store_id === user.store_id) ||
-      house.agent_id === user.id
-    )
-  )
-    return { ok: false, message: "无权限", code: 403 };
-  db.prepare(
-    `UPDATE houses SET is_locked=?, locked_by=?, locked_at=?, updated_at=? WHERE id=?`
-  ).run(
-    payload.locked ? 1 : 0,
-    payload.locked ? user.id : null,
-    payload.locked ? nowIso() : null,
-    nowIso(),
-    house.id
-  );
-  writeAudit(db, user, payload.locked ? "house.lock" : "house.unlock", "house", house.id);
-  return getHouse(db, user, house.id);
+  const result = setPropertyLock(db, user, payload);
+  if (!result.ok) return result;
+  return getHouse(db, user, payload.id);
 }
 
 export function ensureHouseRole(
