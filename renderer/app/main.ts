@@ -1617,12 +1617,45 @@ async function renderDeals(main: HTMLElement) {
       <div class="ops">
         ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
         <button class="btn ghost" data-mortgage="${d.id}">按揭</button>
+        <button class="btn ghost" data-preview-contract="${d.id}">合同预览</button>
         ${["pending_approval", "approved"].includes(d.status) ? `<button class="btn ghost" data-sign="${d.id}">签署确认</button>` : ""}
         ${["draft", "rejected"].includes(d.status) ? `<button class="btn" data-submit="${d.id}">提交审批</button>` : ""}
         ${d.status === "pending_approval" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${d.id}">通过</button><button class="btn danger" data-reject="${d.id}">驳回</button>` : ""}
       </div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-preview-contract]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const dealId = (btn as HTMLElement).dataset.previewContract!;
+        const templates = await api("contract.templates", {});
+        if (!templates.ok) return toast(templates.message, "error");
+        const rows = (templates.data as any[]) || [];
+        let templateId = rows[0]?.id;
+        if (rows.length > 1) {
+          const picked = prompt(
+            `选择合同模板编号：\n${rows.map((item) => `${item.id} ${item.name}（${item.deal_type}）`).join("\n")}`,
+            rows[0].id
+          );
+          if (!picked) return;
+          templateId = picked;
+        }
+        const result = await api("contract.preview", {
+          deal_id: dealId,
+          template_id: templateId,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        const preview = result.data as any;
+        openInfoDialog(
+          `合同预览${preview.template_name ? ` · ${preview.template_name}` : ""}（非 CA）`,
+          `<pre class="meta" style="white-space:pre-wrap">${escapeHtml(preview.content || "（空）")}</pre>
+           <div class="meta">占位符：${escapeHtml((preview.placeholders_used || []).join("、") || "-")}${
+             preview.placeholders_missing?.length
+               ? ` · 未填充：${escapeHtml(preview.placeholders_missing.join("、"))}`
+               : ""
+           }</div>`
+        );
+      })
+    );
     list.querySelectorAll("[data-submit]").forEach((btn) =>
       btn.addEventListener("click", async () => {
         const r = await api("deal.submit", { id: (btn as HTMLElement).dataset.submit });
