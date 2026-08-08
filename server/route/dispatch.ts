@@ -10,6 +10,8 @@ import * as message from "../domain/message";
 import * as property from "../domain/property";
 import * as earnest from "../domain/earnest";
 import * as transfer from "../domain/transfer";
+import * as suite from "../domain/suite";
+import * as system from "../domain/system";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -24,6 +26,9 @@ export function dispatch(
     const user = org.getSession(db, token);
     if (!PUBLIC.has(action) && !user) {
       return { ok: false, message: "未登录", code: 401 };
+    }
+    if (user && !suite.featureAllowed(db, user, action)) {
+      return { ok: false, message: "该功能已被管理员禁用", code: 403 };
     }
     return route(db, action, payload, user, token);
   } catch (err: any) {
@@ -45,6 +50,8 @@ function route(
       return org.logout(db, token, user);
     case "auth.me":
       return org.me(user!);
+    case "auth.changePassword":
+      return org.changePassword(db, user!, payload);
 
     case "org.stores.list":
       return org.listStores(db, user!);
@@ -178,6 +185,33 @@ function route(
       return report.businessSummary(db, user!, payload);
     case "report.dealsCsv":
       return report.exportDealsCsv(db, user!, payload);
+
+    case "suite.modules":
+      return suite.modules();
+    case "suite.list":
+      return suite.listRecords(db, user!, payload);
+    case "suite.create":
+      return suite.createRecord(db, user!, payload);
+    case "suite.update":
+      return suite.updateRecord(db, user!, payload);
+    case "suite.status":
+      return suite.changeStatus(db, user!, payload);
+    case "blacklist.list":
+      return suite.listBlacklists(db, user!, payload);
+    case "blacklist.add":
+      return suite.addBlacklist(db, user!, payload);
+    case "permission.list":
+      return suite.listPermissions(db, user!);
+    case "permission.set":
+      return suite.setPermission(db, user!, payload);
+    case "integration.list":
+      return suite.listIntegrations(db, user!);
+    case "integration.configure":
+      return suite.configureIntegration(db, user!, payload);
+    case "system.backup.create":
+      return system.createBackup(db, user!);
+    case "system.backup.list":
+      return system.listBackups(user!);
     case "message.list":
       return { ok: true, data: message.listMessages(db, user!) };
     case "message.unread":

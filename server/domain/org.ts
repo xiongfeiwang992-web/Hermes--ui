@@ -192,3 +192,26 @@ export function upsertUser(
 export function me(user: SessionUser): ApiResult {
   return { ok: true, data: user };
 }
+
+export function changePassword(
+  db: Db,
+  user: SessionUser,
+  payload: { current_password: string; new_password: string }
+): ApiResult {
+  if (String(payload.new_password || "").length < 8) {
+    return { ok: false, message: "新密码至少 8 位" };
+  }
+  const row = db
+    .prepare(`SELECT password_hash FROM users WHERE id = ? AND company_id = ?`)
+    .get(user.id, user.company_id) as any;
+  if (!row || !verifyPassword(payload.current_password || "", row.password_hash)) {
+    return { ok: false, message: "当前密码错误" };
+  }
+  db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(
+    hashPassword(payload.new_password),
+    user.id
+  );
+  db.prepare(`DELETE FROM sessions WHERE user_id = ?`).run(user.id);
+  writeAudit(db, user, "auth.password_change", "user", user.id);
+  return { ok: true, data: { relogin_required: true } };
+}

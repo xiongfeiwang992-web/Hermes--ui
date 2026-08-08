@@ -92,6 +92,9 @@ function canSee(tab: string) {
   )
     return role !== "finance";
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
+  if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
+  if (["suite-hr", "suite-performance", "suite-marketing", "suite-care"].includes(tab))
+    return ["admin", "store_manager"].includes(role);
   return true;
 }
 
@@ -163,6 +166,16 @@ function renderSide(side: HTMLElement) {
     ["payments", "收款"],
     ["commissions", "提成"],
     ["reports", "经营报表"],
+    ["suite-property", "房源扩展"],
+    ["suite-newhome", "新房分销"],
+    ["suite-finance", "财务管理"],
+    ["suite-office", "办公协同"],
+    ["suite-hr", "人事管理"],
+    ["suite-rental", "租赁托管"],
+    ["suite-care", "客户关怀"],
+    ["suite-marketing", "营销线索"],
+    ["suite-performance", "积分分红"],
+    ["system-center", "系统中心"],
     ["messages", "消息"],
     ["org", "组织"],
     ["audit", "审计"],
@@ -217,6 +230,21 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "payments") return renderPayments(main);
   if (state.tab === "commissions") return renderCommissions(main);
   if (state.tab === "reports") return renderReports(main);
+  if (state.tab.startsWith("suite-")) {
+    const moduleMap: Record<string, string> = {
+      "suite-property": "property_ext",
+      "suite-newhome": "newhome",
+      "suite-finance": "finance",
+      "suite-office": "office",
+      "suite-hr": "hr",
+      "suite-rental": "rental",
+      "suite-care": "customer_care",
+      "suite-marketing": "marketing",
+      "suite-performance": "performance",
+    };
+    return renderSuite(main, moduleMap[state.tab]);
+  }
+  if (state.tab === "system-center") return renderSystemCenter(main);
   if (state.tab === "messages") return renderMessages(main);
   if (state.tab === "org") return renderOrg(main);
   if (state.tab === "audit") return renderAudit(main);
@@ -1468,6 +1496,383 @@ async function renderReports(main: HTMLElement) {
     toast(`已导出 ${file.rows} 条成交`);
   });
   await draw();
+}
+
+const suiteMeta: Record<
+  string,
+  { title: string; types: Array<[string, string]> }
+> = {
+  property_ext: {
+    title: "房源扩展",
+    types: [
+      ["entrustment", "业主委托"],
+      ["listing_lock", "锁定盘"],
+      ["cooperation", "合作盘"],
+      ["media", "视频/全景"],
+      ["auction", "拍卖模式"],
+      ["exclusive_agency", "包销/独家代理"],
+    ],
+  },
+  newhome: {
+    title: "新房分销",
+    types: [
+      ["project", "新房项目"],
+      ["registration", "客户报备"],
+      ["arrival", "到场确认"],
+      ["distribution_company", "分销公司"],
+      ["sales_report", "销售报告"],
+    ],
+  },
+  finance: {
+    title: "财务管理",
+    types: [
+      ["income", "收入"],
+      ["expense", "支出"],
+      ["reimbursement", "费用报销"],
+      ["asset", "资产"],
+      ["voucher", "会计凭证"],
+      ["payroll", "薪酬发放"],
+    ],
+  },
+  office: {
+    title: "办公协同",
+    types: [
+      ["announcement", "公告"],
+      ["knowledge", "知识文章"],
+      ["exam", "考试"],
+      ["event", "会议活动"],
+      ["workflow", "流程会签"],
+      ["ticket", "票据流转"],
+      ["work_summary", "工作总结"],
+      ["circle_post", "同事圈"],
+      ["call_record", "来电记录"],
+    ],
+  },
+  hr: {
+    title: "人事管理",
+    types: [
+      ["job_grade", "岗位职级"],
+      ["transfer", "员工调动"],
+      ["offboarding", "离职交接"],
+      ["attendance", "考勤"],
+      ["leave", "请假"],
+      ["job", "招聘岗位"],
+      ["applicant", "应聘记录"],
+      ["employee_contract", "人事合同"],
+      ["salary", "薪酬条"],
+    ],
+  },
+  rental: {
+    title: "租赁托管",
+    types: [
+      ["managed_property", "托管物业"],
+      ["lease", "租约"],
+      ["bill", "租金账单"],
+      ["maintenance", "维修工单"],
+      ["cleaning", "保洁工单"],
+    ],
+  },
+  customer_care: {
+    title: "客户关怀",
+    types: [
+      ["complaint", "投诉"],
+      ["lawsuit", "诉讼"],
+      ["survey", "满意度问卷"],
+      ["callback", "客户回访"],
+    ],
+  },
+  marketing: {
+    title: "营销线索",
+    types: [
+      ["website_page", "官网内容"],
+      ["online_entrustment", "在线委托"],
+      ["lead", "商机线索"],
+      ["campaign", "营销活动"],
+    ],
+  },
+  performance: {
+    title: "积分分红",
+    types: [
+      ["points", "积分"],
+      ["bonus", "管理奖"],
+      ["dividend", "利润分红"],
+      ["target", "业绩目标"],
+    ],
+  },
+};
+
+async function renderSuite(main: HTMLElement, module: string) {
+  const meta = suiteMeta[module];
+  if (!meta) {
+    main.innerHTML = `<div class="error">模块不存在</div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div class="header"><h2>${meta.title}</h2><button class="btn" data-new>新建记录</button></div>
+    <div class="filters">
+      <select data-type><option value="">全部类型</option>${meta.types
+        .map(([value, label]) => `<option value="${value}">${label}</option>`)
+        .join("")}</select>
+      <select data-status><option value="">全部状态</option><option value="draft">草稿</option><option value="pending">待审批</option><option value="approved">已审批</option><option value="active">生效</option><option value="in_progress">进行中</option><option value="completed">已完成</option><option value="rejected">已驳回</option></select>
+    </div>
+    <div class="list" data-list></div>
+  `;
+  const typeLabel = Object.fromEntries(meta.types);
+  const draw = async () => {
+    const recordType = (main.querySelector("[data-type]") as HTMLSelectElement).value;
+    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
+    const result = await api("suite.list", {
+      module,
+      ...(recordType ? { record_type: recordType } : {}),
+      ...(status ? { status } : {}),
+    });
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
+    list.innerHTML =
+      rows
+        .map(
+          (record) => `<div class="row"><div>
+            <div><span class="tag ${["approved", "active", "completed"].includes(record.status) ? "ok" : record.status === "rejected" ? "danger" : "warn"}">${record.status}</span><span class="tag">${typeLabel[record.record_type] || record.record_type}</span><strong>${record.title}</strong>${record.amount != null ? ` · ¥${money(record.amount)}` : ""}</div>
+            <div class="meta">${record.due_at ? `截止 ${record.due_at} · ` : ""}${record.data?.description || record.data?.note || "无补充说明"}${record.reject_reason ? ` · 驳回：${record.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${["draft", "rejected"].includes(record.status) ? `<button class="btn" data-status-id="${record.id}" data-to="pending">提交</button>` : ""}
+            ${record.status === "pending" && ["admin", "store_manager", "finance"].includes(state.user.role) ? `<button class="btn" data-status-id="${record.id}" data-to="approved">审批</button><button class="btn danger" data-reject-record="${record.id}">驳回</button>` : ""}
+            ${["approved", "active"].includes(record.status) ? `<button class="btn ghost" data-status-id="${record.id}" data-to="in_progress">开始</button>` : ""}
+            ${["approved", "active", "in_progress"].includes(record.status) ? `<button class="btn" data-status-id="${record.id}" data-to="completed">完成</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无${meta.title}记录</div>`;
+    list.querySelectorAll("[data-status-id]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const element = button as HTMLElement;
+        const result = await api("suite.status", {
+          id: element.dataset.statusId,
+          status: element.dataset.to,
+        });
+        toast(result.ok ? "状态已更新" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-reject-record]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const result = await api("suite.status", {
+          id: (button as HTMLElement).dataset.rejectRecord,
+          status: "rejected",
+          reason,
+        });
+        toast(result.ok ? "已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", () => {
+    openDialog(
+      `新建${meta.title}记录`,
+      `
+      <label>类型<select name="record_type">${meta.types
+        .map(([value, label]) => `<option value="${value}">${label}</option>`)
+        .join("")}</select></label>
+      <label>标题<input name="title" required /></label>
+      <label>金额<input name="amount" type="number" step="0.01" /></label>
+      <label>截止时间<input name="due_at" type="datetime-local" /></label>
+      <label class="full">说明<textarea name="description" rows="4"></textarea></label>
+      `,
+      async (fd) => {
+        const dueAt = String(fd.get("due_at") || "");
+        const result = await api("suite.create", {
+          module,
+          record_type: fd.get("record_type"),
+          title: fd.get("title"),
+          amount: fd.get("amount") ? Number(fd.get("amount")) : null,
+          due_at: dueAt ? new Date(dueAt).toISOString() : null,
+          data: { description: fd.get("description") },
+        });
+        toast(result.ok ? "记录已创建" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  main.querySelector("[data-type]")!.addEventListener("change", draw);
+  main.querySelector("[data-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
+async function renderSystemCenter(main: HTMLElement) {
+  const canManageSystem = ["admin", "store_manager"].includes(state.user.role);
+  const desktopShell = (window as any).weilaijia?.shell;
+  const blacklist = canManageSystem
+    ? await api("blacklist.list", {})
+    : ({ ok: true, data: [] } as any);
+  const integrations =
+    state.user.role === "admin" ? await api("integration.list", {}) : ({ ok: true, data: [] } as any);
+  const backups =
+    state.user.role === "admin"
+      ? await api("system.backup.list", {})
+      : ({ ok: true, data: [] } as any);
+  main.innerHTML = `
+    <div class="header"><h2>系统中心</h2><div class="ops">
+      ${canManageSystem ? `<button class="btn ghost" data-blacklist>添加黑名单</button>` : ""}
+      <button class="btn ghost" data-password>修改密码</button>
+      ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
+    </div></div>
+    ${canManageSystem ? `<h3>业务黑名单</h3><div class="list" data-blacklist-list></div>` : ""}
+    ${state.user.role === "admin" ? `<h3>数据库备份</h3><div class="list" data-backups></div>` : ""}
+    ${state.user.role === "admin" ? `<h3>第三方适配器（默认关闭）</h3><div class="list" data-integrations></div>` : ""}
+  `;
+  const blacklistList = main.querySelector("[data-blacklist-list]");
+  if (blacklistList) {
+    blacklistList.innerHTML =
+      blacklist.ok && (blacklist.data as any[]).length
+        ? (blacklist.data as any[])
+            .map(
+              (item) =>
+                `<div class="row"><div><strong>${item.display_value}</strong><div class="meta">${item.kind} · ${item.reason}</div></div></div>`
+            )
+            .join("")
+        : `<div class="empty">暂无黑名单</div>`;
+  }
+  const integrationList = main.querySelector("[data-integrations]");
+  if (integrationList) {
+    integrationList.innerHTML = ((integrations.data as any[]) || [])
+      .map(
+        (item) =>
+          `<div class="row"><div><strong>${item.provider}</strong><div class="meta">${item.enabled ? "已配置" : "未配置"} · ${item.mode} · ${item.health_status}</div></div></div>`
+      )
+      .join("");
+  }
+  const backupList = main.querySelector("[data-backups]");
+  if (backupList) {
+    backupList.innerHTML = ((backups.data as any[]) || []).length
+      ? ((backups.data as any[]) || [])
+          .map(
+            (item) =>
+              `<div class="row"><div><strong>${item.filename}</strong><div class="meta">${money(item.size)} bytes · ${item.created_at}</div></div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无备份</div>`;
+  }
+  const blacklistButton = main.querySelector("[data-blacklist]");
+  if (blacklistButton) {
+    blacklistButton.addEventListener("click", () => {
+      openDialog(
+        "添加业务黑名单",
+        `
+        <label>类型<select name="kind"><option value="phone">电话</option><option value="id_card">身份证</option><option value="lead">商机</option></select></label>
+        <label>值<input name="value" required /></label>
+        <label class="full">原因<input name="reason" required /></label>
+        `,
+        async (fd) => {
+          const result = await api("blacklist.add", {
+            kind: fd.get("kind"),
+            value: fd.get("value"),
+            reason: fd.get("reason"),
+          });
+          toast(result.ok ? "黑名单已添加" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  const integrationButton = main.querySelector("[data-integration]");
+  if (integrationButton) {
+    integrationButton.addEventListener("click", () => {
+      openDialog(
+        "配置第三方适配器",
+        `
+        <label>服务<select name="provider"><option value="ca_esign">CA电子签</option><option value="virtual_number">真隐号</option><option value="external_listing">外网房源平台</option><option value="map">地图</option><option value="wechat">微信</option><option value="sms">短信</option></select></label>
+        <label><span><input name="enabled" type="checkbox" /> 启用</span></label>
+        <label class="full">HTTPS 地址<input name="endpoint" placeholder="https://api.example.com" /></label>
+        <label>凭据引用<input name="credential_ref" placeholder="环境变量/密钥管理器引用" /></label>
+        <label>租户引用<input name="tenant_ref" /></label>
+        `,
+        async (fd) => {
+          const result = await api("integration.configure", {
+            provider: fd.get("provider"),
+            enabled: fd.get("enabled") === "on",
+            endpoint: fd.get("endpoint"),
+            credential_ref: fd.get("credential_ref"),
+            tenant_ref: fd.get("tenant_ref"),
+          });
+          toast(result.ok ? "适配器配置已保存" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  main.querySelector("[data-password]")!.addEventListener("click", () => {
+    openDialog(
+      "修改密码",
+      `
+      <label class="full">当前密码<input name="current_password" type="password" required /></label>
+      <label class="full">新密码（至少8位）<input name="new_password" type="password" minlength="8" required /></label>
+      `,
+      async (fd) => {
+        const result = await api("auth.changePassword", {
+          current_password: fd.get("current_password"),
+          new_password: fd.get("new_password"),
+        });
+        toast(result.ok ? "密码已修改，请重新登录" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) {
+          state.token = "";
+          state.user = null;
+          localStorage.removeItem("weilaijia.token");
+        }
+      }
+    );
+  });
+  const backupButton = main.querySelector("[data-backup]");
+  if (backupButton) {
+    backupButton.addEventListener("click", async () => {
+      const result = await api("system.backup.create");
+      toast(
+        result.ok ? `备份已创建：${(result.data as any).filename}` : result.message,
+        result.ok ? "ok" : "error"
+      );
+      if (result.ok) render();
+    });
+  }
+  const permissionButton = main.querySelector("[data-permission]");
+  if (permissionButton) {
+    permissionButton.addEventListener("click", () => {
+      openDialog(
+        "设置功能权限",
+        `
+        <label>角色<select name="role"><option value="agent">经纪人</option><option value="store_manager">店长</option><option value="finance">财务</option></select></label>
+        <label>功能<input name="feature" placeholder="如 report.*" required /></label>
+        <label><span><input name="allowed" type="checkbox" checked /> 允许</span></label>
+        `,
+        async (fd) => {
+          const result = await api("permission.set", {
+            role: fd.get("role"),
+            feature: fd.get("feature"),
+            allowed: fd.get("allowed") === "on",
+          });
+          toast(result.ok ? "功能权限已更新" : result.message, result.ok ? "ok" : "error");
+        }
+      );
+    });
+  }
+  const screenshotButton = main.querySelector("[data-screenshot]");
+  if (screenshotButton) {
+    screenshotButton.addEventListener("click", async () => {
+      const result = await desktopShell.screenshot();
+      toast(`截图已保存：${result.filename}`);
+    });
+  }
+  const fullscreenButton = main.querySelector("[data-fullscreen]");
+  if (fullscreenButton) {
+    fullscreenButton.addEventListener("click", async () => {
+      await desktopShell.toggleFullscreen();
+    });
+  }
+  const clearCacheButton = main.querySelector("[data-clear-cache]");
+  if (clearCacheButton) {
+    clearCacheButton.addEventListener("click", async () => {
+      await desktopShell.clearCache();
+    });
+  }
 }
 
 async function renderMessages(main: HTMLElement) {
