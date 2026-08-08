@@ -30,6 +30,7 @@ import * as payroll from "../domain/payroll";
 import * as officeContent from "../domain/officeContent";
 import * as rental from "../domain/rental";
 import * as customerCare from "../domain/customerCare";
+import * as marketing from "../domain/marketing";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -460,6 +461,34 @@ function route(
       return customerCare.cancelTask(db, user!, payload);
     case "customerCare.events":
       return customerCare.listCareEvents(db, user!, payload);
+    case "marketing.options":
+      return marketing.marketingOptions(db, user!);
+    case "marketing.campaigns.list":
+      return marketing.listCampaigns(db, user!, payload);
+    case "marketing.campaigns.create":
+      return marketing.createCampaign(db, user!, payload);
+    case "marketing.campaigns.status":
+      return marketing.changeCampaignStatus(db, user!, payload);
+    case "marketing.leads.list":
+      return marketing.listLeads(db, user!, payload);
+    case "marketing.leads.create":
+      return marketing.createLead(db, user!, payload);
+    case "marketing.leads.assign":
+      return marketing.assignLead(db, user!, payload);
+    case "marketing.leads.status":
+      return marketing.changeLeadStatus(db, user!, payload);
+    case "marketing.leads.convert":
+      return marketing.convertLead(db, user!, payload);
+    case "marketing.entrustments.list":
+      return marketing.listEntrustments(db, user!, payload);
+    case "marketing.entrustments.create":
+      return marketing.createEntrustment(db, user!, payload);
+    case "marketing.entrustments.accept":
+      return marketing.acceptEntrustment(db, user!, payload);
+    case "marketing.entrustments.reject":
+      return marketing.rejectEntrustment(db, user!, payload);
+    case "marketing.events":
+      return marketing.listMarketingEvents(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

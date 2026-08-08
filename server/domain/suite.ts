@@ -28,14 +28,12 @@ const TYPES: Record<string, Set<string>> = {
     "circle_post",
     "call_record",
   ]),
-  marketing: new Set(["website_page", "online_entrustment", "lead", "campaign"]),
   performance: new Set(["points", "bonus", "dividend", "target"]),
 };
 
 const MANAGER_ONLY = new Set([
   "finance",
   "performance",
-  "marketing",
 ]);
 
 const TRANSITIONS: Record<string, string[]> = {

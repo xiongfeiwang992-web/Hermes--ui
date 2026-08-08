@@ -93,6 +93,7 @@ function canSee(tab: string) {
   if (tab === "workforce") return ["admin", "store_manager"].includes(role);
   if (tab === "recruitment") return ["admin", "store_manager"].includes(role);
   if (tab === "customer-care") return role !== "finance";
+  if (tab === "marketing") return role !== "finance";
   if (
     [
       "houses",
@@ -109,8 +110,7 @@ function canSee(tab: string) {
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
   if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
   if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
-  if (["suite-performance", "suite-marketing"].includes(tab))
-    return ["admin", "store_manager"].includes(role);
+  if (tab === "suite-performance") return ["admin", "store_manager"].includes(role);
   return true;
 }
 
@@ -209,7 +209,7 @@ function renderSide(side: HTMLElement) {
     ["offboarding", "离职交接"],
     ["rental", "租赁托管"],
     ["customer-care", "客户关怀"],
-    ["suite-marketing", "营销线索"],
+    ["marketing", "营销线索"],
     ["suite-performance", "积分分红"],
     ["system-center", "系统中心"],
     ["messages", "消息"],
@@ -278,13 +278,13 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "office-content") return renderOfficeContent(main);
   if (state.tab === "rental") return renderRental(main);
   if (state.tab === "customer-care") return renderCustomerCare(main);
+  if (state.tab === "marketing") return renderMarketing(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
       "suite-deal": "deal_ext",
       "suite-finance": "finance",
       "suite-office": "office",
-      "suite-marketing": "marketing",
       "suite-performance": "performance",
     };
     return renderSuite(main, moduleMap[state.tab]);
@@ -4322,6 +4322,344 @@ async function renderCustomerCare(main: HTMLElement) {
   await draw();
 }
 
+async function renderMarketing(main: HTMLElement) {
+  const isManagerial = ["admin", "store_manager"].includes(state.user.role);
+  const optionsResult = await api("marketing.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { stores: [], users: [], campaigns: [] };
+  const channelLabels: Record<string, string> = {
+    website: "官网/微站",
+    wechat: "微信",
+    douyin: "抖音/视频号",
+    referral: "转介绍",
+    walk_in: "到店",
+    phone: "来电",
+    campaign: "营销活动",
+    other: "其他",
+  };
+  const intentLabels: Record<string, string> = {
+    buy: "求购",
+    rent: "求租",
+    sell: "出售委托",
+    entrust: "其他委托",
+  };
+  const leadStatusLabels: Record<string, string> = {
+    new: "新建",
+    contacting: "跟进中",
+    qualified: "已确认",
+    converted: "已转客",
+    lost: "已流失",
+    invalid: "无效",
+  };
+  const campaignStatusLabels: Record<string, string> = {
+    draft: "草稿",
+    active: "进行中",
+    closed: "已关闭",
+  };
+  const entrustLabels: Record<string, string> = {
+    sell: "出售",
+    rent: "出租",
+    buy: "求购",
+  };
+  const entrustStatusLabels: Record<string, string> = {
+    new: "待受理",
+    converted: "已转线索",
+    rejected: "已驳回",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>营销线索</h2><div class="ops">
+      ${isManagerial ? `<button class="btn ghost" data-new-campaign>新建活动</button>` : ""}
+      <button class="btn ghost" data-new-entrustment>登记在线委托</button>
+      <button class="btn" data-new-lead>录入线索</button>
+    </div></div>
+    <div class="filters">
+      <select data-lead-status><option value="">全部线索状态</option>${Object.entries(leadStatusLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
+      <select data-lead-channel><option value="">全部渠道</option>${Object.entries(channelLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
+    </div>
+    <section><h3>营销活动</h3><div class="list" data-marketing-campaigns></div></section>
+    <section><h3>商机线索</h3><div class="list" data-marketing-leads></div></section>
+    <section><h3>在线委托</h3><div class="list" data-marketing-entrustments></div></section>
+  `;
+  const showEvents = async (entityType: string, entityId: string, title: string) => {
+    const result = await api("marketing.events", {
+      entity_type: entityType,
+      entity_id: entityId,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${title}履历`,
+      (result.data as any[])
+        .map(
+          (event) =>
+            `<div class="row"><div><strong>${escapeHtml(event.event_type)}</strong><div class="meta">${escapeHtml(event.created_by_name)} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${escapeHtml(event.details)}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无履历</div>`
+    );
+  };
+  const drawCampaigns = async () => {
+    const result = await api("marketing.campaigns.list");
+    const list = main.querySelector("[data-marketing-campaigns]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((campaign) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" &&
+              (!campaign.store_id || campaign.store_id === state.user.store_id));
+          return `<div class="row"><div>
+            <div><span class="tag ${campaign.status === "active" ? "ok" : campaign.status === "draft" ? "warn" : ""}">${campaignStatusLabels[campaign.status]}</span><span class="tag">${channelLabels[campaign.channel] || campaign.channel}</span><strong>${escapeHtml(campaign.name)}</strong></div>
+            <div class="meta">${campaign.store_name ? escapeHtml(campaign.store_name) : "全公司"} · ${campaign.start_date} 至 ${campaign.end_date} · 预算 ¥${money(campaign.budget)} · 线索 ${campaign.lead_count}${campaign.remark ? ` · ${escapeHtml(campaign.remark)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-mkt-events="campaign:${campaign.id}:活动">履历</button>
+            ${canManage && campaign.status === "draft" ? `<button class="btn" data-activate-campaign="${campaign.id}">启用</button>` : ""}
+            ${canManage && ["draft", "active"].includes(campaign.status) ? `<button class="btn danger" data-close-campaign="${campaign.id}">关闭</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无营销活动</div>`;
+    list.querySelectorAll("[data-activate-campaign]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("marketing.campaigns.status", {
+          id: (button as HTMLElement).dataset.activateCampaign,
+          status: "active",
+        });
+        toast(result.ok ? "活动已启用" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-close-campaign]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("marketing.campaigns.status", {
+          id: (button as HTMLElement).dataset.closeCampaign,
+          status: "closed",
+        });
+        toast(result.ok ? "活动已关闭" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const drawLeads = async () => {
+    const status = (main.querySelector("[data-lead-status]") as HTMLSelectElement).value;
+    const channel = (main.querySelector("[data-lead-channel]") as HTMLSelectElement).value;
+    const result = await api("marketing.leads.list", {
+      status: status || undefined,
+      channel: channel || undefined,
+    });
+    const list = main.querySelector("[data-marketing-leads]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const leads = result.data as any[];
+    list.innerHTML =
+      leads
+        .map((lead) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" && lead.store_id === state.user.store_id);
+          const canOperate =
+            canManage ||
+            lead.assignee_user_id === state.user.id ||
+            (lead.created_by === state.user.id && !lead.assignee_user_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${lead.status === "converted" ? "ok" : ["lost", "invalid"].includes(lead.status) ? "danger" : "warn"}">${leadStatusLabels[lead.status]}</span><span class="tag">${channelLabels[lead.channel] || lead.channel}</span><span class="tag">${intentLabels[lead.intent] || lead.intent}</span><strong>${escapeHtml(lead.contact_name)}</strong> · ${escapeHtml(lead.contact_phone)}</div>
+            <div class="meta">${escapeHtml(lead.store_name)}${lead.campaign_name ? ` · 活动 ${escapeHtml(lead.campaign_name)}` : ""} · 负责人 ${escapeHtml(lead.assignee_name || "未分派")}${lead.need ? ` · ${escapeHtml(lead.need)}` : ""}${lead.budget_note ? ` · ${escapeHtml(lead.budget_note)}` : ""}${lead.lost_reason ? ` · 原因：${escapeHtml(lead.lost_reason)}` : ""}${lead.converted_customer_id ? ` · 客源 ${escapeHtml(lead.converted_customer_id)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-mkt-events="lead:${lead.id}:线索">履历</button>
+            ${canManage && ["new", "contacting", "qualified"].includes(lead.status) ? `<button class="btn ghost" data-assign-lead="${lead.id}">分派</button>` : ""}
+            ${canOperate && lead.status === "new" ? `<button class="btn" data-lead-status="${lead.id}:contacting">开始跟进</button>` : ""}
+            ${canOperate && lead.status === "contacting" ? `<button class="btn" data-lead-status="${lead.id}:qualified">确认意向</button>` : ""}
+            ${canOperate && ["contacting", "qualified"].includes(lead.status) ? `<button class="btn" data-convert-lead="${lead.id}">转客源</button>` : ""}
+            ${canOperate && ["new", "contacting", "qualified"].includes(lead.status) ? `<button class="btn danger" data-lose-lead="${lead.id}">流失/无效</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无商机线索</div>`;
+    list.querySelectorAll("[data-assign-lead]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "分派营销线索",
+          `<label>负责人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label>`,
+          async (fd) => {
+            const result = await api("marketing.leads.assign", {
+              id: (button as HTMLElement).dataset.assignLead,
+              assignee_user_id: fd.get("assignee_user_id"),
+            });
+            toast(result.ok ? "线索已分派" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-lead-status]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const [id, status] = String((button as HTMLElement).dataset.leadStatus).split(":");
+        const result = await api("marketing.leads.status", { id, status });
+        toast(result.ok ? "线索状态已更新" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-convert-lead]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("确认将该线索转为私客？")) return;
+        const result = await api("marketing.leads.convert", {
+          id: (button as HTMLElement).dataset.convertLead,
+        });
+        toast(result.ok ? "线索已转客源" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-lose-lead]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "标记线索流失或无效",
+          `<label>结果<select name="status"><option value="lost">已流失</option><option value="invalid">无效</option></select></label><label class="full">原因<input name="reason" required /></label>`,
+          async (fd) => {
+            const result = await api("marketing.leads.status", {
+              id: (button as HTMLElement).dataset.loseLead,
+              status: fd.get("status"),
+              reason: fd.get("reason"),
+            });
+            toast(result.ok ? "线索已关闭" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  const drawEntrustments = async () => {
+    const result = await api("marketing.entrustments.list");
+    const list = main.querySelector("[data-marketing-entrustments]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((item) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" && item.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${item.status === "converted" ? "ok" : item.status === "rejected" ? "danger" : "warn"}">${entrustStatusLabels[item.status]}</span><span class="tag">${entrustLabels[item.entrust_type]}</span><strong>${escapeHtml(item.contact_name)}</strong> · ${escapeHtml(item.contact_phone)}</div>
+            <div>${escapeHtml(item.content)}</div>
+            <div class="meta">${escapeHtml(item.store_name)}${item.community ? ` · ${escapeHtml(item.community)}` : ""}${item.expected_price != null ? ` · 期望 ¥${money(item.expected_price)}` : ""}${item.lead_id ? ` · 线索 ${escapeHtml(item.lead_id)}` : ""}${item.reject_reason ? ` · 驳回：${escapeHtml(item.reject_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-mkt-events="entrustment:${item.id}:在线委托">履历</button>
+            ${canManage && item.status === "new" ? `<button class="btn" data-accept-entrustment="${item.id}">转线索</button><button class="btn danger" data-reject-entrustment="${item.id}">驳回</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无在线委托</div>`;
+    list.querySelectorAll("[data-accept-entrustment]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "受理在线委托并转线索",
+          `<label>线索负责人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label>`,
+          async (fd) => {
+            const result = await api("marketing.entrustments.accept", {
+              id: (button as HTMLElement).dataset.acceptEntrustment,
+              assignee_user_id: fd.get("assignee_user_id"),
+            });
+            toast(result.ok ? "在线委托已转线索" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-reject-entrustment]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const result = await api("marketing.entrustments.reject", {
+          id: (button as HTMLElement).dataset.rejectEntrustment,
+          reason,
+        });
+        toast(result.ok ? "在线委托已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const bindEvents = () => {
+    main.querySelectorAll("[data-mkt-events]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [entityType, entityId, title] = String(
+          (button as HTMLElement).dataset.mktEvents
+        ).split(":");
+        showEvents(entityType, entityId, title);
+      })
+    );
+  };
+  const draw = async () => {
+    await Promise.all([drawCampaigns(), drawLeads(), drawEntrustments()]);
+    bindEvents();
+  };
+  main.querySelector("[data-new-campaign]")?.addEventListener("click", () =>
+    openDialog(
+      "新建营销活动",
+      `${state.user.role === "admin" ? `<label>门店范围<select name="store_id"><option value="">全公司</option>${options.stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label>` : ""}<label>活动名称<input name="name" required /></label><label>渠道<select name="channel">${Object.entries(channelLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>开始日期<input name="start_date" type="date" required /></label><label>结束日期<input name="end_date" type="date" required /></label><label>预算<input name="budget" type="number" min="0" step="0.01" value="0" /></label><label class="full">备注<input name="remark" /></label>`,
+      async (fd) => {
+        const result = await api("marketing.campaigns.create", {
+          store_id: fd.get("store_id") || null,
+          name: fd.get("name"),
+          channel: fd.get("channel"),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          budget: Number(fd.get("budget")),
+          remark: fd.get("remark"),
+        });
+        toast(result.ok ? "营销活动草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-lead]")!.addEventListener("click", () =>
+    openDialog(
+      "录入商机线索",
+      `<label>联系人<input name="contact_name" required /></label><label>手机号<input name="contact_phone" required /></label><label>意向<select name="intent">${Object.entries(intentLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>渠道<select name="channel">${Object.entries(channelLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>关联活动<select name="campaign_id"><option value="">不关联</option>${options.campaigns.map((campaign: any) => `<option value="${campaign.id}">${escapeHtml(campaign.name)}</option>`).join("")}</select></label>${isManagerial ? `<label>负责人<select name="assignee_user_id"><option value="">暂不分派</option>${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>` : ""}<label class="full">需求说明<input name="need" /></label><label class="full">预算说明<input name="budget_note" /></label>`,
+      async (fd) => {
+        const result = await api("marketing.leads.create", {
+          contact_name: fd.get("contact_name"),
+          contact_phone: fd.get("contact_phone"),
+          intent: fd.get("intent"),
+          channel: fd.get("channel"),
+          campaign_id: fd.get("campaign_id") || null,
+          assignee_user_id: fd.get("assignee_user_id") || null,
+          need: fd.get("need"),
+          budget_note: fd.get("budget_note"),
+        });
+        if (result.ok && (result.data as any).existing_customer_hint) {
+          toast(
+            `线索已创建，系统已有同号客源：${(result.data as any).existing_customer_hint.name}`,
+            "warn"
+          );
+          draw();
+          return;
+        }
+        toast(result.ok ? "商机线索已录入" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-entrustment]")!.addEventListener("click", () =>
+    openDialog(
+      "登记在线委托",
+      `<label>委托类型<select name="entrust_type">${Object.entries(entrustLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>联系人<input name="contact_name" required /></label><label>手机号<input name="contact_phone" required /></label><label>小区<input name="community" /></label><label>期望价格<input name="expected_price" type="number" min="0" step="0.01" /></label><label>户型<input name="rooms" /></label><label>面积㎡<input name="area_size" type="number" min="0" step="0.01" /></label><label class="full">地址<input name="address" /></label><label class="full">委托内容<textarea name="content" rows="4" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("marketing.entrustments.create", {
+          entrust_type: fd.get("entrust_type"),
+          contact_name: fd.get("contact_name"),
+          contact_phone: fd.get("contact_phone"),
+          community: fd.get("community"),
+          expected_price: fd.get("expected_price") || null,
+          rooms: fd.get("rooms"),
+          area_size: fd.get("area_size") || null,
+          address: fd.get("address"),
+          content: fd.get("content"),
+        });
+        toast(result.ok ? "在线委托已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-lead-status]")!.addEventListener("change", draw);
+  main.querySelector("[data-lead-channel]")!.addEventListener("change", draw);
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -4370,15 +4708,6 @@ const suiteMeta: Record<
       ["work_summary", "工作总结"],
       ["circle_post", "同事圈"],
       ["call_record", "来电记录"],
-    ],
-  },
-  marketing: {
-    title: "营销线索",
-    types: [
-      ["website_page", "官网内容"],
-      ["online_entrustment", "在线委托"],
-      ["lead", "商机线索"],
-      ["campaign", "营销活动"],
     ],
   },
   performance: {
