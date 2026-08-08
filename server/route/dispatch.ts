@@ -21,6 +21,7 @@ import * as entrustment from "../domain/entrustment";
 import * as newhome from "../domain/newhome";
 import * as offboarding from "../domain/offboarding";
 import * as expense from "../domain/expense";
+import * as attendance from "../domain/attendance";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -265,6 +266,24 @@ function route(
       return expense.payExpense(db, user!, payload);
     case "expense.cancel":
       return expense.cancelExpense(db, user!, payload);
+    case "attendance.settings.get":
+      return attendance.getAttendanceSettings(db, user!);
+    case "attendance.settings.save":
+      return attendance.saveAttendanceSettings(db, user!, payload);
+    case "attendance.clock":
+      return attendance.clockAttendance(db, user!, payload);
+    case "attendance.list":
+      return attendance.listAttendance(db, user!, payload);
+    case "attendance.correct":
+      return attendance.correctAttendance(db, user!, payload);
+    case "leave.create":
+      return attendance.createLeave(db, user!, payload);
+    case "leave.list":
+      return attendance.listLeaves(db, user!, payload);
+    case "leave.review":
+      return attendance.reviewLeave(db, user!, payload);
+    case "leave.cancel":
+      return attendance.cancelLeave(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

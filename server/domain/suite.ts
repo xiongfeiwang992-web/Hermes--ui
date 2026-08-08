@@ -22,8 +22,6 @@ const TYPES: Record<string, Set<string>> = {
   hr: new Set([
     "job_grade",
     "transfer",
-    "attendance",
-    "leave",
     "job",
     "applicant",
     "employee_contract",

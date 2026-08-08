@@ -187,6 +187,7 @@ function renderSide(side: HTMLElement) {
     ["expenses", "费用报销"],
     ["suite-office", "办公协同"],
     ["suite-hr", "人事管理"],
+    ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
     ["suite-rental", "租赁托管"],
     ["suite-care", "客户关怀"],
@@ -250,6 +251,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "suite-newhome") return renderNewhome(main);
   if (state.tab === "offboarding") return renderOffboarding(main);
   if (state.tab === "expenses") return renderExpenses(main);
+  if (state.tab === "attendance-leave") return renderAttendanceLeave(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -2311,6 +2313,166 @@ async function renderExpenses(main: HTMLElement) {
   await draw();
 }
 
+async function renderAttendanceLeave(main: HTMLElement) {
+  const config = await api("attendance.settings.get", {});
+  const attendanceStatus: Record<string, string> = {
+    normal: "正常",
+    late: "迟到",
+    early_leave: "早退",
+    late_early: "迟到且早退",
+  };
+  const leaveType: Record<string, string> = {
+    annual: "年假",
+    sick: "病假",
+    personal: "事假",
+    other: "其他",
+  };
+  const leaveStatus: Record<string, string> = {
+    pending: "待审批",
+    approved: "已通过",
+    rejected: "已驳回",
+    cancelled: "已取消",
+  };
+  main.innerHTML = `
+    <div class="header"><div><h2>考勤请假</h2><div class="meta">${config.ok ? `工作时间 ${(config.data as any).work_start_time}-${(config.data as any).work_end_time} · 迟到宽限 ${(config.data as any).late_grace_minutes} 分钟` : ""}</div></div><div class="ops">
+      <button class="btn" data-clock="in">上班打卡</button>
+      <button class="btn ghost" data-clock="out">下班打卡</button>
+      <button class="btn" data-new-leave>申请请假</button>
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-attendance-settings>考勤设置</button>` : ""}
+    </div></div>
+    <section><h3>考勤记录</h3><div class="list" data-attendance-list></div></section>
+    <section><h3>请假申请</h3><div class="filters"><select data-leave-status><option value="">全部状态</option><option value="pending">待审批</option><option value="approved">已通过</option><option value="rejected">已驳回</option><option value="cancelled">已取消</option></select></div><div class="list" data-leave-list></div></section>
+  `;
+  const draw = async () => {
+    const leaveFilter = (main.querySelector("[data-leave-status]") as HTMLSelectElement).value;
+    const [attendanceResult, leaveResult] = await Promise.all([
+      api("attendance.list", {}),
+      api("leave.list", leaveFilter ? { status: leaveFilter } : {}),
+    ]);
+    const attendanceList = main.querySelector("[data-attendance-list]")!;
+    attendanceList.innerHTML = attendanceResult.ok
+      ? (attendanceResult.data as any[])
+          .map(
+            (record) => `<div class="row"><div>
+              <div><span class="tag ${record.status === "normal" ? "ok" : "warn"}">${attendanceStatus[record.status] || record.status}</span><strong>${record.user_name}</strong> · ${record.work_date}</div>
+              <div class="meta">上班 ${record.check_in_at ? new Date(record.check_in_at).toLocaleTimeString("zh-CN") : "未打卡"} · 下班 ${record.check_out_at ? new Date(record.check_out_at).toLocaleTimeString("zh-CN") : "未打卡"}${record.correction_reason ? ` · 修正：${record.correction_reason}` : ""}</div>
+            </div><div class="ops">${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-correct-attendance="${record.id}" data-work-date="${record.work_date}" data-check-in="${record.check_in_at || ""}" data-check-out="${record.check_out_at || ""}">修正</button>` : ""}</div></div>`
+          )
+          .join("") || `<div class="empty">暂无考勤记录</div>`
+      : `<div class="error">${attendanceResult.message}</div>`;
+    const leaveList = main.querySelector("[data-leave-list]")!;
+    leaveList.innerHTML = leaveResult.ok
+      ? (leaveResult.data as any[])
+          .map((request) => {
+            const own = request.applicant_user_id === state.user.id;
+            const canReview =
+              request.status === "pending" &&
+              !own &&
+              ["admin", "store_manager"].includes(state.user.role);
+            return `<div class="row"><div>
+              <div><span class="tag ${request.status === "approved" ? "ok" : request.status === "rejected" || request.status === "cancelled" ? "danger" : "warn"}">${leaveStatus[request.status] || request.status}</span><span class="tag">${leaveType[request.leave_type] || request.leave_type}</span><strong>${request.applicant_name}</strong> · ${request.duration_hours} 小时</div>
+              <div class="meta">${new Date(request.start_at).toLocaleString("zh-CN")} 至 ${new Date(request.end_at).toLocaleString("zh-CN")} · ${request.reason}${request.reject_reason ? ` · 驳回：${request.reject_reason}` : ""}</div>
+            </div><div class="ops">
+              ${canReview ? `<button class="btn" data-review-leave="${request.id}" data-leave-to="approved">通过</button><button class="btn danger" data-review-leave="${request.id}" data-leave-to="rejected">驳回</button>` : ""}
+              ${own && request.status === "pending" ? `<button class="btn danger" data-cancel-leave="${request.id}">取消</button>` : ""}
+            </div></div>`;
+          })
+          .join("") || `<div class="empty">暂无请假申请</div>`
+      : `<div class="error">${leaveResult.message}</div>`;
+    attendanceList.querySelectorAll("[data-correct-attendance]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const element = button as HTMLElement;
+        const localValue = (iso: string | undefined) =>
+          iso ? new Date(iso).toISOString().slice(0, 16) : "";
+        openDialog(
+          "修正考勤",
+          `<label>上班时间<input name="check_in_at" type="datetime-local" value="${localValue(element.dataset.checkIn)}" required /></label><label>下班时间<input name="check_out_at" type="datetime-local" value="${localValue(element.dataset.checkOut)}" /></label><label class="full">修正原因<input name="reason" required /></label>`,
+          async (fd) => {
+            const checkIn = String(fd.get("check_in_at") || "");
+            const checkOut = String(fd.get("check_out_at") || "");
+            const result = await api("attendance.correct", {
+              id: element.dataset.correctAttendance,
+              check_in_at: checkIn ? new Date(checkIn).toISOString() : null,
+              check_out_at: checkOut ? new Date(checkOut).toISOString() : null,
+              reason: fd.get("reason"),
+            });
+            toast(result.ok ? "考勤已修正" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
+      })
+    );
+    leaveList.querySelectorAll("[data-review-leave]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const element = button as HTMLElement;
+        const rejected = element.dataset.leaveTo === "rejected";
+        const reason = rejected ? prompt("驳回原因") : "";
+        if (rejected && !reason) return;
+        const result = await api("leave.review", {
+          id: element.dataset.reviewLeave,
+          status: element.dataset.leaveTo,
+          reason,
+        });
+        toast(result.ok ? (rejected ? "请假已驳回" : "请假已通过") : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    leaveList.querySelectorAll("[data-cancel-leave]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("leave.cancel", {
+          id: (button as HTMLElement).dataset.cancelLeave,
+        });
+        toast(result.ok ? "请假申请已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelectorAll("[data-clock]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const result = await api("attendance.clock", {
+        kind: (button as HTMLElement).dataset.clock,
+      });
+      toast(result.ok ? `${(button as HTMLElement).dataset.clock === "in" ? "上班" : "下班"}打卡成功` : result.message, result.ok ? "ok" : "error");
+      if (result.ok) draw();
+    })
+  );
+  main.querySelector("[data-new-leave]")!.addEventListener("click", () =>
+    openDialog(
+      "申请请假",
+      `<label>请假类型<select name="leave_type"><option value="annual">年假</option><option value="sick">病假</option><option value="personal">事假</option><option value="other">其他</option></select></label><label>开始时间<input name="start_at" type="datetime-local" required /></label><label>结束时间<input name="end_at" type="datetime-local" required /></label><label class="full">请假原因<textarea name="reason" rows="3" required></textarea></label>`,
+      async (fd) => {
+        const start = String(fd.get("start_at") || "");
+        const end = String(fd.get("end_at") || "");
+        const result = await api("leave.create", {
+          leave_type: fd.get("leave_type"),
+          start_at: start ? new Date(start).toISOString() : null,
+          end_at: end ? new Date(end).toISOString() : null,
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "请假申请已提交" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-attendance-settings]")?.addEventListener("click", () => {
+    const value = config.ok ? (config.data as any) : {};
+    openDialog(
+      "考勤设置",
+      `<label>上班时间<input name="work_start_time" type="time" value="${value.work_start_time || "09:00"}" /></label><label>下班时间<input name="work_end_time" type="time" value="${value.work_end_time || "18:00"}" /></label><label>迟到宽限（分钟）<input name="late_grace_minutes" type="number" min="0" max="120" value="${value.late_grace_minutes ?? 10}" /></label>`,
+      async (fd) => {
+        const result = await api("attendance.settings.save", {
+          work_start_time: fd.get("work_start_time"),
+          work_end_time: fd.get("work_end_time"),
+          late_grace_minutes: Number(fd.get("late_grace_minutes")),
+        });
+        toast(result.ok ? "考勤设置已保存，重新进入页面后显示新设置" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  main.querySelector("[data-leave-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -2371,8 +2533,6 @@ const suiteMeta: Record<
     types: [
       ["job_grade", "岗位职级"],
       ["transfer", "员工调动"],
-      ["attendance", "考勤"],
-      ["leave", "请假"],
       ["job", "招聘岗位"],
       ["applicant", "应聘记录"],
       ["employee_contract", "人事合同"],
