@@ -146,7 +146,13 @@ export function getSettings(db: Db, user: SessionUser): ApiResult {
   const row = db.prepare(`SELECT * FROM settings WHERE company_id = ?`).get(user.company_id) as any;
   return {
     ok: true,
-    data: { ...row, deal_required_fields: JSON.parse(row?.deal_required_fields || "[]") },
+    data: {
+      ...row,
+      agent_pool_rate: Number(row?.agent_pool_rate ?? 0.5),
+      public_pool_days: Number(row?.public_pool_days || 0),
+      public_pool_enabled: Number(row?.public_pool_days || 0) > 0,
+      deal_required_fields: JSON.parse(row?.deal_required_fields || "[]"),
+    },
   };
 }
 
@@ -159,9 +165,21 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
   const award = Number(p.manager_award_rate);
   const min = Number(p.password_min_length);
   const protectionDays = Number(p.house_role_protection_days ?? 30);
+  const agentPoolRate =
+    p.agent_pool_rate === undefined
+      ? Number(current?.agent_pool_rate ?? 0.5)
+      : Number(p.agent_pool_rate);
+  const publicPoolDays =
+    p.public_pool_days === undefined
+      ? Number(current?.public_pool_days || 0)
+      : Number(p.public_pool_days);
   if (!Number.isInteger(hold) || hold < 1 || hold > 100)
     return { ok: false, message: "持盘上限须为 1～100" };
   if (award < 0 || award > 0.5) return { ok: false, message: "管理奖比例须为 0～0.5" };
+  if (!Number.isFinite(agentPoolRate) || agentPoolRate < 0 || agentPoolRate > 1)
+    return { ok: false, message: "经纪人提成池比例须为 0～1" };
+  if (!Number.isInteger(publicPoolDays) || publicPoolDays < 0 || publicPoolDays > 365)
+    return { ok: false, message: "掉公天数须为 0～365 的整数" };
   if (!Number.isInteger(min) || min < 8 || min > 32)
     return { ok: false, message: "密码最小长度须为 8～32" };
   if (!Number.isInteger(protectionDays) || protectionDays < 0 || protectionDays > 365)
@@ -179,13 +197,16 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
         ? 1
         : 0;
   db.prepare(
-    `UPDATE settings SET house_hold_limit=?, manager_award_rate=?, deal_required_fields=?,
+    `UPDATE settings SET house_hold_limit=?, manager_award_rate=?, agent_pool_rate=?,
+     public_pool_days=?, deal_required_fields=?,
      password_min_length=?, deal_doc_required=?, house_role_protection_days=?,
      force_follow_before_phone=?, non_holder_view_remind=?,
      updated_by=?, updated_at=? WHERE company_id=?`
   ).run(
     hold,
     award,
+    agentPoolRate,
+    publicPoolDays,
     JSON.stringify(p.deal_required_fields || []),
     min,
     p.deal_doc_required ? 1 : 0,
@@ -196,7 +217,10 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
     nowIso(),
     user.company_id
   );
-  writeAudit(db, user, "settings.update", "settings", user.company_id);
+  writeAudit(db, user, "settings.update", "settings", user.company_id, {
+    agent_pool_rate: agentPoolRate,
+    public_pool_days: publicPoolDays,
+  });
   return getSettings(db, user);
 }
 
