@@ -282,8 +282,8 @@ export function onboardCandidate(db: Db, user: SessionUser, payload: any): ApiRe
     db.prepare(
       `INSERT INTO users(
         id, company_id, store_id, account, display_name, password_hash,
-        role, phone, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
+        role, phone, status, created_at, password_changed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
     ).run(
       id,
       user.company_id,
@@ -293,6 +293,7 @@ export function onboardCandidate(db: Db, user: SessionUser, payload: any): ApiRe
       hashPassword(password),
       candidate.target_role,
       candidate.phone,
+      now,
       now
     );
     db.prepare(
