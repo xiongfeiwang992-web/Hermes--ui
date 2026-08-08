@@ -712,6 +712,8 @@ function route(
       return report.exportFollowsCsv(db, user!, payload);
     case "report.viewsCsv":
       return report.exportViewsCsv(db, user!, payload);
+    case "report.viewSlip":
+      return report.exportViewSlip(db, user!, payload);
     case "report.activityStats":
       return report.activityStats(db, user!, payload);
     case "report.dealHotspots":

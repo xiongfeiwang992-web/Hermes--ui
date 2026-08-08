@@ -1482,16 +1482,43 @@ async function renderFollows(main: HTMLElement) {
   await draw();
 }
 
+async function downloadApiCsv(result: ApiResult) {
+  if (!result.ok) {
+    toast(result.message, "error");
+    return;
+  }
+  const file = result.data as any;
+  const blob = new Blob([file.content], { type: file.mime || "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.filename || "export.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function renderViews(main: HTMLElement) {
   const houses = await api("house.list", { status: "available" });
   const customers = await api("customer.list", {});
   const storeUsers = await api("org.users.store", {});
   main.innerHTML = `
-    <div class="header"><h2>带看</h2><button class="btn" data-new>新建带看</button></div>
+    <div class="header"><h2>带看</h2><div class="ops"><button class="btn ghost" data-export>导出 CSV</button><button class="btn" data-new>新建带看</button></div></div>
+    <div class="filters">
+      <select data-f="status"><option value="">全部状态</option><option value="planned">planned</option><option value="done">done</option><option value="cancelled">cancelled</option></select>
+      <select data-f="feedback"><option value="">全部反馈</option><option value="pending">pending</option><option value="interested">interested</option><option value="considering">considering</option><option value="rejected">rejected</option><option value="deal">deal</option></select>
+    </div>
     <div class="list" data-list></div>
   `;
+  const currentQuery = () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLSelectElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    return q;
+  };
   const draw = async () => {
-    const r = await api("view.list", {});
+    const r = await api("view.list", currentQuery());
     const list = main.querySelector("[data-list]")!;
     if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
     const rows = r.data as any[];
@@ -1507,11 +1534,19 @@ async function renderViews(main: HTMLElement) {
         <div class="meta">${v.view_at}</div>
       </div>
       <div class="ops">
+        <button class="btn ghost" data-slip="${v.id}">导出带看单</button>
         ${v.status === "planned" ? `<button class="btn" data-done="${v.id}">完成</button><button class="btn ghost" data-cancel="${v.id}">取消</button>` : ""}
         ${v.status === "done" && ["interested", "deal"].includes(v.feedback) ? `<button class="btn" data-deal="${v.id}" data-h="${v.house_id}" data-c="${v.customer_id}">发起成交</button>` : ""}
       </div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-slip]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        await downloadApiCsv(
+          await api("report.viewSlip", { id: (btn as HTMLElement).dataset.slip })
+        );
+      })
+    );
     list.querySelectorAll("[data-done]").forEach((btn) =>
       btn.addEventListener("click", async () => {
         const feedback = prompt("反馈：interested / considering / rejected / deal", "interested");
@@ -1549,6 +1584,10 @@ async function renderViews(main: HTMLElement) {
       })
     );
   };
+  main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", () => draw()));
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    await downloadApiCsv(await api("report.viewsCsv", currentQuery()));
+  });
   main.querySelector("[data-new]")!.addEventListener("click", () => {
     const houseOpts = ((houses.data as any[]) || [])
       .map((h) => `<option value="${h.id}">${h.title}</option>`)
