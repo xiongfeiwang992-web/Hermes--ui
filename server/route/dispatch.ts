@@ -187,6 +187,16 @@ function route(
       return property.listCommunities(db, user!, payload);
     case "property.communities.upsert":
       return property.upsertCommunity(db, user!, payload);
+    case "property.districts.list":
+      return property.listCommunityDistricts(db, user!);
+    case "property.units.list":
+      return property.listCommunityUnits(db, user!, payload);
+    case "property.units.upsert":
+      return property.upsertCommunityUnit(db, user!, payload);
+    case "property.units.remove":
+      return property.removeCommunityUnit(db, user!, payload);
+    case "property.units.checkConflict":
+      return property.checkCommunityUnitConflict(db, user!, payload);
     case "property.keys.list":
       return property.listKeys(db, user!, payload);
     case "property.keys.register":
