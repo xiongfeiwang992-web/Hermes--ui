@@ -771,6 +771,8 @@ function route(
       return config.listFollowMethods(db, user!);
     case "config.customerSources":
       return config.listCustomerSources(db, user!);
+    case "config.houseSources":
+      return config.listHouseSources(db, user!);
     case "config.settings.get":
       return config.getSettings(db, user!);
     case "config.settings.save":
