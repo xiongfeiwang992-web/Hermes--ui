@@ -331,6 +331,7 @@ function openInfoDialog(title: string, bodyHtml: string) {
 
 async function renderHouses(main: HTMLElement) {
   const res = await api("house.list", {});
+  const desktopShell = (window as any).weilaijia?.shell;
   main.innerHTML = `
     <div class="header">
       <h2>房源</h2>
@@ -365,6 +366,13 @@ async function renderHouses(main: HTMLElement) {
       rows.map(async (house) => [house.id, await api("house.roles.list", { house_id: house.id })])
     );
     const houseRoles = new Map(roleEntries as Array<[string, ApiResult]>);
+    const entrustmentEntries = await Promise.all(
+      rows.map(async (house) => [
+        house.id,
+        await api("entrustment.list", { house_id: house.id }),
+      ])
+    );
+    const entrustments = new Map(entrustmentEntries as Array<[string, ApiResult]>);
     const roleLabels: Record<string, string> = {
       surveyor: "实勘",
       verifier: "核验",
@@ -385,12 +393,14 @@ async function renderHouses(main: HTMLElement) {
           <strong>${h.title}</strong></div>
           <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
+          ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
         <div class="ops">
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
           ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
           <button class="btn ghost" data-roles="${h.id}">角色人</button>
+          <button class="btn ghost" data-entrustment="${h.id}">委托</button>
           ${["available", "suspended", "draft"].includes(h.status) ? `<button class="btn danger" data-withdraw="${h.id}">撤盘</button>` : ""}
         </div>
       </div>`
@@ -482,6 +492,73 @@ async function renderHouses(main: HTMLElement) {
                   protected_until: fd.get("protected_until") || null,
                 });
             toast(result.ok ? (removing ? "角色已解除" : "角色已指派") : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
+      });
+    });
+    list.querySelectorAll("[data-entrustment]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const houseId = (btn as HTMLElement).dataset.entrustment!;
+        const current = await api("entrustment.list", { house_id: houseId });
+        if (!current.ok) return toast(current.message, "error");
+        const records = current.data as any[];
+        const options = records
+          .map(
+            (item) =>
+              `<option value="${item.id}">${item.entrust_type} · ${item.status} · ${item.end_at.slice(0, 10)}</option>`
+          )
+          .join("");
+        openDialog(
+          "业主委托管理",
+          `
+          <label>操作<select name="action"><option value="register">登记</option><option value="renew">续期</option><option value="terminate">终止</option>${desktopShell ? `<option value="attach">上传扫描件</option>` : ""}</select></label>
+          <label>现有委托<select name="id"><option value="">请选择</option>${options}</select></label>
+          <label>委托类型<select name="entrust_type"><option value="general">普通委托</option><option value="exclusive">独家委托</option><option value="rental_management">租赁托管</option></select></label>
+          <label>开始日期<input name="start_at" type="date" /></label>
+          <label>到期日期<input name="end_at" type="date" /></label>
+          <label>签署日期<input name="signed_at" type="date" /></label>
+          <label class="full">备注/终止原因<input name="remark" /></label>
+          `,
+          async (fd) => {
+            const action = String(fd.get("action"));
+            if (action === "attach") {
+              const paths = (await desktopShell.chooseFiles()) as string[];
+              for (const localPath of paths) {
+                const name = localPath.split(/[\\/]/).pop() || "委托扫描件";
+                const added = await api("attachment.add", {
+                  parent_type: "house",
+                  parent_id: houseId,
+                  category: "entrustment",
+                  name,
+                  local_path: localPath,
+                });
+                if (!added.ok) return toast(added.message, "error");
+              }
+              toast(paths.length ? `已添加 ${paths.length} 个委托扫描件` : "未选择文件");
+              if (paths.length) draw();
+              return;
+            }
+            const result =
+              action === "renew"
+                ? await api("entrustment.renew", {
+                    id: fd.get("id"),
+                    end_at: fd.get("end_at"),
+                  })
+                : action === "terminate"
+                  ? await api("entrustment.terminate", {
+                      id: fd.get("id"),
+                      reason: fd.get("remark"),
+                    })
+                  : await api("entrustment.register", {
+                      house_id: houseId,
+                      entrust_type: fd.get("entrust_type"),
+                      start_at: fd.get("start_at"),
+                      end_at: fd.get("end_at"),
+                      signed_at: fd.get("signed_at") || null,
+                      remark: fd.get("remark"),
+                    });
+            toast(result.ok ? "委托信息已更新" : result.message, result.ok ? "ok" : "error");
             if (result.ok) draw();
           }
         );
@@ -1811,7 +1888,6 @@ const suiteMeta: Record<
   property_ext: {
     title: "房源扩展",
     types: [
-      ["entrustment", "业主委托"],
       ["listing_lock", "锁定盘"],
       ["cooperation", "合作盘"],
       ["media", "视频/全景"],

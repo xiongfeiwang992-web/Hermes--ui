@@ -7,7 +7,6 @@ import type { ApiResult, Role, SessionUser } from "../utils/types";
 
 const TYPES: Record<string, Set<string>> = {
   property_ext: new Set([
-    "entrustment",
     "listing_lock",
     "cooperation",
     "media",

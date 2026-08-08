@@ -76,6 +76,19 @@ assert(
   "house duplicate soft hint"
 );
 
+assert(
+  app.call(
+    "entrustment.register",
+    {
+      house_id: dataOf<any>(detailedHouse).id,
+      entrust_type: "exclusive",
+      start_at: new Date().toISOString(),
+      end_at: new Date(Date.now() + 90 * 86400000).toISOString(),
+    },
+    agent
+  ).ok,
+  "register specialized house entrustment"
+);
 const attachmentFixture = path.resolve("data", "attachment-fixture.txt");
 fs.writeFileSync(attachmentFixture, "contract fixture", "utf8");
 const attachment = app.call(
@@ -104,7 +117,6 @@ assert(
 );
 
 const cases = [
-  { module: "property_ext", type: "entrustment", actor: agent, approver: manager },
   { module: "newhome", type: "project", actor: agent, approver: manager },
   { module: "finance", type: "reimbursement", actor: finance, approver: finance },
   { module: "hr", type: "leave", actor: manager, approver: admin },

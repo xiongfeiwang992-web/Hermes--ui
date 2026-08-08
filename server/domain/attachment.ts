@@ -3,6 +3,8 @@ import path from "node:path";
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
 import { markReceived } from "./dealDocuments";
+import { linkEntrustmentAttachment } from "./entrustment";
+import { houseVisibleTo } from "../auth/policy";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -51,6 +53,21 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     )
       return { ok: false, message: "成交单不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "house") {
+    const house = db
+      .prepare(`SELECT * FROM houses WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !house ||
+      !houseVisibleTo(user, house) ||
+      !(
+        user.role === "admin" ||
+        (user.role === "store_manager" && house.store_id === user.store_id) ||
+        house.agent_id === user.id
+      )
+    )
+      return { ok: false, message: "房源不存在或无附件权限", code: 403 };
+  }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");
   db.prepare(
@@ -74,6 +91,14 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
   );
   if (payload.parent_type === "deal") {
     markReceived(db, payload.parent_id, payload.category, id, user.id);
+  }
+  if (
+    payload.parent_type === "house" &&
+    payload.category === "entrustment" &&
+    !linkEntrustmentAttachment(db, payload.parent_id, id)
+  ) {
+    db.prepare(`DELETE FROM file_attachments WHERE id=?`).run(id);
+    return { ok: false, message: "请先登记生效中的业主委托" };
   }
   writeAudit(db, user, "attachment.add", "attachment", id, {
     parent_type: payload.parent_type,

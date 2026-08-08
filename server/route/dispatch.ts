@@ -17,6 +17,7 @@ import * as config from "../domain/config";
 import * as contract from "../domain/contract";
 import * as dealDocuments from "../domain/dealDocuments";
 import * as mortgage from "../domain/mortgage";
+import * as entrustment from "../domain/entrustment";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -215,6 +216,14 @@ function route(
       return mortgage.upsertMortgage(db, user!, payload);
     case "mortgage.status":
       return mortgage.changeMortgageStatus(db, user!, payload);
+    case "entrustment.list":
+      return entrustment.listEntrustments(db, user!, payload);
+    case "entrustment.register":
+      return entrustment.registerEntrustment(db, user!, payload);
+    case "entrustment.renew":
+      return entrustment.renewEntrustment(db, user!, payload);
+    case "entrustment.terminate":
+      return entrustment.terminateEntrustment(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);
