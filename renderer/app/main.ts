@@ -6808,24 +6808,63 @@ async function renderSystemCenter(main: HTMLElement) {
 async function renderMessages(main: HTMLElement) {
   const r = await api("message.list");
   main.innerHTML = `
-    <div class="header"><h2>消息</h2><button class="btn ghost" data-read>全部已读</button></div>
+    <div class="header"><h2>消息</h2>
+      <div class="ops">
+        <button class="btn ghost" data-subscriptions>订阅设置</button>
+        <button class="btn ghost" data-read>全部已读</button>
+      </div>
+    </div>
     <div class="list" data-list></div>
   `;
   const list = main.querySelector("[data-list]")!;
   if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
   const rows = r.data as any[];
-  if (!rows.length) return (list.innerHTML = `<div class="empty">暂无消息</div>`);
-  list.innerHTML = rows
-    .map(
-      (m) => `<div class="row"><div>
-      <div>${m.is_read ? "" : `<span class="tag warn">未读</span>`}<strong>${m.title}</strong></div>
-      <div class="meta">${m.body} · ${m.created_at}</div>
+  if (!rows.length) list.innerHTML = `<div class="empty">暂无消息</div>`;
+  else {
+    list.innerHTML = rows
+      .map(
+        (m) => `<div class="row"><div>
+      <div>${m.is_read ? "" : `<span class="tag warn">未读</span>`}<strong>${escapeHtml(m.title)}</strong></div>
+      <div class="meta">${escapeHtml(m.body)} · ${m.created_at}</div>
     </div></div>`
-    )
-    .join("");
+      )
+      .join("");
+  }
   main.querySelector("[data-read]")!.addEventListener("click", async () => {
     await api("message.read", {});
     render();
+  });
+  main.querySelector("[data-subscriptions]")!.addEventListener("click", async () => {
+    const current = await api("message.subscriptions.get");
+    if (!current.ok) return toast(current.message, "error");
+    const channels = ((current.data as any).channels || []) as any[];
+    openDialog(
+      "消息订阅设置",
+      channels
+        .map(
+          (channel) => `
+        <label class="full">
+          <span>
+            <input name="ch_${channel.key}" type="checkbox" ${channel.enabled ? "checked" : ""} ${channel.locked ? "disabled" : ""} />
+            ${escapeHtml(channel.label)}${channel.locked ? "（必开）" : ""}
+          </span>
+          <div class="meta">${escapeHtml(channel.description)}</div>
+        </label>`
+        )
+        .join(""),
+      async (fd) => {
+        const payload: Record<string, boolean> = {};
+        for (const channel of channels) {
+          if (channel.locked) {
+            payload[channel.key] = true;
+            continue;
+          }
+          payload[channel.key] = fd.get(`ch_${channel.key}`) === "on";
+        }
+        const result = await api("message.subscriptions.save", { channels: payload });
+        toast(result.ok ? "订阅设置已保存" : result.message, result.ok ? "ok" : "error");
+      }
+    );
   });
 }
 

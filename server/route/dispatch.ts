@@ -776,6 +776,10 @@ function route(
       return { ok: true, data: { count: message.unreadCount(db, user!) } };
     case "message.read":
       return { ok: true, data: message.markRead(db, user!, payload.id) };
+    case "message.subscriptions.get":
+      return message.getSubscriptions(db, user!);
+    case "message.subscriptions.save":
+      return message.saveSubscriptions(db, user!, payload);
     case "audit.list":
       return { ok: true, data: listAudit(db, user!, payload) };
 
