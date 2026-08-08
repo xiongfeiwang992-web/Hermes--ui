@@ -58,9 +58,30 @@ export function dashboard(db: Db, user: SessionUser): ApiResult {
     paidSum += paid.s;
   }
 
+  const company = db
+    .prepare(`SELECT name FROM companies WHERE id = ?`)
+    .get(user.company_id) as { name?: string } | undefined;
+  const storeCount = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM stores WHERE company_id = ? AND status = 'active'`
+      )
+      .get(user.company_id) as { c: number }
+  ).c;
+  const employeeCount = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM users WHERE company_id = ? AND status = 'active'`
+      )
+      .get(user.company_id) as { c: number }
+  ).c;
+
   return {
     ok: true,
     data: {
+      company_name: company?.name || "",
+      store_count: storeCount,
+      employee_count: employeeCount,
       available_houses: availableHouses,
       private_customers: privateCustomers,
       public_customers: publicCustomers,

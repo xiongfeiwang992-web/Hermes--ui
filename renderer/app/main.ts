@@ -303,6 +303,10 @@ async function renderDashboard(main: HTMLElement) {
   const d = res.data;
   main.innerHTML = `
     <div class="header"><h2>工作台</h2></div>
+    <div class="row"><div>
+      <strong>${escapeHtml(d.company_name || "本公司")}</strong>
+      <div class="meta">门店 ${d.store_count ?? 0} · 在职员工 ${d.employee_count ?? 0}</div>
+    </div></div>
     <div class="stats">
       <div class="stat"><div class="n">${d.available_houses}</div><div class="l">在售/待租</div></div>
       <div class="stat"><div class="n">${d.private_customers}</div><div class="l">私客</div></div>
@@ -431,6 +435,8 @@ async function renderHouses(main: HTMLElement) {
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
           ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
+          <button class="btn ghost" data-photos="${h.id}">图片</button>
+          <button class="btn ghost" data-related="${h.id}">同业主</button>
           <button class="btn ghost" data-roles="${h.id}">角色人</button>
           <button class="btn ghost" data-entrustment="${h.id}">委托</button>
           ${["available", "suspended", "draft"].includes(h.status) ? `<button class="btn danger" data-withdraw="${h.id}">撤盘</button>` : ""}
@@ -457,6 +463,91 @@ async function renderHouses(main: HTMLElement) {
             draw();
           }
         );
+      });
+    });
+    list.querySelectorAll("[data-related]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const result = await api("house.relatedByOwner", {
+          id: (btn as HTMLElement).dataset.related,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        const payload = result.data as any;
+        const items = payload.items as any[];
+        openInfoDialog(
+          `同业主相关盘（${payload.owner_name} · ${payload.owner_phone}）`,
+          items.length
+            ? items
+                .map(
+                  (item) =>
+                    `<div class="row"><div><strong>${escapeHtml(item.title)}</strong><div class="meta">${escapeHtml(item.community)} · ${item.price}${item.price_unit === "wan" ? " 万" : " 元/月"} · ${houseStatusLabel(item.status, item.deal_type)}</div></div></div>`
+                )
+                .join("")
+            : `<div class="empty">暂无其他可见相关盘</div>`
+        );
+      });
+    });
+    list.querySelectorAll("[data-photos]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const houseId = (btn as HTMLElement).dataset.photos!;
+        const listed = await api("attachment.list", {
+          parent_type: "house",
+          parent_id: houseId,
+        });
+        if (!listed.ok) return toast(listed.message, "error");
+        const files = (listed.data as any[]).filter((file) =>
+          ["photo", "image", "cover", "floorplan"].includes(file.category)
+        );
+        const canUpload = ["admin", "store_manager", "agent"].includes(state.user.role);
+        const dialog = openInfoDialog(
+          "房源图片",
+          `
+          ${
+            files.length
+              ? files
+                  .map(
+                    (file) =>
+                      `<div class="row"><div><strong>${escapeHtml(file.name)}</strong><div class="meta">${escapeHtml(file.category)} · ${escapeHtml(file.local_path)}</div></div>
+                      <div class="ops"><button class="btn danger" data-del-photo="${file.id}">删除</button></div></div>`
+                  )
+                  .join("")
+              : `<div class="empty">暂无图片附件</div>`
+          }
+          ${canUpload && desktopShell?.chooseFiles ? `<div class="ops" style="margin-top:12px"><button class="btn" data-add-photo>上传图片</button></div>` : ""}
+          `
+        );
+        dialog.querySelectorAll("[data-del-photo]").forEach((delBtn) => {
+          delBtn.addEventListener("click", async () => {
+            const reason = prompt("删除原因（必填）");
+            if (!reason) return;
+            const result = await api("attachment.delete", {
+              id: (delBtn as HTMLElement).dataset.delPhoto,
+              reason,
+            });
+            toast(result.ok ? "图片已删除" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) {
+              dialog.remove();
+              draw();
+            }
+          });
+        });
+        dialog.querySelector("[data-add-photo]")?.addEventListener("click", async () => {
+          if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传图片", "error");
+          const paths = (await desktopShell.chooseFiles()) as string[];
+          for (const localPath of paths) {
+            const name = localPath.split(/[\\/]/).pop() || "图片";
+            const added = await api("attachment.add", {
+              parent_type: "house",
+              parent_id: houseId,
+              category: "photo",
+              name,
+              local_path: localPath,
+            });
+            if (!added.ok) return toast(added.message, "error");
+          }
+          toast(paths.length ? `已上传 ${paths.length} 张图片` : "未选择文件");
+          dialog.remove();
+          draw();
+        });
       });
     });
     list.querySelectorAll("[data-status]").forEach((btn) => {

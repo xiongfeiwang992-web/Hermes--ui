@@ -450,3 +450,37 @@ export function removeHouseRole(db: Db, user: SessionUser, payload: any): ApiRes
   });
   return { ok: true, data: { id: role.id } };
 }
+
+export function listRelatedByOwner(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const houseId = payload.id || payload.house_id;
+  if (!houseId) return { ok: false, message: "缺少房源 id" };
+  const current = db
+    .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+    .get(houseId, user.company_id) as any;
+  if (!current || !houseVisibleTo(user, current)) {
+    return { ok: false, message: "房源不存在或无权限", code: 403 };
+  }
+  const rows = db
+    .prepare(
+      `SELECT * FROM houses
+       WHERE company_id = ? AND owner_phone = ? AND id != ?
+       ORDER BY updated_at DESC`
+    )
+    .all(user.company_id, current.owner_phone, current.id) as any[];
+  const related = rows
+    .filter((row) => houseVisibleTo(user, row))
+    .map((row) => presentHouse(db, user, row));
+  return {
+    ok: true,
+    data: {
+      house_id: current.id,
+      owner_name: current.owner_name,
+      owner_phone: canSeeOwnerPhone(user, current)
+        ? current.owner_phone
+        : maskPhone(current.owner_phone),
+      related_count: related.length,
+      items: related,
+    },
+  };
+}

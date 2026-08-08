@@ -203,6 +203,7 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     .prepare(
       `SELECT * FROM file_attachments
        WHERE company_id = ? AND parent_type = ? AND parent_id = ?
+         AND deleted_at IS NULL
        ORDER BY created_at DESC`
     )
     .all(user.company_id, payload.parent_type, payload.parent_id) as any[];
@@ -216,6 +217,63 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
         row.store_id === user.store_id
     ),
   };
+}
+
+function canDeleteAttachment(db: Db, user: SessionUser, row: any): boolean {
+  if (user.role === "admin") return true;
+  if (row.parent_type === "house") {
+    const house = db
+      .prepare(`SELECT * FROM houses WHERE id=? AND company_id=?`)
+      .get(row.parent_id, user.company_id) as any;
+    if (!house || !houseVisibleTo(user, house)) return false;
+    if (user.role === "store_manager" && house.store_id === user.store_id) return true;
+    return user.role === "agent" && house.agent_id === user.id;
+  }
+  if (user.role === "finance") return false;
+  if (user.role === "store_manager" && row.store_id === user.store_id) return true;
+  return row.created_by === user.id;
+}
+
+export function deleteAttachment(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!payload.id) return { ok: false, message: "缺少附件 id" };
+  const reason = String(payload.reason || "").trim();
+  if (reason.length < 2) return { ok: false, message: "删除须填写原因（至少 2 个字）" };
+  const row = db
+    .prepare(`SELECT * FROM file_attachments WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row || row.deleted_at) return { ok: false, message: "附件不存在", code: 404 };
+  if (!canDeleteAttachment(db, user, row)) {
+    return { ok: false, message: "无权限删除该附件", code: 403 };
+  }
+  const linkedEntrustment = db
+    .prepare(
+      `SELECT id FROM house_entrustments
+       WHERE attachment_id=? AND company_id=? AND status='active'`
+    )
+    .get(payload.id, user.company_id) as any;
+  if (linkedEntrustment) {
+    return { ok: false, message: "附件已关联生效委托，请先终止委托后再删" };
+  }
+  const now = nowIso();
+  db.prepare(
+    `UPDATE file_attachments
+     SET deleted_at=?, deleted_by=?, delete_reason=?
+     WHERE id=? AND company_id=?`
+  ).run(now, user.id, reason, payload.id, user.company_id);
+  if (row.parent_type === "house") {
+    db.prepare(
+      `UPDATE houses SET cover_image=NULL, updated_at=?
+       WHERE id=? AND company_id=? AND cover_image=?`
+    ).run(now, row.parent_id, user.company_id, row.local_path);
+  }
+  writeAudit(db, user, "attachment.delete", "attachment", payload.id, {
+    parent_type: row.parent_type,
+    parent_id: row.parent_id,
+    category: row.category,
+    name: row.name,
+    reason,
+  });
+  return { ok: true, data: { id: payload.id } };
 }
 
 export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResult {

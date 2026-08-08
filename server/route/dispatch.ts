@@ -102,6 +102,8 @@ function route(
       return house.changeHouseAgent(db, user!, payload);
     case "house.lock":
       return house.setHouseLock(db, user!, payload);
+    case "house.relatedByOwner":
+      return house.listRelatedByOwner(db, user!, payload);
     case "house.roles.list":
       return house.listHouseRoles(db, user!, payload);
     case "house.roles.assign":
@@ -738,6 +740,8 @@ function route(
       return attachment.listAttachments(db, user!, payload);
     case "attachment.add":
       return attachment.addAttachment(db, user!, payload);
+    case "attachment.delete":
+      return attachment.deleteAttachment(db, user!, payload);
     case "config.preferences.get":
       return config.getPreferences(db, user!);
     case "config.preferences.save":
