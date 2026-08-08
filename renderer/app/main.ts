@@ -99,7 +99,7 @@ function canSee(tab: string) {
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
   if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
   if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
-  if (["suite-hr", "suite-performance", "suite-marketing", "suite-care"].includes(tab))
+  if (["suite-performance", "suite-marketing", "suite-care"].includes(tab))
     return ["admin", "store_manager"].includes(role);
   return true;
 }
@@ -190,7 +190,7 @@ function renderSide(side: HTMLElement) {
     ["cashbook", "收支流水"],
     ["expenses", "费用报销"],
     ["suite-office", "办公协同"],
-    ["suite-hr", "人事管理"],
+    ["payroll", "薪酬工资条"],
     ["workforce", "岗位调动"],
     ["recruitment", "招聘管理"],
     ["employee-contracts", "员工合同"],
@@ -263,13 +263,13 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "workforce") return renderWorkforce(main);
   if (state.tab === "recruitment") return renderRecruitment(main);
   if (state.tab === "employee-contracts") return renderEmployeeContracts(main);
+  if (state.tab === "payroll") return renderPayroll(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
       "suite-deal": "deal_ext",
       "suite-finance": "finance",
       "suite-office": "office",
-      "suite-hr": "hr",
       "suite-rental": "rental",
       "suite-care": "customer_care",
       "suite-marketing": "marketing",
@@ -3215,6 +3215,203 @@ async function renderEmployeeContracts(main: HTMLElement) {
   await draw();
 }
 
+async function renderPayroll(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const isFinance = state.user.role === "finance";
+  const optionsResult = await api("payroll.options", {});
+  const users = optionsResult.ok ? (optionsResult.data as any).users : [];
+  main.innerHTML = `
+    <div class="header"><h2>薪酬与工资条</h2><div class="ops">
+      ${isAdmin ? `<button class="btn ghost" data-salary-profile>维护薪资档案</button><button class="btn" data-new-payroll>新建工资批次</button>` : ""}
+    </div></div>
+    <section><h3>${isAdmin || isFinance ? "薪资档案" : "我的薪资档案"}</h3><div class="list" data-salary-profiles></div></section>
+    <section><h3>${isAdmin || isFinance ? "工资批次" : "我的工资条"}</h3><div class="list" data-payroll-batches></div></section>
+    <section data-payroll-detail></section>
+  `;
+  const statusLabels: Record<string, string> = {
+    draft: "草稿",
+    calculated: "已计算",
+    approved: "已审批",
+    paid: "已发放",
+  };
+  const drawProfiles = async () => {
+    const result = await api("payroll.profiles.list", {});
+    const list = main.querySelector("[data-salary-profiles]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (profile) => `<div class="row"><div><div><strong>${profile.display_name}</strong> · ${roleLabel(profile.role)}</div><div class="meta">${profile.store_name} · 基本 ¥${money(profile.base_salary)} · 固定津贴 ¥${money(profile.fixed_allowance)} · 固定扣款 ¥${money(profile.fixed_deduction)} · ${profile.bank_name || "未配置银行"} ${profile.bank_account || ""}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无薪资档案</div>`;
+  };
+  const showItems = async (batch: any) => {
+    const result = await api("payroll.items.list", { batch_id: batch.id });
+    const detail = main.querySelector("[data-payroll-detail]")!;
+    if (!result.ok) return (detail.innerHTML = `<div class="error">${result.message}</div>`);
+    detail.innerHTML = `<h3>${batch.payroll_month} 工资明细</h3><div class="list">${(result.data as any[])
+      .map(
+        (item) => `<div class="row"><div>
+          <div><strong>${item.display_name}</strong> · 实发 ¥${money(item.net_amount)}</div>
+          <div class="meta">${item.store_name} · 基本 ${money(item.base_salary)} + 津贴 ${money(item.allowance)} + 奖金 ${money(item.bonus)} - 扣款 ${money(item.deduction)} - 税额 ${money(item.tax)} = 应发 ${money(item.gross_amount)}${item.adjustment_reason ? ` · 调整：${item.adjustment_reason}` : ""}</div>
+        </div><div class="ops">${isFinance && batch.status === "calculated" ? `<button class="btn ghost" data-adjust-payroll="${item.id}" data-allowance="${item.allowance}" data-bonus="${item.bonus}" data-deduction="${item.deduction}" data-tax="${item.tax}">调整</button>` : ""}</div></div>`
+      )
+      .join("") || `<div class="empty">暂无工资明细</div>`}</div>`;
+    detail.querySelectorAll("[data-adjust-payroll]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const element = button as HTMLElement;
+        openDialog(
+          "调整工资明细",
+          `<label>津贴<input name="allowance" type="number" min="0" step="0.01" value="${element.dataset.allowance}" /></label><label>奖金<input name="bonus" type="number" min="0" step="0.01" value="${element.dataset.bonus}" /></label><label>扣款<input name="deduction" type="number" min="0" step="0.01" value="${element.dataset.deduction}" /></label><label>税额<input name="tax" type="number" min="0" step="0.01" value="${element.dataset.tax}" /></label><label class="full">调整原因<input name="reason" required /></label>`,
+          async (fd) => {
+            const adjusted = await api("payroll.items.adjust", {
+              id: element.dataset.adjustPayroll,
+              allowance: Number(fd.get("allowance")),
+              bonus: Number(fd.get("bonus")),
+              deduction: Number(fd.get("deduction")),
+              tax: Number(fd.get("tax")),
+              reason: fd.get("reason"),
+            });
+            toast(adjusted.ok ? "工资明细已调整" : adjusted.message, adjusted.ok ? "ok" : "error");
+            if (adjusted.ok) {
+              await drawBatches();
+              await showItems(batch);
+            }
+          }
+        );
+      })
+    );
+  };
+  const drawBatches = async () => {
+    const result = await api("payroll.batches.list", {});
+    const list = main.querySelector("[data-payroll-batches]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (batch) => `<div class="row"><div>
+            <div><span class="tag ${batch.status === "paid" ? "ok" : batch.status === "draft" ? "warn" : "ok"}">${statusLabels[batch.status] || batch.status}</span><strong>${batch.payroll_month}</strong> · ${batch.employee_count} 人</div>
+            <div class="meta">应发合计 ¥${money(batch.gross_total)} · 实发合计 ¥${money(batch.net_total)}${batch.payment_reference ? ` · 发薪流水 ${batch.payment_reference}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-payroll-items="${batch.id}">明细</button>
+            ${isFinance && ["draft", "calculated"].includes(batch.status) ? `<button class="btn" data-calculate-payroll="${batch.id}">计算</button>` : ""}
+            ${isAdmin && batch.status === "calculated" ? `<button class="btn" data-approve-payroll="${batch.id}">审批</button>` : ""}
+            ${isFinance && batch.status === "approved" ? `<button class="btn" data-pay-payroll="${batch.id}">登记发薪</button>` : ""}
+            ${isAdmin || isFinance ? `<button class="btn ghost" data-payroll-events="${batch.id}">履历</button><button class="btn ghost" data-export-payroll="${batch.id}">CSV</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无工资批次</div>`;
+    const batches = result.data as any[];
+    list.querySelectorAll("[data-payroll-items]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const batch = batches.find(
+          (item) => item.id === (button as HTMLElement).dataset.payrollItems
+        );
+        if (batch) showItems(batch);
+      })
+    );
+    list.querySelectorAll("[data-calculate-payroll]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("重新计算会覆盖当前工资调整，是否继续？")) return;
+        const result = await api("payroll.batches.calculate", {
+          id: (button as HTMLElement).dataset.calculatePayroll,
+        });
+        toast(result.ok ? `已计算 ${(result.data as any).employees} 人工资` : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawBatches();
+      })
+    );
+    list.querySelectorAll("[data-approve-payroll]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("payroll.batches.approve", {
+          id: (button as HTMLElement).dataset.approvePayroll,
+        });
+        toast(result.ok ? "工资批次已审批发布" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawBatches();
+      })
+    );
+    list.querySelectorAll("[data-pay-payroll]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记工资发放",
+          `<label>发薪流水号<input name="payment_reference" required /></label>`,
+          async (fd) => {
+            const result = await api("payroll.batches.pay", {
+              id: (button as HTMLElement).dataset.payPayroll,
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "工资已登记发放" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawBatches();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-payroll-events]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("payroll.events", {
+          id: (button as HTMLElement).dataset.payrollEvents,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        openInfoDialog(
+          "工资批次履历",
+          (result.data as any[])
+            .map(
+              (event) => `<div class="row"><div><strong>${event.event_type}</strong><div class="meta">${event.created_by_name} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${JSON.stringify(event.details)}</div></div></div>`
+            )
+            .join("")
+        );
+      })
+    );
+    list.querySelectorAll("[data-export-payroll]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("payroll.export", {
+          id: (button as HTMLElement).dataset.exportPayroll,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        const file = result.data as any;
+        const url = URL.createObjectURL(new Blob([file.content], { type: file.mime }));
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = file.filename;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        toast(`已导出 ${file.rows} 条工资明细`);
+      })
+    );
+  };
+  main.querySelector("[data-salary-profile]")?.addEventListener("click", () =>
+    openDialog(
+      "维护员工薪资档案",
+      `<label>员工<select name="user_id">${users.map((employee: any) => `<option value="${employee.id}">${employee.display_name} · ${roleLabel(employee.role)}</option>`).join("")}</select></label><label>基本工资<input name="base_salary" type="number" min="0" step="0.01" required /></label><label>固定津贴<input name="fixed_allowance" type="number" min="0" step="0.01" value="0" /></label><label>固定扣款<input name="fixed_deduction" type="number" min="0" step="0.01" value="0" /></label><label>发薪银行<input name="bank_name" required /></label><label>银行账号<input name="bank_account" required /></label>`,
+      async (fd) => {
+        const result = await api("payroll.profiles.save", {
+          user_id: fd.get("user_id"),
+          base_salary: Number(fd.get("base_salary")),
+          fixed_allowance: Number(fd.get("fixed_allowance")),
+          fixed_deduction: Number(fd.get("fixed_deduction")),
+          bank_name: fd.get("bank_name"),
+          bank_account: fd.get("bank_account"),
+        });
+        toast(result.ok ? "薪资档案已保存" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawProfiles();
+      }
+    )
+  );
+  main.querySelector("[data-new-payroll]")?.addEventListener("click", () =>
+    openDialog(
+      "新建工资批次",
+      `<label>工资月份<input name="payroll_month" type="month" required /></label>`,
+      async (fd) => {
+        const result = await api("payroll.batches.create", {
+          payroll_month: fd.get("payroll_month"),
+        });
+        toast(result.ok ? "工资批次已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawBatches();
+      }
+    )
+  );
+  await Promise.all([drawProfiles(), drawBatches()]);
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -3251,7 +3448,6 @@ const suiteMeta: Record<
     types: [
       ["asset", "资产"],
       ["voucher", "会计凭证"],
-      ["payroll", "薪酬发放"],
     ],
   },
   office: {
@@ -3266,12 +3462,6 @@ const suiteMeta: Record<
       ["work_summary", "工作总结"],
       ["circle_post", "同事圈"],
       ["call_record", "来电记录"],
-    ],
-  },
-  hr: {
-    title: "人事管理",
-    types: [
-      ["salary", "薪酬条"],
     ],
   },
   rental: {

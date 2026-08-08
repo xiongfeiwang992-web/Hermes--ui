@@ -26,6 +26,7 @@ import * as cashbook from "../domain/cashbook";
 import * as workforce from "../domain/workforce";
 import * as recruitment from "../domain/recruitment";
 import * as employeeContract from "../domain/employeeContract";
+import * as payroll from "../domain/payroll";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -354,6 +355,30 @@ function route(
       return employeeContract.terminateContract(db, user!, payload);
     case "employee.contracts.expire":
       return employeeContract.expireContracts(db, user!);
+    case "payroll.options":
+      return payroll.payrollOptions(db, user!);
+    case "payroll.profiles.list":
+      return payroll.listSalaryProfiles(db, user!);
+    case "payroll.profiles.save":
+      return payroll.saveSalaryProfile(db, user!, payload);
+    case "payroll.batches.list":
+      return payroll.listPayrollBatches(db, user!);
+    case "payroll.batches.create":
+      return payroll.createPayrollBatch(db, user!, payload);
+    case "payroll.batches.calculate":
+      return payroll.calculatePayroll(db, user!, payload);
+    case "payroll.items.list":
+      return payroll.listPayrollItems(db, user!, payload);
+    case "payroll.items.adjust":
+      return payroll.adjustPayrollItem(db, user!, payload);
+    case "payroll.batches.approve":
+      return payroll.approvePayroll(db, user!, payload);
+    case "payroll.batches.pay":
+      return payroll.payPayroll(db, user!, payload);
+    case "payroll.events":
+      return payroll.listPayrollEvents(db, user!, payload);
+    case "payroll.export":
+      return payroll.exportPayroll(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);
