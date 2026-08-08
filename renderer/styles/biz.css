@@ -206,6 +206,14 @@ body[data-density="compact"] .main { padding: 14px; }
 .tag.warn { background: #fff3e0; color: #9a5b00; }
 .tag.danger { background: #fdecea; color: var(--danger); }
 
+/* Display-style masked phone (自研展示型隐号，非运营商 VN) */
+.phone-masked {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
 @media (max-width: 860px) {
   .shell { grid-template-columns: 1fr; }
   .side { display: none; }

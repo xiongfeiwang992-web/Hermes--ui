@@ -1,5 +1,5 @@
 import type { Db } from "../db/database";
-import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
+import { canWriteListing, customerVisibleTo, formatMaskedPhone } from "../auth/policy";
 import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
 import {
@@ -20,7 +20,7 @@ function presentCustomer(db: Db, user: SessionUser, row: any) {
   const gate = resolvePhoneVisibility(db, user, policyAllows, "customer", row.id);
   return {
     ...row,
-    phone: gate.showFull ? row.phone : maskPhone(row.phone),
+    phone: gate.showFull ? row.phone : formatMaskedPhone(row.phone),
     phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
     source_label: labelCustomerSource(db, user.company_id, row.source),

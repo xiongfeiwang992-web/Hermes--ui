@@ -2,8 +2,8 @@ import type { Db } from "../db/database";
 import {
   canSeeOwnerPhone,
   canWriteListing,
+  formatMaskedPhone,
   houseVisibleTo,
-  maskPhone,
 } from "../auth/policy";
 import {
   buildModificationSummary,
@@ -41,7 +41,7 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
   return {
     ...row,
     is_private: Boolean(row.is_private),
-    owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
+    owner_phone: gate.showFull ? row.owner_phone : formatMaskedPhone(row.owner_phone),
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
   };
@@ -661,14 +661,14 @@ export function listRelatedByOwner(db: Db, user: SessionUser, payload: any): Api
   const related = rows
     .filter((row) => houseVisibleTo(user, row))
     .map((row) => presentHouse(db, user, row));
+  const currentPresented = presentHouse(db, user, current);
   return {
     ok: true,
     data: {
       house_id: current.id,
       owner_name: current.owner_name,
-      owner_phone: canSeeOwnerPhone(user, current)
-        ? current.owner_phone
-        : maskPhone(current.owner_phone),
+      owner_phone: currentPresented.owner_phone,
+      owner_phone_masked: currentPresented.owner_phone_masked,
       related_count: related.length,
       items: related,
     },

@@ -117,6 +117,13 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", "&#039;");
 }
 
+/** Wrap masked phones with consistent display-style treatment (title hint only). */
+function phoneHtml(phone: unknown, masked?: boolean) {
+  const text = escapeHtml(phone);
+  if (!masked) return text;
+  return `<span class="phone-masked" title="已脱敏">${text}</span>`;
+}
+
 function el(html: string) {
   const box = document.createElement("div");
   box.innerHTML = html.trim();
@@ -479,7 +486,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${phoneHtml(h.owner_phone, h.owner_phone_masked)}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -530,7 +537,7 @@ async function renderHouses(main: HTMLElement) {
         const payload = result.data as any;
         const items = payload.items as any[];
         openInfoDialog(
-          `同业主相关盘（${payload.owner_name} · ${payload.owner_phone}）`,
+          `同业主相关盘（${escapeHtml(payload.owner_name)} · ${phoneHtml(payload.owner_phone, payload.owner_phone_masked)}）`,
           items.length
             ? items
                 .map(
@@ -1174,7 +1181,7 @@ async function renderCustomers(main: HTMLElement) {
         <div><span class="tag">${c.visibility === "private" ? "私客" : "公客"}</span>
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag">${c.level}级</span>
-        <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+        <strong>${c.name}</strong> ${phoneHtml(c.phone, c.phone_masked)}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
         <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
       <div class="ops">
