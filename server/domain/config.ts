@@ -114,6 +114,56 @@ export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerSources(db, user.company_id) };
 }
 
+export const DEFAULT_PROPERTY_TYPES = [
+  { value: "residential", label: "住宅", sort_order: 1 },
+  { value: "shop", label: "商铺", sort_order: 2 },
+  { value: "office", label: "写字楼", sort_order: 3 },
+  { value: "parking", label: "车位", sort_order: 4 },
+  { value: "villa", label: "别墅", sort_order: 5 },
+];
+
+const PROPERTY_TYPE_ALIASES: Record<string, string> = {
+  apartment: "residential",
+  commercial: "shop",
+  住宅: "residential",
+  商铺: "shop",
+  写字楼: "office",
+  车位: "parking",
+  别墅: "villa",
+};
+
+export function resolvePropertyTypes(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'property_type' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_PROPERTY_TYPES.map((item) => ({ ...item }));
+}
+
+export function normalizePropertyType(value: unknown, fallback = "residential"): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+  return PROPERTY_TYPE_ALIASES[raw] || raw;
+}
+
+export function isAllowedPropertyType(db: Db, companyId: string, value: string): boolean {
+  return resolvePropertyTypes(db, companyId).some((item) => item.value === value);
+}
+
+export function labelPropertyType(db: Db, companyId: string, value: unknown): string {
+  const normalized = normalizePropertyType(value, "");
+  if (!normalized) return "";
+  const hit = resolvePropertyTypes(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listPropertyTypes(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolvePropertyTypes(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,

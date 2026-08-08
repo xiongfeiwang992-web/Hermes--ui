@@ -2,7 +2,11 @@ import type { Db } from "../db/database";
 import { listFollows, listViews } from "./activity";
 import { listHouses } from "./house";
 import { listCustomers } from "./customer";
-import { labelCustomerSource, normalizeCustomerSource } from "./config";
+import {
+  labelCustomerSource,
+  labelPropertyType,
+  normalizeCustomerSource,
+} from "./config";
 import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
 import { todayDate } from "../utils/id";
@@ -498,6 +502,7 @@ export function houseAttributes(db: Db, user: SessionUser): ApiResult {
     bump(byProperty, `${row.deal_type || "sale"}:${propertyType}`, {
       deal_type: row.deal_type || "sale",
       property_type: propertyType,
+      property_type_label: labelPropertyType(db, user.company_id, propertyType) || propertyType,
     });
     const band = priceBand(row.deal_type || "sale", Number(row.price || 0));
     bump(byPrice, `${row.deal_type || "sale"}:${band}`, {
@@ -590,7 +595,7 @@ export function exportHouseAttributesCsv(db: Db, user: SessionUser): ApiResult {
       ...data.by_deal_type.map((row: any) => ["租售", row.deal_type, row.count]),
       ...data.by_property_type.map((row: any) => [
         "物业类型",
-        `${row.deal_type}/${row.property_type}`,
+        `${row.deal_type}/${row.property_type_label || row.property_type}`,
         row.count,
       ]),
       ...data.by_price_band.map((row: any) => [

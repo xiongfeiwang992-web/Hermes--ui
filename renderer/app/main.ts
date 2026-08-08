@@ -108,6 +108,26 @@ async function customerSourceSelectHtml(selected = "", includeEmpty = true) {
     : options;
 }
 
+async function propertyTypeSelectHtml(selected = "residential", includeEmpty = false) {
+  const result = await api("config.propertyTypes", {});
+  const types = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "residential", label: "住宅" },
+        { value: "shop", label: "商铺" },
+        { value: "office", label: "写字楼" },
+        { value: "parking", label: "车位" },
+        { value: "villa", label: "别墅" },
+      ];
+  const options = types
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+  return includeEmpty ? `<option value="">全部物业</option>${options}` : options;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -427,12 +447,14 @@ async function renderHouses(main: HTMLElement) {
     </div>
     <div class="filters">
       <select data-f="deal_type"><option value="">全部类型</option><option value="sale">出售</option><option value="rent">出租</option></select>
-      <select data-f="property_type"><option value="">全部物业</option><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select>
+      <select data-f="property_type"><option value="">全部物业</option></select>
       <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="closed">已成交</option></select>
       <input data-f="keyword" placeholder="搜索小区/标题" />
     </div>
     <div class="list" data-list></div>
   `;
+  const propertyFilter = main.querySelector("[data-f=property_type]") as HTMLSelectElement;
+  propertyFilter.innerHTML = await propertyTypeSelectHtml("", true);
   const list = main.querySelector("[data-list]")!;
   const draw = async () => {
     const q: any = {};
@@ -479,7 +501,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community}${h.property_type_label ? ` · ${escapeHtml(h.property_type_label)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -826,13 +848,14 @@ async function renderHouses(main: HTMLElement) {
       });
     });
   };
-  main.querySelector("[data-new]")!.addEventListener("click", () => {
+  main.querySelector("[data-new]")!.addEventListener("click", async () => {
+    const propertyOptions = await propertyTypeSelectHtml("residential");
     openDialog(
       "新建房源",
       `
       <label>标题<input name="title" required /></label>
       <label>类型<select name="deal_type"><option value="sale">出售</option><option value="rent">出租</option></select></label>
-      <label>物业<select name="property_type"><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select></label>
+      <label>物业<select name="property_type">${propertyOptions}</select></label>
       <label>交易模式<select name="deal_mode"><option value="normal">普通</option><option value="auction">拍卖</option><option value="exclusive">包销/独家</option></select></label>
       <label>小区<input name="community" required /></label>
       <label>价格<input name="price" type="number" step="0.01" required /></label>
@@ -2277,7 +2300,7 @@ async function renderReports(main: HTMLElement) {
         attrs.by_property_type
           .map(
             (item: any) =>
-              `<div class="row"><div><strong>${item.deal_type === "rent" ? "租" : "售"} · ${escapeHtml(item.property_type)}</strong><div class="meta">${item.count} 套</div></div></div>`
+              `<div class="row"><div><strong>${item.deal_type === "rent" ? "租" : "售"} · ${escapeHtml(item.property_type_label || item.property_type)}</strong><div class="meta">${item.count} 套</div></div></div>`
           )
           .join("")
       )}
@@ -6955,7 +6978,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / property_type" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>
