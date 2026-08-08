@@ -15,9 +15,6 @@ const TYPES: Record<string, Set<string>> = {
   ]),
   deal_ext: new Set(["deal_complaint", "rename"]),
   newhome: new Set([
-    "project",
-    "registration",
-    "arrival",
     "distribution_company",
     "sales_report",
   ]),

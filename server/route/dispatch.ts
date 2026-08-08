@@ -18,6 +18,7 @@ import * as contract from "../domain/contract";
 import * as dealDocuments from "../domain/dealDocuments";
 import * as mortgage from "../domain/mortgage";
 import * as entrustment from "../domain/entrustment";
+import * as newhome from "../domain/newhome";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -224,6 +225,20 @@ function route(
       return entrustment.renewEntrustment(db, user!, payload);
     case "entrustment.terminate":
       return entrustment.terminateEntrustment(db, user!, payload);
+    case "newhome.projects.list":
+      return newhome.listProjects(db, user!, payload);
+    case "newhome.projects.save":
+      return newhome.upsertProject(db, user!, payload);
+    case "newhome.registrations.list":
+      return newhome.listRegistrations(db, user!, payload);
+    case "newhome.registrations.create":
+      return newhome.registerCustomer(db, user!, payload);
+    case "newhome.registrations.arrival":
+      return newhome.confirmArrival(db, user!, payload);
+    case "newhome.registrations.invalidate":
+      return newhome.invalidateRegistration(db, user!, payload);
+    case "newhome.registrations.expire":
+      return newhome.expireRegistrations(db, user!);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

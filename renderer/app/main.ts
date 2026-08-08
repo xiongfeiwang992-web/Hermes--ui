@@ -243,11 +243,11 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "payments") return renderPayments(main);
   if (state.tab === "commissions") return renderCommissions(main);
   if (state.tab === "reports") return renderReports(main);
+  if (state.tab === "suite-newhome") return renderNewhome(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
       "suite-deal": "deal_ext",
-      "suite-newhome": "newhome",
       "suite-finance": "finance",
       "suite-office": "office",
       "suite-hr": "hr",
@@ -1879,6 +1879,163 @@ async function renderReports(main: HTMLElement) {
     })
   );
   await draw();
+}
+
+async function renderNewhome(main: HTMLElement) {
+  const canManage = ["admin", "store_manager"].includes(state.user.role);
+  const [projects, customers, users] = await Promise.all([
+    api("newhome.projects.list", {}),
+    api("customer.list", {}),
+    api("org.users.store", {}),
+  ]);
+  main.innerHTML = `
+    <div class="header"><h2>新房项目与报备</h2><div class="ops">
+      ${canManage ? `<button class="btn ghost" data-expire>刷新过期报备</button><button class="btn ghost" data-project>新建项目</button>` : ""}
+      <button class="btn" data-register>客户报备</button>
+    </div></div>
+    <h3>项目</h3><div class="list" data-projects></div>
+    <h3>客户报备</h3>
+    <div class="filters"><select data-registration-status><option value="">全部状态</option><option value="registered">保护中</option><option value="arrived">已到场</option><option value="expired">已过期</option><option value="invalid">已作废</option></select></div>
+    <div class="list" data-registrations></div>
+  `;
+  const projectList = main.querySelector("[data-projects]")!;
+  projectList.innerHTML =
+    projects.ok && (projects.data as any[]).length
+      ? (projects.data as any[])
+          .map(
+            (project) => `<div class="row"><div>
+              <div><span class="tag ${project.status === "active" ? "ok" : "warn"}">${project.status === "active" ? "启用" : "停用"}</span><strong>${project.name}</strong></div>
+              <div class="meta">${project.address} · ${project.property_type} · 保护 ${project.protection_days} 天${project.contact_name ? ` · 对接 ${project.contact_name}` : ""}</div>
+            </div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无新房项目</div>`;
+  const drawRegistrations = async () => {
+    const status = (main.querySelector("[data-registration-status]") as HTMLSelectElement).value;
+    const result = await api(
+      "newhome.registrations.list",
+      status ? { status } : {}
+    );
+    const list = main.querySelector("[data-registrations]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (record) => `<div class="row"><div>
+            <div><span class="tag ${record.status === "arrived" ? "ok" : record.status === "invalid" || record.status === "expired" ? "danger" : "warn"}">${record.status}</span><strong>${record.customer_name}</strong> · ${record.project_name}</div>
+            <div class="meta">${record.customer_phone} · 经纪人 ${record.agent_name} · 保护至 ${record.protect_until.slice(0, 10)}${record.arrival_note ? ` · 到场：${record.arrival_note}` : ""}${record.invalid_reason ? ` · 作废：${record.invalid_reason}` : ""}</div>
+          </div><div class="ops">
+            ${record.status === "registered" ? `<button class="btn" data-arrival="${record.id}">确认到场</button><button class="btn danger" data-invalidate="${record.id}">作废</button>` : ""}
+            ${record.status === "arrived" ? `<button class="btn danger" data-invalidate="${record.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无客户报备</div>`;
+    list.querySelectorAll("[data-arrival]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const note = prompt("到场说明");
+        if (!note) return;
+        const updated = await api("newhome.registrations.arrival", {
+          id: (button as HTMLElement).dataset.arrival,
+          arrival_note: note,
+        });
+        toast(updated.ok ? "到场已确认" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRegistrations();
+      })
+    );
+    list.querySelectorAll("[data-invalidate]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("作废原因");
+        if (!reason) return;
+        const updated = await api("newhome.registrations.invalidate", {
+          id: (button as HTMLElement).dataset.invalidate,
+          reason,
+        });
+        toast(updated.ok ? "报备已作废" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRegistrations();
+      })
+    );
+  };
+  const projectButton = main.querySelector("[data-project]");
+  if (projectButton) {
+    projectButton.addEventListener("click", () =>
+      openDialog(
+        "新建新房项目",
+        `
+        <label>项目名称<input name="name" required /></label>
+        <label>物业类型<select name="property_type"><option value="residential">住宅</option><option value="apartment">公寓</option><option value="shop">商铺</option><option value="office">办公</option><option value="other">其他</option></select></label>
+        <label class="full">地址<input name="address" required /></label>
+        <label>报备保护期（天）<input name="protection_days" type="number" min="1" max="365" value="30" required /></label>
+        <label>项目对接人<input name="contact_name" /></label>
+        <label>联系电话<input name="contact_phone" /></label>
+        <label class="full">佣金规则<input name="commission_rule" /></label>
+        `,
+        async (fd) => {
+          const result = await api("newhome.projects.save", {
+            name: fd.get("name"),
+            address: fd.get("address"),
+            property_type: fd.get("property_type"),
+            protection_days: Number(fd.get("protection_days")),
+            contact_name: fd.get("contact_name"),
+            contact_phone: fd.get("contact_phone"),
+            commission_rule: fd.get("commission_rule"),
+          });
+          toast(result.ok ? "新房项目已创建" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) render();
+        }
+      )
+    );
+  }
+  main.querySelector("[data-register]")!.addEventListener("click", () => {
+    const projectOptions = projects.ok
+      ? (projects.data as any[])
+          .filter((project) => project.status === "active")
+          .map((project) => `<option value="${project.id}">${project.name}</option>`)
+          .join("")
+      : "";
+    const customerOptions = customers.ok
+      ? (customers.data as any[])
+          .map((customer) => `<option value="${customer.id}">${customer.name}</option>`)
+          .join("")
+      : "";
+    const agentOptions =
+      canManage && users.ok
+        ? (users.data as any[])
+            .filter((employee) => employee.role === "agent")
+            .map((employee) => `<option value="${employee.id}">${employee.display_name}</option>`)
+            .join("")
+        : "";
+    openDialog(
+      "新房客户报备",
+      `
+      <label>项目<select name="project_id">${projectOptions}</select></label>
+      <label>客户<select name="customer_id">${customerOptions}</select></label>
+      ${canManage ? `<label>经纪人<select name="agent_id">${agentOptions}</select></label>` : ""}
+      <label>来源<input name="source" /></label>
+      <label>项目对接人<input name="contact_name" /></label>
+      `,
+      async (fd) => {
+        const result = await api("newhome.registrations.create", {
+          project_id: fd.get("project_id"),
+          customer_id: fd.get("customer_id"),
+          agent_id: fd.get("agent_id") || null,
+          source: fd.get("source"),
+          contact_name: fd.get("contact_name"),
+        });
+        toast(result.ok ? `报备成功，保护至 ${(result.data as any).protect_until.slice(0, 10)}` : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawRegistrations();
+      }
+    );
+  });
+  const expireButton = main.querySelector("[data-expire]");
+  if (expireButton) {
+    expireButton.addEventListener("click", async () => {
+      const result = await api("newhome.registrations.expire");
+      toast(result.ok ? `已刷新 ${(result.data as any).expired} 条过期报备` : result.message, result.ok ? "ok" : "error");
+      if (result.ok) drawRegistrations();
+    });
+  }
+  main.querySelector("[data-registration-status]")!.addEventListener("change", drawRegistrations);
+  await drawRegistrations();
 }
 
 const suiteMeta: Record<
