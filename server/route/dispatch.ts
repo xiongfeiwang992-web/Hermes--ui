@@ -704,6 +704,10 @@ function route(
       return report.businessSummary(db, user!, payload);
     case "report.dealsCsv":
       return report.exportDealsCsv(db, user!, payload);
+    case "report.commissionsCsv":
+      return report.exportCommissionsCsv(db, user!, payload);
+    case "report.performanceCsv":
+      return report.exportPerformanceCsv(db, user!, payload);
     case "report.housesCsv":
       return report.exportHousesCsv(db, user!, payload);
     case "report.customersCsv":

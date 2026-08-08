@@ -2128,9 +2128,35 @@ async function renderPayments(main: HTMLElement) {
 }
 
 async function renderCommissions(main: HTMLElement) {
+  const defaultMonth = new Date().toISOString().slice(0, 7);
   const r = await api("commission.list");
-  main.innerHTML = `<div class="header"><h2>提成</h2></div><div class="list" data-list></div>`;
+  main.innerHTML = `
+    <div class="header"><h2>提成</h2><div class="ops">
+      <input data-month type="month" value="${defaultMonth}" />
+      <button class="btn ghost" data-export-commissions>导出提成</button>
+      <button class="btn ghost" data-export-performance>导出业绩排名</button>
+    </div></div>
+    <div class="list" data-list></div>`;
   const list = main.querySelector("[data-list]")!;
+  const monthInput = () => (main.querySelector("[data-month]") as HTMLInputElement).value;
+  const download = async (action: string) => {
+    const result = await api(action, { month: monthInput() || undefined });
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: file.mime || "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "export.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  main.querySelector("[data-export-commissions]")!.addEventListener("click", () =>
+    download("report.commissionsCsv")
+  );
+  main.querySelector("[data-export-performance]")!.addEventListener("click", () =>
+    download("report.performanceCsv")
+  );
   if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
   const rows = r.data as any[];
   if (!rows.length) return (list.innerHTML = `<div class="empty">暂无提成</div>`);
@@ -2161,6 +2187,8 @@ async function renderReports(main: HTMLElement) {
   main.innerHTML = `
     <div class="header"><h2>经营报表</h2><div class="ops">
       <button class="btn ghost" data-export="deals">成交 CSV</button>
+      <button class="btn ghost" data-export="commissions">提成 CSV</button>
+      <button class="btn ghost" data-export="performance">业绩排名 CSV</button>
       <button class="btn ghost" data-export="dealHotspots">热点 CSV</button>
       ${canAnalyze ? `<button class="btn ghost" data-export="houses">房源 CSV</button><button class="btn ghost" data-export="customers">客源 CSV</button><button class="btn ghost" data-export="follows">跟进 CSV</button><button class="btn ghost" data-export="views">带看 CSV</button><button class="btn ghost" data-export="houseAttributes">属性 CSV</button><button class="btn ghost" data-export="customerSources">来源 CSV</button>` : ""}
     </div></div>
@@ -2312,7 +2340,7 @@ async function renderReports(main: HTMLElement) {
     button.addEventListener("click", async () => {
       const kind = (button as HTMLElement).dataset.export!;
       const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
-      const needsMonth = ["deals", "dealHotspots"].includes(kind);
+      const needsMonth = ["deals", "dealHotspots", "commissions", "performance"].includes(kind);
       const result = await api(`report.${kind}Csv`, needsMonth ? { month } : {});
       if (!result.ok) return toast(result.message, "error");
       const file = result.data as any;
