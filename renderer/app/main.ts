@@ -962,6 +962,7 @@ async function renderFollows(main: HTMLElement) {
       `
       <label class="full">对象<select name="target">${cusOpts}${houseOpts}</select></label>
       <label>方式<select name="method"><option value="call">电话</option><option value="wechat">微信</option><option value="visit">拜访</option><option value="other">其他</option></select></label>
+      <label>类型<select name="follow_kind"><option value="normal">普通跟进</option><option value="price_change">改价跟进</option><option value="modification">资料修改</option></select></label>
       <label>下次跟进<input name="next_follow_at" type="datetime-local" /></label>
       <label class="full">内容<textarea name="content" rows="4" required></textarea></label>
       `,
@@ -972,6 +973,7 @@ async function renderFollows(main: HTMLElement) {
           target_type,
           target_id,
           method: fd.get("method"),
+          follow_kind: fd.get("follow_kind"),
           content: fd.get("content"),
           next_follow_at: next ? new Date(next).toISOString() : null,
         });
@@ -1526,13 +1528,21 @@ async function renderCommissions(main: HTMLElement) {
 async function renderReports(main: HTMLElement) {
   const defaultMonth = new Date().toISOString().slice(0, 7);
   main.innerHTML = `
-    <div class="header"><h2>经营报表</h2><button class="btn ghost" data-export>导出成交 CSV</button></div>
+    <div class="header"><h2>经营报表</h2><div class="ops">
+      <button class="btn ghost" data-export="deals">成交 CSV</button>
+      ${state.user.role !== "finance" ? `<button class="btn ghost" data-export="houses">房源 CSV</button><button class="btn ghost" data-export="customers">客源 CSV</button><button class="btn ghost" data-export="follows">跟进 CSV</button><button class="btn ghost" data-export="views">带看 CSV</button>` : ""}
+    </div></div>
     <div class="filters"><input data-month type="month" value="${defaultMonth}" /></div>
     <div data-report></div>
   `;
   const draw = async () => {
     const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
-    const result = await api("report.business", { month });
+    const [result, activity] = await Promise.all([
+      api("report.business", { month }),
+      state.user.role === "finance"
+        ? Promise.resolve({ ok: false, message: "无权限" } as ApiResult)
+        : api("report.activityStats", { month }),
+    ]);
     const container = main.querySelector("[data-report]")!;
     if (!result.ok) return (container.innerHTML = `<div class="error">${result.message}</div>`);
     const report = result.data as any;
@@ -1560,23 +1570,42 @@ async function renderReports(main: HTMLElement) {
             : `<div class="empty">本月暂无审批成交</div>`
         }
       </div>
+      ${
+        activity.ok
+          ? `<h3>跟进与带看排行</h3>
+      <div class="stats">
+        <div class="stat"><div class="n">${(activity.data as any).follow_count}</div><div class="l">跟进总数</div></div>
+        <div class="stat"><div class="n">${(activity.data as any).view_count}</div><div class="l">带看总数</div></div>
+        <div class="stat"><div class="n">${(activity.data as any).effective_view_count}</div><div class="l">有效带看</div></div>
+      </div>
+      <div class="list">${(activity.data as any).rankings
+        .map(
+          (item: any, index: number) =>
+            `<div class="row"><div><strong>${index + 1}. ${item.display_name}</strong><div class="meta">跟进 ${item.follow_count} · 改价 ${item.price_change_count} · 带看 ${item.view_count} · 有效 ${item.effective_view_count}</div></div></div>`
+        )
+        .join("") || `<div class="empty">本月暂无跟进与带看</div>`}</div>`
+          : ""
+      }
     `;
   };
   main.querySelector("[data-month]")!.addEventListener("change", draw);
-  main.querySelector("[data-export]")!.addEventListener("click", async () => {
-    const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
-    const result = await api("report.dealsCsv", { month });
-    if (!result.ok) return toast(result.message, "error");
-    const file = result.data as any;
-    const blob = new Blob([file.content], { type: file.mime });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    toast(`已导出 ${file.rows} 条成交`);
-  });
+  main.querySelectorAll("[data-export]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      const kind = (button as HTMLElement).dataset.export!;
+      const month = (main.querySelector("[data-month]") as HTMLInputElement).value;
+      const result = await api(`report.${kind}Csv`, kind === "deals" ? { month } : {});
+      if (!result.ok) return toast(result.message, "error");
+      const file = result.data as any;
+      const blob = new Blob([file.content], { type: file.mime });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = file.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast(`已导出 ${file.rows} 条记录`);
+    })
+  );
   await draw();
 }
 

@@ -197,7 +197,6 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       property_type = COALESCE(?, property_type),
       deal_mode = COALESCE(?, deal_mode),
       visibility = COALESCE(?, visibility),
-      is_locked = COALESCE(?, is_locked),
       updated_at = ?
      WHERE id = ?`
   ).run(
@@ -218,7 +217,6 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.property_type ?? null,
     payload.deal_mode ?? null,
     payload.visibility ?? null,
-    payload.is_locked == null ? null : payload.is_locked ? 1 : 0,
     nowIso(),
     payload.id
   );

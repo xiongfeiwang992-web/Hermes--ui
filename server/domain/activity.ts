@@ -13,6 +13,10 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
   if (String(payload.content).trim().length < 5) {
     return { ok: false, message: "跟进内容至少 5 个字" };
   }
+  const followKind = payload.follow_kind || "normal";
+  if (!["normal", "price_change", "modification"].includes(followKind)) {
+    return { ok: false, message: "跟进类型无效" };
+  }
   if (payload.target_type === "house") {
     const house = db
       .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
@@ -41,8 +45,9 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
 
   const id = nextId("FLW");
   db.prepare(
-    `INSERT INTO follows(id, company_id, store_id, target_type, target_id, content, method, next_follow_at, created_by, voided, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+    `INSERT INTO follows(id, company_id, store_id, target_type, target_id, content, method,
+     next_follow_at, created_by, voided, created_at, follow_kind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
   ).run(
     id,
     user.company_id,
@@ -53,7 +58,8 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
     payload.method || "other",
     payload.next_follow_at || null,
     user.id,
-    nowIso()
+    nowIso(),
+    followKind
   );
   if (payload.target_type === "house") {
     db.prepare(`UPDATE houses SET updated_at = ? WHERE id = ?`).run(nowIso(), payload.target_id);

@@ -1,5 +1,8 @@
 import type { Db } from "../db/database";
-import { listFollows } from "./activity";
+import { listFollows, listViews } from "./activity";
+import { listHouses } from "./house";
+import { listCustomers } from "./customer";
+import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
 import { todayDate } from "../utils/id";
 
@@ -196,6 +199,170 @@ export function businessSummary(
 function csvCell(value: unknown): string {
   const text = value == null ? "" : String(value);
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function csvFile(filename: string, header: string[], rows: unknown[][]): ApiResult {
+  return {
+    ok: true,
+    data: {
+      filename,
+      mime: "text/csv;charset=utf-8",
+      content: `\uFEFF${[
+        header.map(csvCell).join(","),
+        ...rows.map((row) => row.map(csvCell).join(",")),
+      ].join("\r\n")}`,
+      rows: rows.length,
+    },
+  };
+}
+
+function dataRows(result: ApiResult): any[] | null {
+  return result.ok ? (result.data as any[]) : null;
+}
+
+export function exportHousesCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const rows = dataRows(listHouses(db, user, payload));
+  if (!rows) return { ok: false, message: "无房源导出权限", code: 403 };
+  writeAudit(db, user, "house.export", "house", undefined, { rows: rows.length });
+  return csvFile(
+    `房源列表-${todayDate()}.csv`,
+    ["房源编号", "门店", "租售", "物业", "状态", "小区", "标题", "价格", "面积", "接盘人", "业主", "业主电话"],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.deal_type,
+      row.property_type,
+      row.status,
+      row.community,
+      row.title,
+      row.price,
+      row.area_size,
+      row.agent_id,
+      row.owner_name,
+      row.owner_phone,
+    ])
+  );
+}
+
+export function exportCustomersCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const rows = dataRows(listCustomers(db, user, payload));
+  if (!rows) return { ok: false, message: "无客源导出权限", code: 403 };
+  writeAudit(db, user, "customer.export", "customer", undefined, { rows: rows.length });
+  return csvFile(
+    `客源列表-${todayDate()}.csv`,
+    ["客源编号", "门店", "姓名", "电话", "意图", "预算下限", "预算上限", "等级", "公私", "状态", "维护人", "来源"],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.name,
+      row.phone,
+      row.intent,
+      row.budget_min,
+      row.budget_max,
+      row.level,
+      row.visibility,
+      row.status,
+      row.agent_id,
+      row.source,
+    ])
+  );
+}
+
+export function exportFollowsCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const rows = dataRows(listFollows(db, user, payload));
+  if (!rows) return { ok: false, message: "无跟进导出权限", code: 403 };
+  writeAudit(db, user, "follow.export", "follow", undefined, { rows: rows.length });
+  return csvFile(
+    `跟进明细-${todayDate()}.csv`,
+    ["跟进编号", "门店", "对象类型", "对象编号", "方式", "类型", "内容", "下次跟进", "跟进人", "创建时间"],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.target_type,
+      row.target_id,
+      row.method,
+      row.follow_kind,
+      row.content,
+      row.next_follow_at,
+      row.created_by,
+      row.created_at,
+    ])
+  );
+}
+
+export function exportViewsCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const rows = dataRows(listViews(db, user, payload));
+  if (!rows) return { ok: false, message: "无带看导出权限", code: 403 };
+  writeAudit(db, user, "view.export", "view", undefined, { rows: rows.length });
+  return csvFile(
+    `带看明细-${todayDate()}.csv`,
+    ["带看编号", "门店", "客户", "房源", "主看人", "陪看人", "时间", "状态", "反馈", "内容"],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.customer_id,
+      row.house_id,
+      row.agent_id,
+      (row.accompany_ids || []).join("|"),
+      row.view_at,
+      row.status,
+      row.feedback,
+      row.content,
+    ])
+  );
+}
+
+export function activityStats(
+  db: Db,
+  user: SessionUser,
+  payload: { month?: string } = {}
+): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const range = monthRange(payload.month);
+  const follows = dataRows(listFollows(db, user)) || [];
+  const views = dataRows(listViews(db, user)) || [];
+  const inRange = (value: string) => value >= range.start && value < range.end;
+  const followRows = follows.filter((row) => inRange(row.created_at));
+  const viewRows = views.filter((row) => inRange(row.view_at));
+  const users = new Map<string, any>();
+  const ensure = (id: string) => {
+    if (!users.has(id)) {
+      const employee = db.prepare(`SELECT display_name FROM users WHERE id=?`).get(id) as any;
+      users.set(id, {
+        user_id: id,
+        display_name: employee?.display_name || id,
+        follow_count: 0,
+        price_change_count: 0,
+        view_count: 0,
+        effective_view_count: 0,
+      });
+    }
+    return users.get(id);
+  };
+  for (const row of followRows) {
+    const item = ensure(row.created_by);
+    item.follow_count++;
+    if (row.follow_kind === "price_change") item.price_change_count++;
+  }
+  for (const row of viewRows) {
+    const item = ensure(row.agent_id);
+    item.view_count++;
+    if (["interested", "considering", "deal"].includes(row.feedback)) item.effective_view_count++;
+  }
+  return {
+    ok: true,
+    data: {
+      month: range.month,
+      follow_count: followRows.length,
+      view_count: viewRows.length,
+      effective_view_count: viewRows.filter((row) =>
+        ["interested", "considering", "deal"].includes(row.feedback)
+      ).length,
+      rankings: [...users.values()].sort(
+        (a, b) => b.follow_count + b.view_count - a.follow_count - a.view_count
+      ),
+    },
+  };
 }
 
 export function exportDealsCsv(

@@ -168,6 +168,10 @@ assert(
 );
 assert(app.call("deal.approve", { id: dealId }, manager).ok, "approve specialized deal");
 assert(
+  data<any>(app.call("customer.get", { id: data<any>(customer).id }, agent)).is_confidential === 0,
+  "approved deal releases confidential customer flag"
+);
+assert(
   data<any[]>(app.call("commission.list", {}, finance)).length === 2,
   "generate agent commission and manager award"
 );

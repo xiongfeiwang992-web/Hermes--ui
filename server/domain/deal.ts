@@ -236,7 +236,9 @@ export function approveDeal(db: Db, user: SessionUser, payload: { id: string }):
       now,
       current.house_id
     );
-    db.prepare(`UPDATE customers SET status = 'closed', updated_at = ? WHERE id = ?`).run(
+    db.prepare(
+      `UPDATE customers SET status = 'closed', is_confidential = 0, updated_at = ? WHERE id = ?`
+    ).run(
       now,
       current.customer_id
     );
