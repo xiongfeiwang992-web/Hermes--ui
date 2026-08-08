@@ -167,6 +167,7 @@ function renderSide(side: HTMLElement) {
     ["commissions", "提成"],
     ["reports", "经营报表"],
     ["suite-property", "房源扩展"],
+    ["suite-deal", "交易扩展"],
     ["suite-newhome", "新房分销"],
     ["suite-finance", "财务管理"],
     ["suite-office", "办公协同"],
@@ -233,6 +234,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
+      "suite-deal": "deal_ext",
       "suite-newhome": "newhome",
       "suite-finance": "finance",
       "suite-office": "office",
@@ -1511,6 +1513,15 @@ const suiteMeta: Record<
       ["media", "视频/全景"],
       ["auction", "拍卖模式"],
       ["exclusive_agency", "包销/独家代理"],
+    ],
+  },
+  deal_ext: {
+    title: "交易扩展",
+    types: [
+      ["mortgage", "贷款按揭"],
+      ["deal_complaint", "成交投诉"],
+      ["rename", "成交更名"],
+      ["document_checklist", "交易资料清单"],
     ],
   },
   newhome: {
