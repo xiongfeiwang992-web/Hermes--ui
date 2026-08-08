@@ -11,6 +11,11 @@ import {
   recordModificationFollow,
 } from "./activity";
 import { writeAudit } from "./audit";
+import {
+  isAllowedDealMode,
+  labelDealMode,
+  normalizeDealMode,
+} from "./config";
 import { resolvePhoneVisibility } from "./contactGate";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
@@ -44,6 +49,7 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
+    deal_mode_label: labelDealMode(db, user.company_id, row.deal_mode),
   };
 }
 
@@ -98,6 +104,10 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   if (!["sale", "rent"].includes(payload.deal_type)) {
     return { ok: false, message: "deal_type 无效" };
+  }
+  const dealMode = normalizeDealMode(payload.deal_mode);
+  if (!isAllowedDealMode(db, user.company_id, dealMode)) {
+    return { ok: false, message: "交易模式不在当前字典中" };
   }
   if (user.role === "agent") {
     const setting = db
@@ -165,7 +175,7 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.remark || null,
     payload.cover_image || null,
     payload.property_type || "residential",
-    payload.deal_mode || "normal",
+    dealMode,
     payload.visibility || "store",
     payload.is_locked ? 1 : 0,
     now,
@@ -197,6 +207,11 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   const nextPrice = payload.price != null ? Number(payload.price) : null;
   const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
+  const dealModeProvided = Object.prototype.hasOwnProperty.call(payload, "deal_mode");
+  const nextDealMode = dealModeProvided ? normalizeDealMode(payload.deal_mode) : null;
+  if (dealModeProvided && nextDealMode && !isAllowedDealMode(db, user.company_id, nextDealMode)) {
+    return { ok: false, message: "交易模式不在当前字典中" };
+  }
   const priceSummary =
     payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
   const summary = buildModificationSummary([
@@ -259,9 +274,9 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     },
     {
       label: "交易模式",
-      provided: payload.deal_mode != null,
+      provided: dealModeProvided,
       prev: current.deal_mode,
-      next: payload.deal_mode,
+      next: nextDealMode,
     },
     {
       label: "可见范围",
@@ -307,7 +322,7 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.remark ?? null,
     payload.cover_image ?? null,
     payload.property_type ?? null,
-    payload.deal_mode ?? null,
+    dealModeProvided ? nextDealMode : null,
     payload.visibility ?? null,
     nowIso(),
     payload.id

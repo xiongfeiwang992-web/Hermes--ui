@@ -114,6 +114,53 @@ export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerSources(db, user.company_id) };
 }
 
+export const DEFAULT_DEAL_MODES = [
+  { value: "normal", label: "普通", sort_order: 1 },
+  { value: "auction", label: "拍卖", sort_order: 2 },
+  { value: "exclusive", label: "包销/独家", sort_order: 3 },
+];
+
+const DEAL_MODE_ALIASES: Record<string, string> = {
+  普通: "normal",
+  拍卖: "auction",
+  包销: "exclusive",
+  独家: "exclusive",
+  "包销/独家": "exclusive",
+  package: "exclusive",
+};
+
+export function resolveDealModes(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'deal_mode' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_DEAL_MODES.map((item) => ({ ...item }));
+}
+
+export function normalizeDealMode(value: unknown, fallback = "normal"): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+  return DEAL_MODE_ALIASES[raw] || raw;
+}
+
+export function isAllowedDealMode(db: Db, companyId: string, value: string): boolean {
+  return resolveDealModes(db, companyId).some((item) => item.value === value);
+}
+
+export function labelDealMode(db: Db, companyId: string, value: unknown): string {
+  const normalized = normalizeDealMode(value, "");
+  if (!normalized) return "";
+  const hit = resolveDealModes(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listDealModes(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveDealModes(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,
