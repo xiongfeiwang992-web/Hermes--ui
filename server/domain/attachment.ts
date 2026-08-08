@@ -38,6 +38,19 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     )
       return { ok: false, message: "收支记录不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "recruitment_candidate") {
+    const candidate = db
+      .prepare(`SELECT * FROM recruitment_candidates WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !candidate ||
+      !(
+        user.role === "admin" ||
+        (user.role === "store_manager" && candidate.store_id === user.store_id)
+      )
+    )
+      return { ok: false, message: "候选人不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -130,6 +143,22 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     if (payload.category !== "cashbook_voucher")
       return { ok: false, message: "收支凭证分类无效" };
     attachmentStoreId = entry.store_id;
+  }
+  if (payload.parent_type === "recruitment_candidate") {
+    const candidate = db
+      .prepare(`SELECT * FROM recruitment_candidates WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !candidate ||
+      ["hired", "rejected", "withdrawn"].includes(candidate.status) ||
+      !(
+        user.role === "admin" ||
+        (user.role === "store_manager" && candidate.store_id === user.store_id)
+      )
+    )
+      return { ok: false, message: "候选人不存在或无简历上传权限", code: 403 };
+    if (payload.category !== "resume") return { ok: false, message: "候选人附件分类无效" };
+    attachmentStoreId = candidate.store_id;
   }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");

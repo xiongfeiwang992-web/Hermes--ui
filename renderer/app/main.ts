@@ -82,6 +82,7 @@ function canSee(tab: string) {
   if (tab === "expenses") return true;
   if (tab === "cashbook") return ["admin", "finance", "store_manager"].includes(role);
   if (tab === "workforce") return ["admin", "store_manager"].includes(role);
+  if (tab === "recruitment") return ["admin", "store_manager"].includes(role);
   if (
     [
       "houses",
@@ -191,6 +192,7 @@ function renderSide(side: HTMLElement) {
     ["suite-office", "办公协同"],
     ["suite-hr", "人事管理"],
     ["workforce", "岗位调动"],
+    ["recruitment", "招聘管理"],
     ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
     ["suite-rental", "租赁托管"],
@@ -258,6 +260,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "attendance-leave") return renderAttendanceLeave(main);
   if (state.tab === "cashbook") return renderCashbook(main);
   if (state.tab === "workforce") return renderWorkforce(main);
+  if (state.tab === "recruitment") return renderRecruitment(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -2834,6 +2837,194 @@ async function renderWorkforce(main: HTMLElement) {
   await drawTransfers();
 }
 
+async function renderRecruitment(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const desktopShell = (window as any).weilaijia?.shell;
+  const optionsResult = await api("recruitment.options", {});
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { stores: [], jobs: [] };
+  const candidateStatus: Record<string, string> = {
+    new: "新候选人",
+    screening: "筛选中",
+    interview: "待面试",
+    offer: "已发 Offer",
+    hired: "已入职",
+    rejected: "已淘汰",
+    withdrawn: "已退出",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>招聘管理</h2><div class="ops">
+      <button class="btn ghost" data-new-recruitment-job>新建岗位</button>
+      <button class="btn" data-new-candidate>录入候选人</button>
+    </div></div>
+    <section><h3>招聘岗位</h3><div class="list" data-recruitment-jobs></div></section>
+    <section><h3>候选人</h3><div class="filters"><select data-candidate-status><option value="">全部状态</option>${Object.entries(candidateStatus).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></div><div class="list" data-candidates></div></section>
+  `;
+  const draw = async () => {
+    const status = (main.querySelector("[data-candidate-status]") as HTMLSelectElement).value;
+    const [jobsResult, candidatesResult] = await Promise.all([
+      api("recruitment.jobs.list", {}),
+      api("recruitment.candidates.list", status ? { status } : {}),
+    ]);
+    const jobs = main.querySelector("[data-recruitment-jobs]")!;
+    jobs.innerHTML = jobsResult.ok
+      ? (jobsResult.data as any[])
+          .map(
+            (job) => `<div class="row"><div>
+              <div><span class="tag ${job.status === "open" ? "ok" : "danger"}">${job.status === "open" ? "招聘中" : "已关闭"}</span><strong>${job.title}</strong> · ${roleLabel(job.target_role)}</div>
+              <div class="meta">${job.store_name} · 招聘 ${job.headcount} 人 · 候选 ${job.candidate_count} · 已入职 ${job.hired_count}${job.requirements ? ` · ${job.requirements}` : ""}</div>
+            </div><div class="ops">${job.status === "open" ? `<button class="btn danger" data-close-job="${job.id}">关闭岗位</button>` : ""}</div></div>`
+          )
+          .join("") || `<div class="empty">暂无招聘岗位</div>`
+      : `<div class="error">${jobsResult.message}</div>`;
+    const candidates = main.querySelector("[data-candidates]")!;
+    candidates.innerHTML = candidatesResult.ok
+      ? (candidatesResult.data as any[])
+          .map((candidate) => {
+            const active = !["hired", "rejected", "withdrawn"].includes(candidate.status);
+            return `<div class="row"><div>
+              <div><span class="tag ${candidate.status === "hired" ? "ok" : candidate.status === "rejected" || candidate.status === "withdrawn" ? "danger" : "warn"}">${candidateStatus[candidate.status] || candidate.status}</span><strong>${candidate.name}</strong> · ${candidate.phone} · ${candidate.job_title}</div>
+              <div class="meta">${candidate.store_name}${candidate.source ? ` · 来源 ${candidate.source}` : ""} · 简历 ${candidate.resume_count}${candidate.interview_at ? ` · 面试 ${new Date(candidate.interview_at).toLocaleString("zh-CN")}` : ""}${candidate.note ? ` · ${candidate.note}` : ""}${candidate.reject_reason ? ` · 淘汰：${candidate.reject_reason}` : ""}</div>
+            </div><div class="ops">
+              ${active ? `<button class="btn ghost" data-candidate-resume="${candidate.id}">上传简历</button>` : ""}
+              ${candidate.status === "new" ? `<button class="btn" data-candidate-status-id="${candidate.id}" data-candidate-to="screening">开始筛选</button>` : ""}
+              ${candidate.status === "screening" ? `<button class="btn" data-interview-candidate="${candidate.id}">安排面试</button>` : ""}
+              ${candidate.status === "interview" ? `<button class="btn" data-candidate-status-id="${candidate.id}" data-candidate-to="offer">发 Offer</button>` : ""}
+              ${candidate.status === "offer" && isAdmin ? `<button class="btn" data-onboard-candidate="${candidate.id}" data-candidate-name="${candidate.name}">办理入职</button>` : ""}
+              ${active ? `<button class="btn danger" data-reject-candidate="${candidate.id}">淘汰</button><button class="btn ghost" data-candidate-status-id="${candidate.id}" data-candidate-to="withdrawn">退出</button>` : ""}
+            </div></div>`;
+          })
+          .join("") || `<div class="empty">暂无候选人</div>`
+      : `<div class="error">${candidatesResult.message}</div>`;
+    jobs.querySelectorAll("[data-close-job]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("关闭后不可再录入候选人，是否继续？")) return;
+        const result = await api("recruitment.jobs.close", {
+          id: (button as HTMLElement).dataset.closeJob,
+        });
+        toast(result.ok ? "招聘岗位已关闭" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    candidates.querySelectorAll("[data-candidate-resume]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传简历", "error");
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const result = await api("attachment.add", {
+            parent_type: "recruitment_candidate",
+            parent_id: (button as HTMLElement).dataset.candidateResume,
+            category: "resume",
+            name: localPath.split(/[\\/]/).pop() || "候选人简历",
+            local_path: localPath,
+          });
+          if (!result.ok) return toast(result.message, "error");
+        }
+        toast(paths.length ? `已上传 ${paths.length} 份简历` : "未选择文件");
+        if (paths.length) draw();
+      })
+    );
+    candidates.querySelectorAll("[data-candidate-status-id]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const element = button as HTMLElement;
+        const result = await api("recruitment.candidates.status", {
+          id: element.dataset.candidateStatusId,
+          status: element.dataset.candidateTo,
+        });
+        toast(result.ok ? "候选人状态已更新" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    candidates.querySelectorAll("[data-interview-candidate]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "安排面试",
+          `<label>面试时间<input name="interview_at" type="datetime-local" required /></label><label class="full">面试说明<input name="note" /></label>`,
+          async (fd) => {
+            const raw = String(fd.get("interview_at") || "");
+            const result = await api("recruitment.candidates.status", {
+              id: (button as HTMLElement).dataset.interviewCandidate,
+              status: "interview",
+              interview_at: raw ? new Date(raw).toISOString() : null,
+              note: fd.get("note"),
+            });
+            toast(result.ok ? "面试已安排" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    candidates.querySelectorAll("[data-reject-candidate]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("淘汰原因");
+        if (!reason) return;
+        const result = await api("recruitment.candidates.status", {
+          id: (button as HTMLElement).dataset.rejectCandidate,
+          status: "rejected",
+          reason,
+        });
+        toast(result.ok ? "候选人已淘汰" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    candidates.querySelectorAll("[data-onboard-candidate]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "候选人办理入职",
+          `<label>员工姓名<input name="display_name" value="${(button as HTMLElement).dataset.candidateName || ""}" required /></label><label>登录账号<input name="account" required /></label><label>初始密码<input name="password" type="password" minlength="8" required /></label>`,
+          async (fd) => {
+            const result = await api("recruitment.candidates.onboard", {
+              id: (button as HTMLElement).dataset.onboardCandidate,
+              display_name: fd.get("display_name"),
+              account: fd.get("account"),
+              password: fd.get("password"),
+            });
+            toast(result.ok ? "候选人已入职并创建员工账号" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  main.querySelector("[data-new-recruitment-job]")!.addEventListener("click", () =>
+    openDialog(
+      "新建招聘岗位",
+      `<label>岗位名称<input name="title" required /></label><label>招聘门店<select name="store_id">${options.stores.map((store: any) => `<option value="${store.id}">${store.name}</option>`).join("")}</select></label><label>目标角色<select name="target_role">${isAdmin ? `<option value="agent">经纪人</option><option value="store_manager">店长</option><option value="finance">财务</option>` : `<option value="agent">经纪人</option>`}</select></label><label>招聘人数<input name="headcount" type="number" min="1" max="100" value="1" required /></label><label class="full">任职要求<textarea name="requirements" rows="3"></textarea></label>`,
+      async (fd) => {
+        const result = await api("recruitment.jobs.save", {
+          title: fd.get("title"),
+          store_id: fd.get("store_id"),
+          target_role: fd.get("target_role"),
+          headcount: Number(fd.get("headcount")),
+          requirements: fd.get("requirements"),
+        });
+        toast(result.ok ? "招聘岗位已发布" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-candidate]")!.addEventListener("click", () =>
+    openDialog(
+      "录入候选人",
+      `<label>招聘岗位<select name="job_id">${options.jobs.map((job: any) => `<option value="${job.id}">${job.title} · ${roleLabel(job.target_role)}</option>`).join("")}</select></label><label>姓名<input name="name" required /></label><label>电话<input name="phone" required /></label><label>来源<input name="source" /></label><label class="full">备注<textarea name="note" rows="3"></textarea></label>`,
+      async (fd) => {
+        const result = await api("recruitment.candidates.create", {
+          job_id: fd.get("job_id"),
+          name: fd.get("name"),
+          phone: fd.get("phone"),
+          source: fd.get("source"),
+          note: fd.get("note"),
+        });
+        toast(result.ok ? "候选人已录入" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-candidate-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -2890,8 +3081,6 @@ const suiteMeta: Record<
   hr: {
     title: "人事管理",
     types: [
-      ["job", "招聘岗位"],
-      ["applicant", "应聘记录"],
       ["employee_contract", "人事合同"],
       ["salary", "薪酬条"],
     ],

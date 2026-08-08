@@ -20,8 +20,6 @@ const TYPES: Record<string, Set<string>> = {
   ]),
   finance: new Set(["asset", "voucher", "payroll"]),
   hr: new Set([
-    "job",
-    "applicant",
     "employee_contract",
     "salary",
   ]),

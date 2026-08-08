@@ -24,6 +24,7 @@ import * as expense from "../domain/expense";
 import * as attendance from "../domain/attendance";
 import * as cashbook from "../domain/cashbook";
 import * as workforce from "../domain/workforce";
+import * as recruitment from "../domain/recruitment";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -318,6 +319,22 @@ function route(
       return workforce.executeTransfer(db, user!, payload);
     case "workforce.transfers.cancel":
       return workforce.cancelTransfer(db, user!, payload);
+    case "recruitment.options":
+      return recruitment.recruitmentOptions(db, user!);
+    case "recruitment.jobs.list":
+      return recruitment.listJobs(db, user!, payload);
+    case "recruitment.jobs.save":
+      return recruitment.saveJob(db, user!, payload);
+    case "recruitment.jobs.close":
+      return recruitment.closeJob(db, user!, payload);
+    case "recruitment.candidates.list":
+      return recruitment.listCandidates(db, user!, payload);
+    case "recruitment.candidates.create":
+      return recruitment.createCandidate(db, user!, payload);
+    case "recruitment.candidates.status":
+      return recruitment.changeCandidateStatus(db, user!, payload);
+    case "recruitment.candidates.onboard":
+      return recruitment.onboardCandidate(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);
