@@ -256,32 +256,105 @@ export function addBlacklist(db: Db, user: SessionUser, payload: any): ApiResult
   return { ok: true, data: { id } };
 }
 
+export type FeatureCatalogItem = {
+  key: string;
+  label: string;
+  description: string;
+};
+
+/** 菜单级功能权限目录（domain.* 通配，与 dispatch 动作前缀对齐） */
+export const FEATURE_CATALOG: FeatureCatalogItem[] = [
+  { key: "house.*", label: "房源", description: "房源列表与维护" },
+  { key: "customer.*", label: "客源", description: "客源列表与维护" },
+  { key: "follow.*", label: "跟进", description: "跟进记录" },
+  { key: "view.*", label: "带看", description: "带看登记" },
+  { key: "deal.*", label: "成交", description: "成交报告与审批" },
+  { key: "payment.*", label: "收款", description: "佣金收款" },
+  { key: "commission.*", label: "提成", description: "提成结算" },
+  { key: "report.*", label: "经营报表", description: "经营分析报表" },
+  { key: "earnest.*", label: "意向金", description: "意向金申请" },
+  { key: "transfer.*", label: "过户节点", description: "过户进度" },
+  { key: "property.*", label: "楼盘钥匙实勘", description: "楼盘字典/钥匙/实勘/验真" },
+  { key: "newhome.*", label: "新房分销", description: "新房报备与销售报告" },
+  { key: "rental.*", label: "租赁托管", description: "租赁业务" },
+  { key: "expense.*", label: "费用报销", description: "报销审批" },
+  { key: "cashbook.*", label: "收支流水", description: "门店现金账" },
+  { key: "attendance.*", label: "考勤打卡", description: "上下班打卡" },
+  { key: "leave.*", label: "请假审批", description: "请假申请与审批" },
+  { key: "workforce.*", label: "岗位调动", description: "职级与调动" },
+  { key: "recruitment.*", label: "招聘管理", description: "招聘流程" },
+  { key: "employee.*", label: "员工合同", description: "人事合同" },
+  { key: "payroll.*", label: "薪酬工资条", description: "工资条" },
+  { key: "offboarding.*", label: "离职交接", description: "离职资产交接" },
+  { key: "marketing.*", label: "营销线索", description: "活动与线索" },
+  { key: "customerCare.*", label: "客户关怀", description: "客关任务" },
+  { key: "performance.*", label: "积分分红", description: "积分与分红" },
+  { key: "officeContent.*", label: "公告知识", description: "公告与知识库" },
+  { key: "officeCollab.*", label: "办公协同", description: "协同工单" },
+  { key: "message.*", label: "消息", description: "站内消息" },
+  { key: "audit.list", label: "审计查询", description: "操作审计列表" },
+];
+
+const FEATURE_KEYS = new Set(FEATURE_CATALOG.map((item) => item.key));
+const MATRIX_ROLES: Role[] = ["store_manager", "agent", "finance"];
+
 export function listPermissions(db: Db, user: SessionUser): ApiResult {
   if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
+  const rows = db
+    .prepare(`SELECT * FROM feature_permissions WHERE company_id = ? ORDER BY role, feature`)
+    .all(user.company_id) as any[];
+  const lookup = new Map<string, boolean>();
+  for (const row of rows) {
+    lookup.set(`${row.role}::${row.feature}`, Boolean(row.allowed));
+  }
+  const matrix = FEATURE_CATALOG.map((item) => {
+    const roles: Record<string, boolean> = {};
+    for (const role of MATRIX_ROLES) {
+      const key = `${role}::${item.key}`;
+      roles[role] = lookup.has(key) ? Boolean(lookup.get(key)) : true;
+    }
+    return {
+      feature: item.key,
+      label: item.label,
+      description: item.description,
+      roles,
+    };
+  });
   return {
     ok: true,
-    data: db
-      .prepare(`SELECT * FROM feature_permissions WHERE company_id = ? ORDER BY role, feature`)
-      .all(user.company_id),
+    data: {
+      catalog: FEATURE_CATALOG,
+      roles: MATRIX_ROLES,
+      matrix,
+      rows,
+    },
   };
 }
 
 export function setPermission(db: Db, user: SessionUser, payload: any): ApiResult {
   if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
-  const roles: Role[] = ["admin", "store_manager", "agent", "finance"];
-  if (!roles.includes(payload.role) || !String(payload.feature || "").trim()) {
+  const feature = String(payload.feature || "").trim();
+  if (!MATRIX_ROLES.includes(payload.role) || !feature) {
     return { ok: false, message: "角色或功能无效" };
+  }
+  if (!FEATURE_KEYS.has(feature)) {
+    return { ok: false, message: "功能不在权限目录中" };
   }
   const existing = db
     .prepare(
       `SELECT id FROM feature_permissions WHERE company_id = ? AND role = ? AND feature = ?`
     )
-    .get(user.company_id, payload.role, payload.feature) as any;
+    .get(user.company_id, payload.role, feature) as any;
   const now = nowIso();
   if (existing) {
     db.prepare(
       `UPDATE feature_permissions SET allowed = ?, updated_by = ?, updated_at = ? WHERE id = ?`
     ).run(payload.allowed ? 1 : 0, user.id, now, existing.id);
+    writeAudit(db, user, "permission.set", "feature_permission", existing.id, {
+      role: payload.role,
+      feature,
+      allowed: Boolean(payload.allowed),
+    });
     return { ok: true, data: { id: existing.id } };
   }
   const id = nextId("PERM");
@@ -289,8 +362,12 @@ export function setPermission(db: Db, user: SessionUser, payload: any): ApiResul
     `INSERT INTO feature_permissions(
       id, company_id, role, feature, allowed, updated_by, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, user.company_id, payload.role, payload.feature, payload.allowed ? 1 : 0, user.id, now);
-  writeAudit(db, user, "permission.set", "feature_permission", id, payload);
+  ).run(id, user.company_id, payload.role, feature, payload.allowed ? 1 : 0, user.id, now);
+  writeAudit(db, user, "permission.set", "feature_permission", id, {
+    role: payload.role,
+    feature,
+    allowed: Boolean(payload.allowed),
+  });
   return { ok: true, data: { id } };
 }
 
