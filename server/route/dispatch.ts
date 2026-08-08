@@ -36,6 +36,7 @@ import * as dealExt from "../domain/dealExt";
 import * as propertyExt from "../domain/propertyExt";
 import * as financeAssets from "../domain/financeAssets";
 import * as officeCollab from "../domain/officeCollab";
+import * as mortgageCalc from "../domain/mortgageCalc";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -780,6 +781,8 @@ function route(
       return message.getSubscriptions(db, user!);
     case "message.subscriptions.save":
       return message.saveSubscriptions(db, user!, payload);
+    case "mortgageCalc.compute":
+      return mortgageCalc.computeMortgage(db, user!, payload);
     case "audit.list":
       return { ok: true, data: listAudit(db, user!, payload) };
 

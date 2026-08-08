@@ -205,6 +205,7 @@ function renderSide(side: HTMLElement) {
     ["expenses", "费用报销"],
     ["office-content", "公告知识"],
     ["office-collab", "办公协同"],
+    ["mortgage-calc", "房贷计算"],
     ["payroll", "薪酬工资条"],
     ["workforce", "岗位调动"],
     ["recruitment", "招聘管理"],
@@ -288,6 +289,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "property-ext") return renderPropertyExt(main);
   if (state.tab === "finance-assets") return renderFinanceAssets(main);
   if (state.tab === "office-collab") return renderOfficeCollab(main);
+  if (state.tab === "mortgage-calc") return renderMortgageCalc(main);
   if (state.tab === "system-center") return renderSystemCenter(main);
   if (state.tab === "messages") return renderMessages(main);
   if (state.tab === "org") return renderOrg(main);
@@ -6803,6 +6805,64 @@ async function renderSystemCenter(main: HTMLElement) {
       );
     });
   }
+}
+
+async function renderMortgageCalc(main: HTMLElement) {
+  main.innerHTML = `
+    <div class="header"><h2>房贷计算器</h2></div>
+    <form class="form-grid" data-calc-form>
+      <label>贷款本金（元）<input name="principal" type="number" min="1" step="0.01" value="1000000" required /></label>
+      <label>期限（月）<input name="months" type="number" min="1" max="600" value="360" required /></label>
+      <label>LPR（%）<input name="lpr" type="number" min="0.01" max="30" step="0.01" value="3.45" required /></label>
+      <label>基点 BP<input name="basis_points" type="number" min="-500" max="500" step="1" value="0" /></label>
+      <label>还款方式<select name="method"><option value="equal_installment">等额本息</option><option value="equal_principal">等额本金</option></select></label>
+      <div class="ops"><button class="btn" type="submit">计算</button></div>
+    </form>
+    <div class="meta" style="margin:8px 0 16px">本地测算工具：年利率 = LPR + BP/100；不连接银行接口，结果仅供参考。</div>
+    <div class="stats" data-summary></div>
+    <div class="list" data-schedule></div>
+  `;
+  const form = main.querySelector("[data-calc-form]") as HTMLFormElement;
+  const summary = main.querySelector("[data-summary]")!;
+  const schedule = main.querySelector("[data-schedule]")!;
+  const drawResult = (result: any) => {
+    const methodLabel = result.method === "equal_principal" ? "等额本金" : "等额本息";
+    summary.innerHTML = `
+      <div class="stat"><div class="n">${money(result.first_payment)}</div><div class="l">首月月供</div></div>
+      <div class="stat"><div class="n">${money(result.last_payment)}</div><div class="l">末月月供</div></div>
+      <div class="stat"><div class="n">${money(result.total_interest)}</div><div class="l">利息合计</div></div>
+      <div class="stat"><div class="n">${money(result.total_payment)}</div><div class="l">还款总额</div></div>
+      <div class="stat"><div class="n">${result.annual_rate}%</div><div class="l">执行年利率</div></div>
+      <div class="stat"><div class="n">${methodLabel}</div><div class="l">方式 · ${result.months} 期</div></div>
+    `;
+    const rows = result.schedule as any[];
+    const preview = rows.slice(0, 12);
+    schedule.innerHTML = `
+      <div class="row"><div><strong>还款计划预览（前 ${preview.length} 期 / 共 ${rows.length} 期）</strong></div></div>
+      ${preview
+        .map(
+          (row) => `<div class="row"><div>
+          <div><strong>第 ${row.period} 期</strong> · 月供 ¥${money(row.payment)}</div>
+          <div class="meta">本金 ¥${money(row.principal)} · 利息 ¥${money(row.interest)} · 剩余 ¥${money(row.remaining)}</div>
+        </div></div>`
+        )
+        .join("")}
+    `;
+  };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const result = await api("mortgageCalc.compute", {
+      principal: Number(fd.get("principal")),
+      months: Number(fd.get("months")),
+      lpr: Number(fd.get("lpr")),
+      basis_points: Number(fd.get("basis_points") || 0),
+      method: fd.get("method"),
+    });
+    if (!result.ok) return toast(result.message, "error");
+    drawResult(result.data);
+  });
+  form.requestSubmit();
 }
 
 async function renderMessages(main: HTMLElement) {
