@@ -6659,7 +6659,7 @@ async function renderSystemCenter(main: HTMLElement) {
       <button class="btn ghost" data-password>修改密码</button>
       <button class="btn ghost" data-preferences>界面偏好</button>
       ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button><button class="btn ghost" data-dictionary>数据字典</button><button class="btn ghost" data-template>合同模板</button><button class="btn ghost" data-doc-template>资料清单</button><button class="btn ghost" data-transfer-template>过户模板</button>` : ""}
-      ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button>` : ""}
+      ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button><button class="btn ghost" data-new-tab>新标签</button><button class="btn ghost" data-downloads>下载管理</button><button class="btn ghost" data-check-update>检查更新</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
     </div></div>
@@ -6667,6 +6667,7 @@ async function renderSystemCenter(main: HTMLElement) {
     ${state.user.role === "admin" ? `<h3>数据库备份</h3><div class="list" data-backups></div>` : ""}
     ${state.user.role === "admin" ? `<h3>数据字典</h3><div class="list" data-dictionaries></div><h3>合同模板</h3><div class="list" data-templates></div><h3>交易资料模板</h3><div class="list" data-document-templates></div><h3>过户节点模板</h3><div class="list" data-transfer-templates></div>` : ""}
     ${state.user.role === "admin" ? `<h3>第三方适配器（默认关闭）</h3><div class="list" data-integrations></div>` : ""}
+    ${desktopShell ? `<h3>桌面壳</h3><div class="list" data-shell-panel></div>` : ""}
   `;
   const blacklistList = main.querySelector("[data-blacklist-list]");
   if (blacklistList) {
@@ -6843,11 +6844,67 @@ async function renderSystemCenter(main: HTMLElement) {
       );
     });
   }
+  const shellPanel = main.querySelector("[data-shell-panel]") as HTMLElement | null;
+  const refreshShellPanel = async () => {
+    if (!shellPanel || !desktopShell?.getDownloads) return;
+    const [downloads, tabs, info] = await Promise.all([
+      desktopShell.getDownloads(),
+      desktopShell.listTabs?.() || { tabs: [], activeTabId: null },
+      desktopShell.info?.() || {},
+    ]);
+    const items = (downloads.items || [])
+      .slice(0, 8)
+      .map(
+        (item: any) =>
+          `<div class="row"><div><strong>${item.filename}</strong><div class="meta">${item.source} · ${item.created_at}</div></div></div>`
+      )
+      .join("");
+    const tabItems = (tabs.tabs || [])
+      .map(
+        (tab: any) =>
+          `<button class="btn ghost" data-focus-tab="${tab.id}" ${tab.id === tabs.activeTabId ? "disabled" : ""}>${tab.title}</button>`
+      )
+      .join(" ");
+    shellPanel.innerHTML = `
+      <div class="row"><div>
+        <strong>下载目录</strong>
+        <div class="meta">${downloads.directory || "-"}</div>
+        <div class="meta">更新源：${info.updateFeedConfigured ? "已配置 HTTPS" : "未配置（本地跳过）"}</div>
+      </div><div class="ops">
+        <button class="btn ghost" data-choose-download-dir>选择目录</button>
+        <button class="btn ghost" data-open-download-dir>打开目录</button>
+        <button class="btn danger" data-clear-downloads>清空历史</button>
+      </div></div>
+      <div class="row"><div><strong>标签页</strong><div class="meta">多窗口标签，至少保留一个</div></div><div class="ops">${tabItems || "<span class='meta'>暂无</span>"}</div></div>
+      ${items || `<div class="empty">暂无下载历史</div>`}
+    `;
+    shellPanel.querySelector("[data-choose-download-dir]")?.addEventListener("click", async () => {
+      const result = await desktopShell.chooseDownloadDir();
+      toast(result.canceled ? "已取消" : `下载目录：${result.directory}`, result.canceled ? "warn" : "ok");
+      if (!result.canceled) refreshShellPanel();
+    });
+    shellPanel.querySelector("[data-open-download-dir]")?.addEventListener("click", async () => {
+      await desktopShell.openDownloadDir();
+    });
+    shellPanel.querySelector("[data-clear-downloads]")?.addEventListener("click", async () => {
+      await desktopShell.clearDownloads();
+      toast("下载历史已清空");
+      refreshShellPanel();
+    });
+    shellPanel.querySelectorAll("[data-focus-tab]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        await desktopShell.focusTab((button as HTMLElement).dataset.focusTab);
+        refreshShellPanel();
+      })
+    );
+  };
+  if (shellPanel) refreshShellPanel();
   const screenshotButton = main.querySelector("[data-screenshot]");
   if (screenshotButton) {
     screenshotButton.addEventListener("click", async () => {
       const result = await desktopShell.screenshot();
       toast(`截图已保存：${result.filename}`);
+      refreshShellPanel();
     });
   }
   const fullscreenButton = main.querySelector("[data-fullscreen]");
@@ -6860,6 +6917,28 @@ async function renderSystemCenter(main: HTMLElement) {
   if (clearCacheButton) {
     clearCacheButton.addEventListener("click", async () => {
       await desktopShell.clearCache();
+    });
+  }
+  const newTabButton = main.querySelector("[data-new-tab]");
+  if (newTabButton) {
+    newTabButton.addEventListener("click", async () => {
+      const tabs = await desktopShell.openTab(`标签 ${(await desktopShell.listTabs()).tabs.length + 1}`);
+      toast(`已打开标签（共 ${tabs.tabs.length} 个）`);
+      refreshShellPanel();
+    });
+  }
+  const downloadsButton = main.querySelector("[data-downloads]");
+  if (downloadsButton) {
+    downloadsButton.addEventListener("click", async () => {
+      await refreshShellPanel();
+      toast("已刷新下载管理", "warn");
+    });
+  }
+  const checkUpdateButton = main.querySelector("[data-check-update]");
+  if (checkUpdateButton) {
+    checkUpdateButton.addEventListener("click", async () => {
+      const result = await desktopShell.checkUpdate();
+      toast(result.message || (result.available ? "有更新" : "无更新"), result.available ? "ok" : "warn");
     });
   }
   main.querySelector("[data-preferences]")!.addEventListener("click", async () => {
