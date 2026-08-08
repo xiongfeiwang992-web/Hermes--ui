@@ -68,6 +68,15 @@ function money(n: number) {
   return Number(n || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function el(html: string) {
   const box = document.createElement("div");
   box.innerHTML = html.trim();
@@ -83,6 +92,11 @@ function canSee(tab: string) {
   if (tab === "cashbook") return ["admin", "finance", "store_manager"].includes(role);
   if (tab === "workforce") return ["admin", "store_manager"].includes(role);
   if (tab === "recruitment") return ["admin", "store_manager"].includes(role);
+  if (tab === "customer-care") return role !== "finance";
+  if (tab === "marketing") return role !== "finance";
+  if (tab === "performance") return true;
+  if (tab === "deal-ext") return true;
+  if (tab === "property-ext") return role !== "finance";
   if (
     [
       "houses",
@@ -97,10 +111,9 @@ function canSee(tab: string) {
   )
     return role !== "finance";
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
-  if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
-  if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
-  if (["suite-performance", "suite-marketing", "suite-care"].includes(tab))
-    return ["admin", "store_manager"].includes(role);
+  if (tab === "finance-assets")
+    return ["admin", "finance", "store_manager"].includes(role);
+  if (role === "finance" && tab.startsWith("suite-")) return false;
   return true;
 }
 
@@ -183,12 +196,13 @@ function renderSide(side: HTMLElement) {
     ["payments", "收款"],
     ["commissions", "提成"],
     ["reports", "经营报表"],
-    ["suite-property", "房源扩展"],
-    ["suite-deal", "交易扩展"],
+    ["property-ext", "房源扩展"],
+    ["deal-ext", "交易扩展"],
     ["suite-newhome", "新房分销"],
-    ["suite-finance", "财务管理"],
+    ["finance-assets", "资产凭证"],
     ["cashbook", "收支流水"],
     ["expenses", "费用报销"],
+    ["office-content", "公告知识"],
     ["suite-office", "办公协同"],
     ["payroll", "薪酬工资条"],
     ["workforce", "岗位调动"],
@@ -196,10 +210,10 @@ function renderSide(side: HTMLElement) {
     ["employee-contracts", "员工合同"],
     ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
-    ["suite-rental", "租赁托管"],
-    ["suite-care", "客户关怀"],
-    ["suite-marketing", "营销线索"],
-    ["suite-performance", "积分分红"],
+    ["rental", "租赁托管"],
+    ["customer-care", "客户关怀"],
+    ["marketing", "营销线索"],
+    ["performance", "积分分红"],
     ["system-center", "系统中心"],
     ["messages", "消息"],
     ["org", "组织"],
@@ -264,16 +278,17 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "recruitment") return renderRecruitment(main);
   if (state.tab === "employee-contracts") return renderEmployeeContracts(main);
   if (state.tab === "payroll") return renderPayroll(main);
+  if (state.tab === "office-content") return renderOfficeContent(main);
+  if (state.tab === "rental") return renderRental(main);
+  if (state.tab === "customer-care") return renderCustomerCare(main);
+  if (state.tab === "marketing") return renderMarketing(main);
+  if (state.tab === "performance") return renderPerformance(main);
+  if (state.tab === "deal-ext") return renderDealExt(main);
+  if (state.tab === "property-ext") return renderPropertyExt(main);
+  if (state.tab === "finance-assets") return renderFinanceAssets(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
-      "suite-property": "property_ext",
-      "suite-deal": "deal_ext",
-      "suite-finance": "finance",
       "suite-office": "office",
-      "suite-rental": "rental",
-      "suite-care": "customer_care",
-      "suite-marketing": "marketing",
-      "suite-performance": "performance",
     };
     return renderSuite(main, moduleMap[state.tab]);
   }
@@ -450,9 +465,13 @@ async function renderHouses(main: HTMLElement) {
     });
     list.querySelectorAll("[data-lock]").forEach((btn) => {
       btn.addEventListener("click", async () => {
+        const locking = (btn as HTMLElement).dataset.locked === "1";
+        const reason = prompt(locking ? "锁定原因" : "解锁原因");
+        if (!reason) return;
         const result = await api("house.lock", {
           id: (btn as HTMLElement).dataset.lock,
-          locked: (btn as HTMLElement).dataset.locked === "1",
+          locked: locking,
+          reason,
         });
         toast(result.ok ? "房源锁定状态已更新" : result.message, result.ok ? "ok" : "error");
         if (result.ok) draw();
@@ -1903,20 +1922,27 @@ async function renderReports(main: HTMLElement) {
 
 async function renderNewhome(main: HTMLElement) {
   const canManage = ["admin", "store_manager"].includes(state.user.role);
-  const [projects, customers, users] = await Promise.all([
+  const canSettle = ["admin", "finance"].includes(state.user.role);
+  const canWriteSales = state.user.role !== "finance";
+  const [projects, customers, users, options] = await Promise.all([
     api("newhome.projects.list", {}),
     api("customer.list", {}),
     api("org.users.store", {}),
+    api("newhome.options", {}),
   ]);
   main.innerHTML = `
-    <div class="header"><h2>新房项目与报备</h2><div class="ops">
-      ${canManage ? `<button class="btn ghost" data-expire>刷新过期报备</button><button class="btn ghost" data-project>新建项目</button>` : ""}
-      <button class="btn" data-register>客户报备</button>
+    <div class="header"><h2>新房项目、报备与销售</h2><div class="ops">
+      ${canManage ? `<button class="btn ghost" data-expire>刷新过期报备</button><button class="btn ghost" data-project>新建项目</button><button class="btn ghost" data-partner>分销公司</button><button class="btn ghost" data-export-partners>导出分销</button>` : ""}
+      ${canWriteSales ? `<button class="btn ghost" data-register>客户报备</button><button class="btn" data-sale>销售报告</button>` : ""}
     </div></div>
     <h3>项目</h3><div class="list" data-projects></div>
+    <h3>分销公司</h3><div class="list" data-partners></div>
     <h3>客户报备</h3>
-    <div class="filters"><select data-registration-status><option value="">全部状态</option><option value="registered">保护中</option><option value="arrived">已到场</option><option value="expired">已过期</option><option value="invalid">已作废</option></select></div>
+    <div class="filters"><select data-registration-status><option value="">全部状态</option><option value="registered">保护中</option><option value="arrived">已到场</option><option value="sold">已成交</option><option value="expired">已过期</option><option value="invalid">已作废</option></select></div>
     <div class="list" data-registrations></div>
+    <h3>销售报告</h3>
+    <div class="filters"><select data-sale-status><option value="">全部状态</option><option value="draft">草稿</option><option value="submitted">待审批</option><option value="approved">已审批</option><option value="rejected">已驳回</option><option value="settled">已结算</option><option value="cancelled">已取消</option></select></div>
+    <div class="list" data-sales></div>
   `;
   const projectList = main.querySelector("[data-projects]")!;
   projectList.innerHTML =
@@ -1930,6 +1956,32 @@ async function renderNewhome(main: HTMLElement) {
           )
           .join("")
       : `<div class="empty">暂无新房项目</div>`;
+  const drawPartners = async () => {
+    const result = await api("newhome.distribution.list", {});
+    const list = main.querySelector("[data-partners]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (partner) => `<div class="row"><div>
+            <div><span class="tag ${partner.status === "active" ? "ok" : "warn"}">${partner.status === "active" ? "启用" : "停用"}</span><strong>${partner.name}</strong></div>
+            <div class="meta">${partner.contact_name || "未填联系人"}${partner.contact_phone ? ` · ${partner.contact_phone}` : ""}${partner.address ? ` · ${partner.address}` : ""}</div>
+          </div><div class="ops">
+            ${canManage ? `<button class="btn ghost" data-partner-toggle="${partner.id}" data-status="${partner.status === "active" ? "inactive" : "active"}">${partner.status === "active" ? "停用" : "恢复"}</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无分销公司</div>`;
+    list.querySelectorAll("[data-partner-toggle]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("newhome.distribution.status", {
+          id: (button as HTMLElement).dataset.partnerToggle,
+          status: (button as HTMLElement).dataset.status,
+        });
+        toast(updated.ok ? "分销公司状态已更新" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawPartners();
+      })
+    );
+  };
   const drawRegistrations = async () => {
     const status = (main.querySelector("[data-registration-status]") as HTMLSelectElement).value;
     const result = await api(
@@ -1942,7 +1994,7 @@ async function renderNewhome(main: HTMLElement) {
       (result.data as any[])
         .map(
           (record) => `<div class="row"><div>
-            <div><span class="tag ${record.status === "arrived" ? "ok" : record.status === "invalid" || record.status === "expired" ? "danger" : "warn"}">${record.status}</span><strong>${record.customer_name}</strong> · ${record.project_name}</div>
+            <div><span class="tag ${record.status === "arrived" || record.status === "sold" ? "ok" : record.status === "invalid" || record.status === "expired" ? "danger" : "warn"}">${record.status}</span><strong>${record.customer_name}</strong> · ${record.project_name}</div>
             <div class="meta">${record.customer_phone} · 经纪人 ${record.agent_name} · 保护至 ${record.protect_until.slice(0, 10)}${record.arrival_note ? ` · 到场：${record.arrival_note}` : ""}${record.invalid_reason ? ` · 作废：${record.invalid_reason}` : ""}</div>
           </div><div class="ops">
             ${record.status === "registered" ? `<button class="btn" data-arrival="${record.id}">确认到场</button><button class="btn danger" data-invalidate="${record.id}">作废</button>` : ""}
@@ -1959,7 +2011,10 @@ async function renderNewhome(main: HTMLElement) {
           arrival_note: note,
         });
         toast(updated.ok ? "到场已确认" : updated.message, updated.ok ? "ok" : "error");
-        if (updated.ok) drawRegistrations();
+        if (updated.ok) {
+          drawRegistrations();
+          drawSales();
+        }
       })
     );
     list.querySelectorAll("[data-invalidate]").forEach((button) =>
@@ -1972,6 +2027,103 @@ async function renderNewhome(main: HTMLElement) {
         });
         toast(updated.ok ? "报备已作废" : updated.message, updated.ok ? "ok" : "error");
         if (updated.ok) drawRegistrations();
+      })
+    );
+  };
+  const drawSales = async () => {
+    const status = (main.querySelector("[data-sale-status]") as HTMLSelectElement).value;
+    const result = await api("newhome.sales.list", status ? { status } : {});
+    const list = main.querySelector("[data-sales]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (sale) => `<div class="row"><div>
+            <div><span class="tag ${sale.status === "settled" || sale.status === "approved" ? "ok" : sale.status === "rejected" || sale.status === "cancelled" ? "danger" : "warn"}">${sale.status}</span><strong>${sale.customer_name}</strong> · ${sale.project_name} · ${sale.unit_no}</div>
+            <div class="meta">网签 ${sale.contract_price}${sale.settlement_amount != null ? ` · 结算 ${sale.settlement_amount}` : ""} · 附件 ${sale.attachment_count}${sale.distribution_company_name ? ` · 分销 ${sale.distribution_company_name}` : ""}${sale.reject_reason ? ` · ${sale.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${["draft", "rejected"].includes(sale.status) && canWriteSales ? `<button class="btn ghost" data-sale-attach="${sale.id}">上传合同</button><button class="btn" data-sale-submit="${sale.id}">提交</button><button class="btn danger" data-sale-cancel="${sale.id}">取消</button>` : ""}
+            ${sale.status === "submitted" && canManage ? `<button class="btn" data-sale-approve="${sale.id}">审批</button><button class="btn danger" data-sale-reject="${sale.id}">驳回</button>` : ""}
+            ${sale.status === "approved" && canSettle ? `<button class="btn" data-sale-settle="${sale.id}">登记结算</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无销售报告</div>`;
+    list.querySelectorAll("[data-sale-attach]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const localPath = prompt("本地合同扫描件路径");
+        if (!localPath) return;
+        const uploaded = await api("attachment.add", {
+          parent_type: "newhome_sales_report",
+          parent_id: (button as HTMLElement).dataset.saleAttach,
+          category: "contract_scan",
+          name: "网签合同.pdf",
+          local_path: localPath,
+        });
+        toast(uploaded.ok ? "合同已上传" : uploaded.message, uploaded.ok ? "ok" : "error");
+        if (uploaded.ok) drawSales();
+      })
+    );
+    list.querySelectorAll("[data-sale-submit]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("newhome.sales.submit", {
+          id: (button as HTMLElement).dataset.saleSubmit,
+        });
+        toast(updated.ok ? "销售报告已提交" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawSales();
+      })
+    );
+    list.querySelectorAll("[data-sale-approve]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("newhome.sales.approve", {
+          id: (button as HTMLElement).dataset.saleApprove,
+        });
+        toast(updated.ok ? "销售报告已审批" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) {
+          drawSales();
+          drawRegistrations();
+        }
+      })
+    );
+    list.querySelectorAll("[data-sale-reject]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const updated = await api("newhome.sales.reject", {
+          id: (button as HTMLElement).dataset.saleReject,
+          reason,
+        });
+        toast(updated.ok ? "销售报告已驳回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawSales();
+      })
+    );
+    list.querySelectorAll("[data-sale-settle]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记结算",
+          `<label>结算金额<input name="settlement_amount" type="number" min="0" step="0.01" required /></label>
+           <label class="full">结算说明<input name="settlement_note" required /></label>`,
+          async (fd) => {
+            const updated = await api("newhome.sales.settle", {
+              id: (button as HTMLElement).dataset.saleSettle,
+              settlement_amount: Number(fd.get("settlement_amount")),
+              settlement_note: fd.get("settlement_note"),
+            });
+            toast(updated.ok ? "结算已登记" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawSales();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-sale-cancel]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("取消原因");
+        if (!reason) return;
+        const updated = await api("newhome.sales.cancel", {
+          id: (button as HTMLElement).dataset.saleCancel,
+          reason,
+        });
+        toast(updated.ok ? "销售报告已取消" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawSales();
       })
     );
   };
@@ -2005,47 +2157,130 @@ async function renderNewhome(main: HTMLElement) {
       )
     );
   }
-  main.querySelector("[data-register]")!.addEventListener("click", () => {
-    const projectOptions = projects.ok
-      ? (projects.data as any[])
-          .filter((project) => project.status === "active")
-          .map((project) => `<option value="${project.id}">${project.name}</option>`)
-          .join("")
-      : "";
-    const customerOptions = customers.ok
-      ? (customers.data as any[])
-          .map((customer) => `<option value="${customer.id}">${customer.name}</option>`)
-          .join("")
-      : "";
-    const agentOptions =
-      canManage && users.ok
-        ? (users.data as any[])
-            .filter((employee) => employee.role === "agent")
-            .map((employee) => `<option value="${employee.id}">${employee.display_name}</option>`)
+  const partnerButton = main.querySelector("[data-partner]");
+  if (partnerButton) {
+    partnerButton.addEventListener("click", () =>
+      openDialog(
+        "新建分销公司",
+        `
+        <label>公司名称<input name="name" required /></label>
+        <label>联系人<input name="contact_name" /></label>
+        <label>联系电话<input name="contact_phone" placeholder="11位手机号" /></label>
+        <label class="full">地址<input name="address" /></label>
+        <label class="full">备注<input name="remark" /></label>
+        `,
+        async (fd) => {
+          const result = await api("newhome.distribution.save", {
+            name: fd.get("name"),
+            contact_name: fd.get("contact_name"),
+            contact_phone: fd.get("contact_phone"),
+            address: fd.get("address"),
+            remark: fd.get("remark"),
+          });
+          toast(result.ok ? "分销公司已创建" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) drawPartners();
+        }
+      )
+    );
+  }
+  const exportPartners = main.querySelector("[data-export-partners]");
+  if (exportPartners) {
+    exportPartners.addEventListener("click", async () => {
+      const result = await api("newhome.distribution.export", {});
+      if (!result.ok) return toast(result.message, "error");
+      toast(`已导出 ${(result.data as any).count} 家分销公司`, "ok");
+      console.log((result.data as any).csv);
+    });
+  }
+  const registerButton = main.querySelector("[data-register]");
+  if (registerButton) {
+    registerButton.addEventListener("click", () => {
+      const projectOptions = projects.ok
+        ? (projects.data as any[])
+            .filter((project) => project.status === "active")
+            .map((project) => `<option value="${project.id}">${project.name}</option>`)
             .join("")
         : "";
-    openDialog(
-      "新房客户报备",
-      `
-      <label>项目<select name="project_id">${projectOptions}</select></label>
-      <label>客户<select name="customer_id">${customerOptions}</select></label>
-      ${canManage ? `<label>经纪人<select name="agent_id">${agentOptions}</select></label>` : ""}
-      <label>来源<input name="source" /></label>
-      <label>项目对接人<input name="contact_name" /></label>
-      `,
-      async (fd) => {
-        const result = await api("newhome.registrations.create", {
-          project_id: fd.get("project_id"),
-          customer_id: fd.get("customer_id"),
-          agent_id: fd.get("agent_id") || null,
-          source: fd.get("source"),
-          contact_name: fd.get("contact_name"),
-        });
-        toast(result.ok ? `报备成功，保护至 ${(result.data as any).protect_until.slice(0, 10)}` : result.message, result.ok ? "ok" : "error");
-        if (result.ok) drawRegistrations();
-      }
-    );
-  });
+      const customerOptions = customers.ok
+        ? (customers.data as any[])
+            .map((customer) => `<option value="${customer.id}">${customer.name}</option>`)
+            .join("")
+        : "";
+      const agentOptions =
+        canManage && users.ok
+          ? (users.data as any[])
+              .filter((employee) => employee.role === "agent")
+              .map((employee) => `<option value="${employee.id}">${employee.display_name}</option>`)
+              .join("")
+          : "";
+      openDialog(
+        "新房客户报备",
+        `
+        <label>项目<select name="project_id">${projectOptions}</select></label>
+        <label>客户<select name="customer_id">${customerOptions}</select></label>
+        ${canManage ? `<label>经纪人<select name="agent_id">${agentOptions}</select></label>` : ""}
+        <label>来源<input name="source" /></label>
+        <label>项目对接人<input name="contact_name" /></label>
+        `,
+        async (fd) => {
+          const result = await api("newhome.registrations.create", {
+            project_id: fd.get("project_id"),
+            customer_id: fd.get("customer_id"),
+            agent_id: fd.get("agent_id") || null,
+            source: fd.get("source"),
+            contact_name: fd.get("contact_name"),
+          });
+          toast(result.ok ? `报备成功，保护至 ${(result.data as any).protect_until.slice(0, 10)}` : result.message, result.ok ? "ok" : "error");
+          if (result.ok) drawRegistrations();
+        }
+      );
+    });
+  }
+  const saleButton = main.querySelector("[data-sale]");
+  if (saleButton) {
+    saleButton.addEventListener("click", () => {
+      const registrationOptions = options.ok
+        ? ((options.data as any).registrations || [])
+            .map(
+              (item: any) =>
+                `<option value="${item.id}">${item.customer_name} · ${item.project_name}</option>`
+            )
+            .join("")
+        : "";
+      const partnerOptions = options.ok
+        ? `<option value="">无</option>${((options.data as any).distribution_companies || [])
+            .map((item: any) => `<option value="${item.id}">${item.name}</option>`)
+            .join("")}`
+        : `<option value="">无</option>`;
+      openDialog(
+        "新建销售报告",
+        `
+        <label class="full">已到场报备<select name="registration_id">${registrationOptions}</select></label>
+        <label>楼栋<input name="building" /></label>
+        <label>房号<input name="unit_no" required /></label>
+        <label>面积<input name="area_size" type="number" min="0" step="0.01" /></label>
+        <label>网签总价<input name="contract_price" type="number" min="0" step="0.01" required /></label>
+        <label>签约日期<input name="signed_at" type="date" required /></label>
+        <label>分销公司<select name="distribution_company_id">${partnerOptions}</select></label>
+        <label class="full">备注<input name="remark" /></label>
+        `,
+        async (fd) => {
+          const result = await api("newhome.sales.create", {
+            registration_id: fd.get("registration_id"),
+            building: fd.get("building"),
+            unit_no: fd.get("unit_no"),
+            area_size: fd.get("area_size"),
+            contract_price: Number(fd.get("contract_price")),
+            signed_at: fd.get("signed_at"),
+            distribution_company_id: fd.get("distribution_company_id") || null,
+            remark: fd.get("remark"),
+          });
+          toast(result.ok ? "销售报告草稿已创建" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) drawSales();
+        }
+      );
+    });
+  }
   const expireButton = main.querySelector("[data-expire]");
   if (expireButton) {
     expireButton.addEventListener("click", async () => {
@@ -2055,7 +2290,8 @@ async function renderNewhome(main: HTMLElement) {
     });
   }
   main.querySelector("[data-registration-status]")!.addEventListener("change", drawRegistrations);
-  await drawRegistrations();
+  main.querySelector("[data-sale-status]")!.addEventListener("change", drawSales);
+  await Promise.all([drawPartners(), drawRegistrations(), drawSales()]);
 }
 
 async function renderOffboarding(main: HTMLElement) {
@@ -3412,49 +3648,2170 @@ async function renderPayroll(main: HTMLElement) {
   await Promise.all([drawProfiles(), drawBatches()]);
 }
 
+async function renderOfficeContent(main: HTMLElement) {
+  const canCreate = ["admin", "store_manager"].includes(state.user.role);
+  const optionsResult = await api("officeContent.options");
+  const stores = optionsResult.ok ? (optionsResult.data as any).stores : [];
+  const kindLabels: Record<string, string> = {
+    announcement: "公告",
+    knowledge: "知识文章",
+  };
+  const categoryLabels: Record<string, string> = {
+    news: "资讯",
+    policy: "制度",
+    training: "培训",
+    process: "流程",
+    other: "其他",
+  };
+  const statusLabels: Record<string, string> = {
+    draft: "草稿",
+    published: "已发布",
+    archived: "已归档",
+  };
+  main.innerHTML = `
+    <div class="header"><div><h2>公告与知识库</h2><div class="meta" data-office-unread></div></div>
+      ${canCreate ? `<button class="btn" data-new-office-document>新建文档</button>` : ""}
+    </div>
+    <div class="filters">
+      <select data-office-kind><option value="">全部类型</option><option value="announcement">公告</option><option value="knowledge">知识文章</option></select>
+      <select data-office-status><option value="">全部状态</option><option value="draft">草稿</option><option value="published">已发布</option><option value="archived">已归档</option></select>
+    </div>
+    <div class="list" data-office-document-list></div>
+  `;
+  const showAttachments = async (document: any) => {
+    const result = await api("attachment.list", {
+      parent_type: "office_document",
+      parent_id: document.id,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${kindLabels[document.document_kind]}附件`,
+      (result.data as any[])
+        .map(
+          (file) =>
+            `<div class="row"><div><strong>${escapeHtml(file.name)}</strong><div class="meta">${money(file.size_bytes)} 字节 · ${new Date(file.created_at).toLocaleString("zh-CN")}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无附件</div>`
+    );
+  };
+  const showVersions = async (document: any) => {
+    const result = await api("officeContent.versions", { id: document.id });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${escapeHtml(document.title)} · 版本记录`,
+      (result.data as any[])
+        .map(
+          (version) =>
+            `<div class="row"><div><strong>V${version.version_no} · ${escapeHtml(version.title)}</strong><div class="meta">${escapeHtml(version.changed_by_name)} · ${new Date(version.changed_at).toLocaleString("zh-CN")}</div><div>${escapeHtml(version.content).replaceAll("\n", "<br />")}</div></div></div>`
+        )
+        .join("")
+    );
+  };
+  const openEditor = (document?: any) => {
+    const isAdmin = state.user.role === "admin";
+    openDialog(
+      document ? "修改文档（保存后需重新发布）" : "新建公告或知识文章",
+      `
+      <label>类型<select name="document_kind" ${document ? "disabled" : ""}>${Object.entries(kindLabels).map(([value, label]) => `<option value="${value}" ${document?.document_kind === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      <label>分类<select name="category">${Object.entries(categoryLabels).map(([value, label]) => `<option value="${value}" ${document?.category === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      ${
+        document
+          ? `<label>发布范围<input value="${document.scope_type === "company" ? "全公司" : escapeHtml(document.store_name)}" disabled /></label>`
+          : isAdmin
+            ? `<label>发布范围<select name="scope_type"><option value="company">全公司</option><option value="store">指定门店</option></select></label><label>指定门店<select name="store_id"><option value="">请选择</option>${stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label>`
+            : `<label>发布范围<input value="本门店" disabled /></label>`
+      }
+      <label class="full">标题<input name="title" value="${escapeHtml(document?.title)}" required /></label>
+      <label class="full">正文<textarea name="content" rows="9" required>${escapeHtml(document?.content)}</textarea></label>
+      <label><input name="is_pinned" type="checkbox" ${document?.is_pinned ? "checked" : ""} /> 置顶显示</label>
+      `,
+      async (fd) => {
+        const result = await api(
+          document ? "officeContent.update" : "officeContent.create",
+          document
+            ? {
+                id: document.id,
+                title: fd.get("title"),
+                content: fd.get("content"),
+                category: fd.get("category"),
+                is_pinned: fd.get("is_pinned") === "on",
+              }
+            : {
+                document_kind: fd.get("document_kind"),
+                scope_type: isAdmin ? fd.get("scope_type") : "store",
+                store_id: fd.get("store_id"),
+                title: fd.get("title"),
+                content: fd.get("content"),
+                category: fd.get("category"),
+                is_pinned: fd.get("is_pinned") === "on",
+              }
+        );
+        toast(result.ok ? (document ? "文档已保存为新草稿" : "文档草稿已创建") : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+  };
+  const drawUnread = async () => {
+    const result = await api("officeContent.unread");
+    if (result.ok) {
+      const unread = result.data as any;
+      main.querySelector("[data-office-unread]")!.textContent =
+        `未读 ${unread.count} · 公告 ${unread.announcements} · 知识 ${unread.knowledge}`;
+    }
+  };
+  const draw = async () => {
+    const documentKind = (main.querySelector("[data-office-kind]") as HTMLSelectElement).value;
+    const status = (main.querySelector("[data-office-status]") as HTMLSelectElement).value;
+    const result = await api("officeContent.list", {
+      document_kind: documentKind || undefined,
+      status: status || undefined,
+    });
+    const list = main.querySelector("[data-office-document-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const documents = result.data as any[];
+    list.innerHTML =
+      documents
+        .map((document) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" &&
+              document.scope_type === "store" &&
+              document.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div>${document.is_pinned ? `<span class="tag warn">置顶</span>` : ""}<span class="tag">${kindLabels[document.document_kind]}</span><span class="tag ${document.status === "published" ? "ok" : document.status === "draft" ? "warn" : ""}">${statusLabels[document.status]}</span><strong>${escapeHtml(document.title)}</strong></div>
+            <div class="meta">${categoryLabels[document.category]} · ${document.scope_type === "company" ? "全公司" : escapeHtml(document.store_name)} · V${document.version_no} · ${escapeHtml(document.creator_name)}${document.published_at ? ` · 发布 ${new Date(document.published_at).toLocaleString("zh-CN")}` : ""} · 阅读 ${document.read_count} · 附件 ${document.attachment_count}</div>
+            <div>${escapeHtml(document.content).replaceAll("\n", "<br />")}</div>
+          </div><div class="ops">
+            ${document.status === "published" && !document.is_read ? `<button class="btn" data-read-document="${document.id}">标记已读</button>` : ""}
+            <button class="btn ghost" data-document-versions="${document.id}">版本</button>
+            <button class="btn ghost" data-document-attachments="${document.id}">附件</button>
+            ${canManage && document.status !== "archived" ? `<button class="btn ghost" data-upload-office-document="${document.id}">上传附件</button><button class="btn ghost" data-edit-office-document="${document.id}">修改</button>` : ""}
+            ${canManage && document.status === "draft" ? `<button class="btn" data-publish-document="${document.id}">发布</button>` : ""}
+            ${canManage && document.status === "published" ? `<button class="btn danger" data-archive-document="${document.id}">归档</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无公告或知识文章</div>`;
+    list.querySelectorAll("[data-read-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const marked = await api("officeContent.read", {
+          id: (button as HTMLElement).dataset.readDocument,
+        });
+        toast(marked.ok ? "已记录阅读回执" : marked.message, marked.ok ? "ok" : "error");
+        if (marked.ok) await Promise.all([draw(), drawUnread()]);
+      })
+    );
+    list.querySelectorAll("[data-document-versions]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const document = documents.find(
+          (item) => item.id === (button as HTMLElement).dataset.documentVersions
+        );
+        if (document) showVersions(document);
+      })
+    );
+    list.querySelectorAll("[data-document-attachments]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const document = documents.find(
+          (item) => item.id === (button as HTMLElement).dataset.documentAttachments
+        );
+        if (document) showAttachments(document);
+      })
+    );
+    list.querySelectorAll("[data-edit-office-document]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const document = documents.find(
+          (item) => item.id === (button as HTMLElement).dataset.editOfficeDocument
+        );
+        if (document) openEditor(document);
+      })
+    );
+    list.querySelectorAll("[data-upload-office-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传附件", "error");
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const added = await api("attachment.add", {
+            parent_type: "office_document",
+            parent_id: (button as HTMLElement).dataset.uploadOfficeDocument,
+            category: "office_document",
+            name: localPath.split(/[\\/]/).pop() || "办公文档附件",
+            local_path: localPath,
+          });
+          if (!added.ok) return toast(added.message, "error");
+        }
+        toast(paths.length ? `已上传 ${paths.length} 个附件` : "未选择文件");
+        if (paths.length) draw();
+      })
+    );
+    list.querySelectorAll("[data-publish-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const published = await api("officeContent.publish", {
+          id: (button as HTMLElement).dataset.publishDocument,
+        });
+        toast(published.ok ? "文档已发布" : published.message, published.ok ? "ok" : "error");
+        if (published.ok) await Promise.all([draw(), drawUnread()]);
+      })
+    );
+    list.querySelectorAll("[data-archive-document]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("归档后普通员工将无法继续查看，是否继续？")) return;
+        const archived = await api("officeContent.archive", {
+          id: (button as HTMLElement).dataset.archiveDocument,
+        });
+        toast(archived.ok ? "文档已归档" : archived.message, archived.ok ? "ok" : "error");
+        if (archived.ok) await Promise.all([draw(), drawUnread()]);
+      })
+    );
+  };
+  main.querySelector("[data-new-office-document]")?.addEventListener("click", () => openEditor());
+  main.querySelector("[data-office-kind]")!.addEventListener("change", draw);
+  main.querySelector("[data-office-status]")!.addEventListener("change", draw);
+  await Promise.all([draw(), drawUnread()]);
+}
+
+async function renderRental(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const isFinance = state.user.role === "finance";
+  const isManagerial = isAdmin || state.user.role === "store_manager";
+  const optionsResult = await api("rental.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { houses: [], users: [], stores: [] };
+  const managementLabels: Record<string, string> = {
+    rent_out: "委托出租",
+    centralized: "集中式托管",
+    self_owned: "自有物业",
+  };
+  const statusLabels: Record<string, string> = {
+    draft: "草稿",
+    active: "生效",
+    expired: "已到期",
+    terminated: "已终止",
+    pending: "待处理",
+    overdue: "已逾期",
+    paid: "已收款",
+    voided: "已作废",
+    in_progress: "处理中",
+    completed: "已完成",
+    cancelled: "已取消",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>租赁托管</h2><div class="ops">
+      ${isManagerial ? `<button class="btn ghost" data-new-rental-property>登记托管物业</button><button class="btn ghost" data-new-rental-lease>登记租约</button>` : ""}
+      ${!isFinance ? `<button class="btn" data-new-rental-work>新建维修/保洁工单</button>` : ""}
+    </div></div>
+    <section><h3>托管物业</h3><div class="list" data-rental-properties></div></section>
+    <section><h3>租约</h3><div class="list" data-rental-leases></div></section>
+    <section><h3>租金账单</h3><div class="list" data-rental-bills></div></section>
+    <section><h3>维修与保洁</h3><div class="list" data-rental-work-orders></div></section>
+  `;
+  let properties: any[] = [];
+  let leases: any[] = [];
+  const upload = async (
+    parentType: string,
+    parentId: string,
+    category: string,
+    fallbackName: string
+  ) => {
+    if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传附件", "error");
+    const paths = (await desktopShell.chooseFiles()) as string[];
+    for (const localPath of paths) {
+      const result = await api("attachment.add", {
+        parent_type: parentType,
+        parent_id: parentId,
+        category,
+        name: localPath.split(/[\\/]/).pop() || fallbackName,
+        local_path: localPath,
+      });
+      if (!result.ok) return toast(result.message, "error");
+    }
+    toast(paths.length ? `已上传 ${paths.length} 个附件` : "未选择文件");
+    if (paths.length) drawAll();
+  };
+  const showEvents = async (entityType: string, entityId: string, title: string) => {
+    const result = await api("rental.events", {
+      entity_type: entityType,
+      entity_id: entityId,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${title}履历`,
+      (result.data as any[])
+        .map(
+          (event) =>
+            `<div class="row"><div><strong>${escapeHtml(event.event_type)}</strong><div class="meta">${escapeHtml(event.created_by_name)} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${escapeHtml(event.details)}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无履历</div>`
+    );
+  };
+  const drawProperties = async () => {
+    const result = await api("rental.properties.list");
+    const list = main.querySelector("[data-rental-properties]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    properties = result.data as any[];
+    list.innerHTML =
+      properties
+        .map((property) => {
+          const canManage =
+            isAdmin ||
+            (state.user.role === "store_manager" &&
+              property.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${property.status === "active" ? "ok" : property.status === "draft" ? "warn" : "danger"}">${statusLabels[property.status]}</span><span class="tag">${managementLabels[property.management_type]}</span><strong>${escapeHtml(property.house_title)}</strong></div>
+            <div class="meta">${escapeHtml(property.store_name)} · ${escapeHtml(property.community)} ${escapeHtml(property.address)} · 负责人 ${escapeHtml(property.manager_name)} · ${property.start_date} 至 ${property.end_date} · 业主月付款 ¥${money(property.owner_payment)} · 生效租约 ${property.active_lease_count} · 合同 ${property.contract_attachment_count}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="property:${property.id}:托管物业">履历</button>
+            ${canManage && ["draft", "active"].includes(property.status) ? `<button class="btn ghost" data-rental-upload="rental_property:${property.id}:management_contract:托管合同">上传合同</button>` : ""}
+            ${canManage && property.status === "draft" ? `<button class="btn" data-activate-rental-property="${property.id}">启用</button>` : ""}
+            ${canManage && ["active", "expired"].includes(property.status) ? `<button class="btn danger" data-terminate-rental-property="${property.id}">终止</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无托管物业</div>`;
+    list.querySelectorAll("[data-activate-rental-property]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("rental.properties.activate", {
+          id: (button as HTMLElement).dataset.activateRentalProperty,
+        });
+        toast(result.ok ? "托管物业已启用" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+    list.querySelectorAll("[data-terminate-rental-property]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("终止托管原因");
+        if (!reason) return;
+        const result = await api("rental.properties.terminate", {
+          id: (button as HTMLElement).dataset.terminateRentalProperty,
+          reason,
+        });
+        toast(result.ok ? "托管已终止" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const drawLeases = async () => {
+    const result = await api("rental.leases.list");
+    const list = main.querySelector("[data-rental-leases]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    leases = result.data as any[];
+    list.innerHTML =
+      leases
+        .map((lease) => {
+          const canManage =
+            isAdmin ||
+            (state.user.role === "store_manager" && lease.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${lease.status === "active" ? "ok" : lease.status === "draft" ? "warn" : "danger"}">${statusLabels[lease.status]}</span><strong>${escapeHtml(lease.tenant_name)}</strong> · ${escapeHtml(lease.house_title)}</div>
+            <div class="meta">${lease.start_date} 至 ${lease.end_date} · 月租 ¥${money(lease.monthly_rent)} · 押金 ¥${money(lease.deposit_amount)} · ${lease.payment_cycle_months} 月一付 · 首期 ${lease.first_due_date} · 账单 ${lease.bill_count} · 租约附件 ${lease.lease_attachment_count}${lease.termination_reason ? ` · 终止：${escapeHtml(lease.termination_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="lease:${lease.id}:租约">履历</button>
+            ${canManage && lease.status === "draft" ? `<button class="btn ghost" data-rental-upload="rental_lease:${lease.id}:signed_lease:已签租约">上传租约</button><button class="btn" data-activate-rental-lease="${lease.id}">启用</button>` : ""}
+            ${canManage && ["active", "expired"].includes(lease.status) ? `<button class="btn danger" data-terminate-rental-lease="${lease.id}">终止</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无租约</div>`;
+    list.querySelectorAll("[data-activate-rental-lease]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("rental.leases.activate", {
+          id: (button as HTMLElement).dataset.activateRentalLease,
+        });
+        toast(result.ok ? "租约已启用并生成账单" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+    list.querySelectorAll("[data-terminate-rental-lease]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("租约终止原因");
+        if (!reason) return;
+        const result = await api("rental.leases.terminate", {
+          id: (button as HTMLElement).dataset.terminateRentalLease,
+          reason,
+        });
+        toast(result.ok ? "租约已终止，未收账单已作废" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const drawBills = async () => {
+    const result = await api("rental.bills.list");
+    const list = main.querySelector("[data-rental-bills]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (bill) => `<div class="row"><div>
+            <div><span class="tag ${bill.status === "paid" ? "ok" : bill.status === "overdue" ? "danger" : "warn"}">${statusLabels[bill.status]}</span><strong>${escapeHtml(bill.tenant_name)}</strong> · ${escapeHtml(bill.house_title)} · ¥${money(bill.amount)}</div>
+            <div class="meta">账期 ${bill.period_start} 至 ${bill.period_end} · 应收 ${bill.due_date}${bill.paid_at ? ` · 收款 ${new Date(bill.paid_at).toLocaleString("zh-CN")} · ${escapeHtml(bill.payment_method)} ${escapeHtml(bill.payment_reference)}` : ""}${bill.void_reason ? ` · 作废：${escapeHtml(bill.void_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="bill:${bill.id}:租金账单">履历</button>
+            ${(isAdmin || isFinance) && ["pending", "overdue"].includes(bill.status) ? `<button class="btn" data-pay-rental-bill="${bill.id}" data-bill-amount="${bill.amount}">确认收租</button>` : ""}
+            ${isAdmin && ["pending", "overdue"].includes(bill.status) ? `<button class="btn danger" data-void-rental-bill="${bill.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无租金账单</div>`;
+    list.querySelectorAll("[data-pay-rental-bill]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const element = button as HTMLElement;
+        openDialog(
+          "确认租金收款",
+          `<label>收款金额<input name="paid_amount" type="number" value="${element.dataset.billAmount}" readonly /></label><label>收款方式<select name="payment_method"><option value="bank">银行</option><option value="cash">现金</option><option value="other">其他</option></select></label><label class="full">流水号<input name="payment_reference" /></label>`,
+          async (fd) => {
+            const result = await api("rental.bills.pay", {
+              id: element.dataset.payRentalBill,
+              paid_amount: Number(fd.get("paid_amount")),
+              payment_method: fd.get("payment_method"),
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "租金收款已确认" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawAll();
+          }
+        );
+      })
+    );
+    list.querySelectorAll("[data-void-rental-bill]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("账单作废原因");
+        if (!reason) return;
+        const result = await api("rental.bills.void", {
+          id: (button as HTMLElement).dataset.voidRentalBill,
+          reason,
+        });
+        toast(result.ok ? "账单已作废" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const drawWorkOrders = async () => {
+    const result = await api("rental.workOrders.list");
+    const list = main.querySelector("[data-rental-work-orders]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((work) => {
+          const canManage =
+            isAdmin ||
+            (state.user.role === "store_manager" && work.store_id === state.user.store_id);
+          const canOperate = canManage || work.assignee_user_id === state.user.id;
+          return `<div class="row"><div>
+            <div><span class="tag ${work.status === "completed" ? "ok" : work.status === "cancelled" ? "danger" : "warn"}">${statusLabels[work.status]}</span><span class="tag">${work.work_type === "maintenance" ? "维修" : "保洁"}</span><strong>${escapeHtml(work.house_title)}</strong></div>
+            <div>${escapeHtml(work.description)}</div><div class="meta">负责人 ${escapeHtml(work.assignee_name)} · 预计 ¥${money(work.expected_cost)}${work.actual_cost != null ? ` · 实际 ¥${money(work.actual_cost)}` : ""} · 完工凭证 ${work.evidence_count}${work.completion_note ? ` · ${escapeHtml(work.completion_note)}` : ""}${work.cancel_reason ? ` · 取消：${escapeHtml(work.cancel_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="work_order:${work.id}:工单">履历</button>
+            ${canOperate && ["pending", "in_progress"].includes(work.status) ? `<button class="btn ghost" data-rental-upload="rental_work_order:${work.id}:work_order_evidence:完工凭证">上传凭证</button>` : ""}
+            ${canOperate && work.status === "pending" ? `<button class="btn" data-start-rental-work="${work.id}">开始</button>` : ""}
+            ${canOperate && ["pending", "in_progress"].includes(work.status) ? `<button class="btn" data-complete-rental-work="${work.id}">完成</button>` : ""}
+            ${canManage && ["pending", "in_progress"].includes(work.status) ? `<button class="btn danger" data-cancel-rental-work="${work.id}">取消</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无维修或保洁工单</div>`;
+    list.querySelectorAll("[data-start-rental-work]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("rental.workOrders.status", {
+          id: (button as HTMLElement).dataset.startRentalWork,
+          status: "in_progress",
+        });
+        toast(result.ok ? "工单已开始" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+    list.querySelectorAll("[data-complete-rental-work]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "完成租赁工单",
+          `<label>实际费用<input name="actual_cost" type="number" min="0" step="0.01" value="0" /></label><label class="full">完成说明<input name="completion_note" required /></label>`,
+          async (fd) => {
+            const result = await api("rental.workOrders.status", {
+              id: (button as HTMLElement).dataset.completeRentalWork,
+              status: "completed",
+              actual_cost: Number(fd.get("actual_cost")),
+              completion_note: fd.get("completion_note"),
+            });
+            toast(result.ok ? "工单已完成" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawAll();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-cancel-rental-work]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("工单取消原因");
+        if (!reason) return;
+        const result = await api("rental.workOrders.cancel", {
+          id: (button as HTMLElement).dataset.cancelRentalWork,
+          reason,
+        });
+        toast(result.ok ? "工单已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const bindCommonActions = () => {
+    main.querySelectorAll("[data-rental-upload]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [parentType, parentId, category, name] = String(
+          (button as HTMLElement).dataset.rentalUpload
+        ).split(":");
+        upload(parentType, parentId, category, name);
+      })
+    );
+    main.querySelectorAll("[data-rental-events]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [entityType, entityId, title] = String(
+          (button as HTMLElement).dataset.rentalEvents
+        ).split(":");
+        showEvents(entityType, entityId, title);
+      })
+    );
+  };
+  const drawAll = async () => {
+    await Promise.all([drawProperties(), drawLeases(), drawBills(), drawWorkOrders()]);
+    bindCommonActions();
+  };
+  main.querySelector("[data-new-rental-property]")?.addEventListener("click", () =>
+    openDialog(
+      "登记托管物业",
+      `<label>租赁房源<select name="house_id">${options.houses.map((house: any) => `<option value="${house.id}">${escapeHtml(house.title)} · ${escapeHtml(house.community)}</option>`).join("")}</select></label><label>托管类型<select name="management_type">${Object.entries(managementLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>托管负责人<select name="manager_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label><label>业主月付款<input name="owner_payment" type="number" min="0" step="0.01" value="0" /></label><label>开始日期<input name="start_date" type="date" required /></label><label>结束日期<input name="end_date" type="date" required /></label>`,
+      async (fd) => {
+        const result = await api("rental.properties.create", {
+          house_id: fd.get("house_id"),
+          management_type: fd.get("management_type"),
+          manager_user_id: fd.get("manager_user_id"),
+          owner_payment: Number(fd.get("owner_payment")),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+        });
+        toast(result.ok ? "托管物业草稿已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      }
+    )
+  );
+  main.querySelector("[data-new-rental-lease]")?.addEventListener("click", () => {
+    const activeProperties = properties.filter((property) => property.status === "active");
+    openDialog(
+      "登记租约",
+      `<label>托管物业<select name="property_id">${activeProperties.map((property) => `<option value="${property.id}">${escapeHtml(property.house_title)}</option>`).join("")}</select></label><label>租客姓名<input name="tenant_name" required /></label><label>租客手机<input name="tenant_phone" required /></label><label>月租<input name="monthly_rent" type="number" min="0.01" step="0.01" required /></label><label>押金<input name="deposit_amount" type="number" min="0" step="0.01" value="0" /></label><label>付款周期<select name="payment_cycle_months"><option value="1">月付</option><option value="2">两月付</option><option value="3">季付</option><option value="6">半年付</option><option value="12">年付</option></select></label><label>开始日期<input name="start_date" type="date" required /></label><label>结束日期<input name="end_date" type="date" required /></label><label>首期应收日期<input name="first_due_date" type="date" required /></label>`,
+      async (fd) => {
+        const result = await api("rental.leases.create", {
+          property_id: fd.get("property_id"),
+          tenant_name: fd.get("tenant_name"),
+          tenant_phone: fd.get("tenant_phone"),
+          monthly_rent: Number(fd.get("monthly_rent")),
+          deposit_amount: Number(fd.get("deposit_amount")),
+          payment_cycle_months: Number(fd.get("payment_cycle_months")),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          first_due_date: fd.get("first_due_date"),
+        });
+        toast(result.ok ? "租约草稿已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      }
+    );
+  });
+  main.querySelector("[data-new-rental-work]")?.addEventListener("click", () => {
+    const activeProperties = properties.filter((property) => property.status === "active");
+    openDialog(
+      "新建维修/保洁工单",
+      `<label>托管物业<select name="property_id">${activeProperties.map((property) => `<option value="${property.id}">${escapeHtml(property.house_title)}</option>`).join("")}</select></label><label>关联租约<select name="lease_id"><option value="">不关联</option>${leases.filter((lease) => ["draft", "active"].includes(lease.status)).map((lease) => `<option value="${lease.id}">${escapeHtml(lease.tenant_name)} · ${escapeHtml(lease.house_title)}</option>`).join("")}</select></label><label>类型<select name="work_type"><option value="maintenance">维修</option><option value="cleaning">保洁</option></select></label>${isManagerial ? `<label>负责人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>` : `<label>负责人<input value="${escapeHtml(state.user.display_name)}（本人）" disabled /></label>`}<label>预计费用<input name="expected_cost" type="number" min="0" step="0.01" value="0" /></label><label class="full">问题描述<textarea name="description" rows="4" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("rental.workOrders.create", {
+          property_id: fd.get("property_id"),
+          lease_id: fd.get("lease_id") || null,
+          work_type: fd.get("work_type"),
+          assignee_user_id: fd.get("assignee_user_id"),
+          expected_cost: Number(fd.get("expected_cost")),
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "租赁工单已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      }
+    );
+  });
+  await drawAll();
+}
+
+async function renderCustomerCare(main: HTMLElement) {
+  const isManagerial = ["admin", "store_manager"].includes(state.user.role);
+  const optionsResult = await api("customerCare.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { customers: [], deals: [], users: [] };
+  const caseTypeLabels: Record<string, string> = {
+    complaint: "客户投诉",
+    lawsuit: "诉讼案件",
+  };
+  const taskTypeLabels: Record<string, string> = {
+    survey: "满意度调查",
+    callback: "客户回访",
+  };
+  const severityLabels: Record<string, string> = {
+    low: "低",
+    medium: "中",
+    high: "高",
+    critical: "重大",
+  };
+  const statusLabels: Record<string, string> = {
+    open: "待分派",
+    assigned: "已分派",
+    investigating: "处理中",
+    resolved: "已解决",
+    closed: "已结案",
+    withdrawn: "已撤回",
+    pending: "待执行",
+    overdue: "已超期",
+    completed: "已完成",
+    cancelled: "已取消",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>客户关怀</h2><div class="ops">
+      <button class="btn ghost" data-new-care-case>登记投诉/诉讼</button>
+      <button class="btn" data-new-care-task>发起调查/回访</button>
+    </div></div>
+    <div class="filters">
+      <select data-care-kind><option value="">全部业务</option><option value="complaint">投诉</option><option value="lawsuit">诉讼</option><option value="survey">满意度调查</option><option value="callback">客户回访</option></select>
+      <select data-care-status><option value="">全部状态</option><option value="open">待分派</option><option value="assigned">已分派</option><option value="investigating">处理中</option><option value="resolved">已解决</option><option value="closed">已结案</option><option value="pending">待执行</option><option value="overdue">已超期</option><option value="completed">已完成</option><option value="cancelled">已取消</option></select>
+    </div>
+    <section><h3>投诉与诉讼</h3><div class="list" data-care-cases></div></section>
+    <section><h3>满意度调查与客户回访</h3><div class="list" data-care-tasks></div></section>
+  `;
+  let cases: any[] = [];
+  const showEvents = async (entityType: string, entityId: string, title: string) => {
+    const result = await api("customerCare.events", {
+      entity_type: entityType,
+      entity_id: entityId,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${title}履历`,
+      (result.data as any[])
+        .map(
+          (event) =>
+            `<div class="row"><div><strong>${escapeHtml(event.event_type)}</strong><div class="meta">${escapeHtml(event.created_by_name)} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${escapeHtml(event.details)}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无履历</div>`
+    );
+  };
+  const uploadCaseFile = async (careCase: any) => {
+    if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传处理凭证", "error");
+    const paths = (await desktopShell.chooseFiles()) as string[];
+    const category =
+      careCase.case_type === "lawsuit" ? "legal_document" : "complaint_evidence";
+    for (const localPath of paths) {
+      const result = await api("attachment.add", {
+        parent_type: "customer_care_case",
+        parent_id: careCase.id,
+        category,
+        name: localPath.split(/[\\/]/).pop() || "客户关怀凭证",
+        local_path: localPath,
+      });
+      if (!result.ok) return toast(result.message, "error");
+    }
+    toast(paths.length ? `已上传 ${paths.length} 个处理凭证` : "未选择文件");
+    if (paths.length) draw();
+  };
+  const drawCases = async (kind: string, status: string) => {
+    if (["survey", "callback"].includes(kind)) {
+      cases = [];
+      main.querySelector("[data-care-cases]")!.innerHTML =
+        `<div class="empty">当前筛选不包含投诉或诉讼</div>`;
+      return;
+    }
+    const result = await api("customerCare.cases.list", {
+      case_type: ["complaint", "lawsuit"].includes(kind) ? kind : undefined,
+      status: ["open", "assigned", "investigating", "resolved", "closed", "withdrawn"].includes(
+        status
+      )
+        ? status
+        : undefined,
+    });
+    const list = main.querySelector("[data-care-cases]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    cases = result.data as any[];
+    list.innerHTML =
+      cases
+        .map((careCase) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" &&
+              careCase.store_id === state.user.store_id);
+          const canOperate = canManage || careCase.assignee_user_id === state.user.id;
+          const canUpload =
+            !["closed", "withdrawn"].includes(careCase.status) &&
+            (canOperate || careCase.created_by === state.user.id);
+          return `<div class="row"><div>
+            <div><span class="tag ${careCase.status === "closed" ? "ok" : careCase.severity === "critical" ? "danger" : "warn"}">${statusLabels[careCase.status]}</span><span class="tag">${caseTypeLabels[careCase.case_type]}</span><span class="tag">${severityLabels[careCase.severity]}</span><strong>${escapeHtml(careCase.title)}</strong></div>
+            <div>${escapeHtml(careCase.description)}</div>
+            <div class="meta">${escapeHtml(careCase.store_name)} · 客户 ${escapeHtml(careCase.customer_name)} ${escapeHtml(careCase.customer_phone)} · 发起 ${escapeHtml(careCase.creator_name)}${careCase.assignee_name ? ` · 处理 ${escapeHtml(careCase.assignee_name)}` : ""}${careCase.due_date ? ` · 期限 ${careCase.due_date}` : ""} · 附件 ${careCase.attachment_count}${careCase.legal_case_no ? ` · ${escapeHtml(careCase.legal_case_no)} · ${escapeHtml(careCase.court_name)}` : ""}${careCase.resolution ? ` · 结果：${escapeHtml(careCase.resolution)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-care-events="case:${careCase.id}:${caseTypeLabels[careCase.case_type]}">履历</button>
+            ${canUpload ? `<button class="btn ghost" data-care-case-file="${careCase.id}">上传凭证</button>` : ""}
+            ${canManage && ["open", "assigned", "investigating"].includes(careCase.status) ? `<button class="btn ghost" data-assign-care-case="${careCase.id}">分派</button>` : ""}
+            ${canOperate && careCase.status === "assigned" ? `<button class="btn" data-investigate-care-case="${careCase.id}">开始处理</button>` : ""}
+            ${canOperate && ["assigned", "investigating"].includes(careCase.status) ? `<button class="btn" data-resolve-care-case="${careCase.id}">解决</button>` : ""}
+            ${canManage && careCase.status === "resolved" ? `<button class="btn" data-close-care-case="${careCase.id}">结案</button>` : ""}
+            ${careCase.created_by === state.user.id && careCase.status === "open" ? `<button class="btn danger" data-withdraw-care-case="${careCase.id}">撤回</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无投诉或诉讼案件</div>`;
+    list.querySelectorAll("[data-care-case-file]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const careCase = cases.find(
+          (item) => item.id === (button as HTMLElement).dataset.careCaseFile
+        );
+        if (careCase) uploadCaseFile(careCase);
+      })
+    );
+    list.querySelectorAll("[data-assign-care-case]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "分派客户关怀案件",
+          `<label>处理人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label><label>处理期限<input name="due_date" type="date" required /></label>`,
+          async (fd) => {
+            const result = await api("customerCare.cases.assign", {
+              id: (button as HTMLElement).dataset.assignCareCase,
+              assignee_user_id: fd.get("assignee_user_id"),
+              due_date: fd.get("due_date"),
+            });
+            toast(result.ok ? "案件已分派" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-investigate-care-case]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("customerCare.cases.investigate", {
+          id: (button as HTMLElement).dataset.investigateCareCase,
+        });
+        toast(result.ok ? "案件已进入处理" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-resolve-care-case]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记解决方案",
+          `<label class="full">解决方案<textarea name="resolution" rows="5" required></textarea></label>`,
+          async (fd) => {
+            const result = await api("customerCare.cases.resolve", {
+              id: (button as HTMLElement).dataset.resolveCareCase,
+              resolution: fd.get("resolution"),
+            });
+            toast(result.ok ? "案件已解决" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-close-care-case]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("customerCare.cases.close", {
+          id: (button as HTMLElement).dataset.closeCareCase,
+        });
+        toast(result.ok ? "案件已结案" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-withdraw-care-case]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("案件撤回原因");
+        if (!reason) return;
+        const result = await api("customerCare.cases.withdraw", {
+          id: (button as HTMLElement).dataset.withdrawCareCase,
+          reason,
+        });
+        toast(result.ok ? "案件已撤回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const drawTasks = async (kind: string, status: string) => {
+    if (["complaint", "lawsuit"].includes(kind)) {
+      main.querySelector("[data-care-tasks]")!.innerHTML =
+        `<div class="empty">当前筛选不包含调查或回访</div>`;
+      return;
+    }
+    const result = await api("customerCare.tasks.list", {
+      task_type: ["survey", "callback"].includes(kind) ? kind : undefined,
+      status: ["pending", "overdue", "completed", "cancelled"].includes(status)
+        ? status
+        : undefined,
+    });
+    const list = main.querySelector("[data-care-tasks]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((task) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" && task.store_id === state.user.store_id);
+          const canComplete = canManage || task.assignee_user_id === state.user.id;
+          const canCancel = canManage || task.created_by === state.user.id;
+          return `<div class="row"><div>
+            <div><span class="tag ${task.status === "completed" ? "ok" : task.status === "overdue" ? "danger" : "warn"}">${statusLabels[task.status]}</span><span class="tag">${taskTypeLabels[task.task_type]}</span><strong>${escapeHtml(task.customer_name)}</strong> · ${escapeHtml(task.customer_phone)}</div>
+            <div>${escapeHtml(task.purpose)}</div><div class="meta">执行 ${escapeHtml(task.assignee_name)} · 计划 ${new Date(task.due_at).toLocaleString("zh-CN")}${task.result ? ` · 结果：${escapeHtml(task.result)}` : ""}${task.satisfaction_score ? ` · 满意度 ${task.satisfaction_score}/5` : ""}${task.cancel_reason ? ` · 取消：${escapeHtml(task.cancel_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-care-events="task:${task.id}:${taskTypeLabels[task.task_type]}">履历</button>
+            ${canComplete && ["pending", "overdue"].includes(task.status) ? `<button class="btn" data-complete-care-task="${task.id}" data-task-type="${task.task_type}">完成</button>` : ""}
+            ${canCancel && ["pending", "overdue"].includes(task.status) ? `<button class="btn danger" data-cancel-care-task="${task.id}">取消</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无满意度调查或客户回访</div>`;
+    list.querySelectorAll("[data-complete-care-task]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const element = button as HTMLElement;
+        openDialog(
+          `完成${taskTypeLabels[element.dataset.taskType!]}`,
+          `<label class="full">结果<textarea name="result" rows="4" required></textarea></label><label>满意度评分（1-5）<input name="satisfaction_score" type="number" min="1" max="5" ${element.dataset.taskType === "survey" ? "required" : ""} /></label>`,
+          async (fd) => {
+            const result = await api("customerCare.tasks.complete", {
+              id: element.dataset.completeCareTask,
+              result: fd.get("result"),
+              satisfaction_score: fd.get("satisfaction_score")
+                ? Number(fd.get("satisfaction_score"))
+                : null,
+            });
+            toast(result.ok ? "关怀任务已完成" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
+      })
+    );
+    list.querySelectorAll("[data-cancel-care-task]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("任务取消原因");
+        if (!reason) return;
+        const result = await api("customerCare.tasks.cancel", {
+          id: (button as HTMLElement).dataset.cancelCareTask,
+          reason,
+        });
+        toast(result.ok ? "关怀任务已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const bindEvents = () => {
+    main.querySelectorAll("[data-care-events]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [entityType, entityId, title] = String(
+          (button as HTMLElement).dataset.careEvents
+        ).split(":");
+        showEvents(entityType, entityId, title);
+      })
+    );
+  };
+  const draw = async () => {
+    const kind = (main.querySelector("[data-care-kind]") as HTMLSelectElement).value;
+    const status = (main.querySelector("[data-care-status]") as HTMLSelectElement).value;
+    await Promise.all([drawCases(kind, status), drawTasks(kind, status)]);
+    bindEvents();
+  };
+  main.querySelector("[data-new-care-case]")!.addEventListener("click", () => {
+    openDialog(
+      "登记客户投诉或诉讼",
+      `<label>类型<select name="case_type"><option value="complaint">客户投诉</option>${isManagerial ? `<option value="lawsuit">诉讼案件</option>` : ""}</select></label><label>客户<select name="customer_id">${options.customers.map((customer: any) => `<option value="${customer.id}">${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}</select></label><label>关联成交<select name="deal_id"><option value="">不关联</option>${options.deals.map((deal: any) => `<option value="${deal.id}">${escapeHtml(deal.id)} · ¥${money(deal.contract_price)}</option>`).join("")}</select></label><label>严重程度<select name="severity"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="critical">重大</option></select></label><label class="full">标题<input name="title" required /></label><label class="full">情况描述<textarea name="description" rows="5" required></textarea></label><label>诉讼案号<input name="legal_case_no" /></label><label>法院<input name="court_name" /></label>`,
+      async (fd) => {
+        const result = await api("customerCare.cases.create", {
+          case_type: fd.get("case_type"),
+          customer_id: fd.get("customer_id"),
+          deal_id: fd.get("deal_id") || null,
+          severity: fd.get("severity"),
+          title: fd.get("title"),
+          description: fd.get("description"),
+          legal_case_no: fd.get("legal_case_no"),
+          court_name: fd.get("court_name"),
+        });
+        toast(result.ok ? "客户关怀案件已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+  });
+  main.querySelector("[data-new-care-task]")!.addEventListener("click", () => {
+    openDialog(
+      "发起满意度调查或客户回访",
+      `<label>类型<select name="task_type">${isManagerial ? `<option value="survey">满意度调查</option>` : ""}<option value="callback">客户回访</option></select></label><label>客户<select name="customer_id">${options.customers.map((customer: any) => `<option value="${customer.id}">${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}</select></label>${isManagerial ? `<label>执行人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label>` : `<label>执行人<input value="${escapeHtml(state.user.display_name)}（本人）" disabled /></label>`}<label>计划完成<input name="due_at" type="datetime-local" required /></label><label class="full">调查/回访目的<textarea name="purpose" rows="4" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("customerCare.tasks.create", {
+          task_type: fd.get("task_type"),
+          customer_id: fd.get("customer_id"),
+          assignee_user_id: fd.get("assignee_user_id"),
+          due_at: fd.get("due_at"),
+          purpose: fd.get("purpose"),
+        });
+        toast(result.ok ? "客户关怀任务已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+  });
+  main.querySelector("[data-care-kind]")!.addEventListener("change", draw);
+  main.querySelector("[data-care-status]")!.addEventListener("change", draw);
+  await draw();
+}
+
+async function renderMarketing(main: HTMLElement) {
+  const isManagerial = ["admin", "store_manager"].includes(state.user.role);
+  const optionsResult = await api("marketing.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { stores: [], users: [], campaigns: [] };
+  const channelLabels: Record<string, string> = {
+    website: "官网/微站",
+    wechat: "微信",
+    douyin: "抖音/视频号",
+    referral: "转介绍",
+    walk_in: "到店",
+    phone: "来电",
+    campaign: "营销活动",
+    other: "其他",
+  };
+  const intentLabels: Record<string, string> = {
+    buy: "求购",
+    rent: "求租",
+    sell: "出售委托",
+    entrust: "其他委托",
+  };
+  const leadStatusLabels: Record<string, string> = {
+    new: "新建",
+    contacting: "跟进中",
+    qualified: "已确认",
+    converted: "已转客",
+    lost: "已流失",
+    invalid: "无效",
+  };
+  const campaignStatusLabels: Record<string, string> = {
+    draft: "草稿",
+    active: "进行中",
+    closed: "已关闭",
+  };
+  const entrustLabels: Record<string, string> = {
+    sell: "出售",
+    rent: "出租",
+    buy: "求购",
+  };
+  const entrustStatusLabels: Record<string, string> = {
+    new: "待受理",
+    converted: "已转线索",
+    rejected: "已驳回",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>营销线索</h2><div class="ops">
+      ${isManagerial ? `<button class="btn ghost" data-new-campaign>新建活动</button>` : ""}
+      <button class="btn ghost" data-new-entrustment>登记在线委托</button>
+      <button class="btn" data-new-lead>录入线索</button>
+    </div></div>
+    <div class="filters">
+      <select data-lead-status><option value="">全部线索状态</option>${Object.entries(leadStatusLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
+      <select data-lead-channel><option value="">全部渠道</option>${Object.entries(channelLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
+    </div>
+    <section><h3>营销活动</h3><div class="list" data-marketing-campaigns></div></section>
+    <section><h3>商机线索</h3><div class="list" data-marketing-leads></div></section>
+    <section><h3>在线委托</h3><div class="list" data-marketing-entrustments></div></section>
+  `;
+  const showEvents = async (entityType: string, entityId: string, title: string) => {
+    const result = await api("marketing.events", {
+      entity_type: entityType,
+      entity_id: entityId,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${title}履历`,
+      (result.data as any[])
+        .map(
+          (event) =>
+            `<div class="row"><div><strong>${escapeHtml(event.event_type)}</strong><div class="meta">${escapeHtml(event.created_by_name)} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${escapeHtml(event.details)}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无履历</div>`
+    );
+  };
+  const drawCampaigns = async () => {
+    const result = await api("marketing.campaigns.list");
+    const list = main.querySelector("[data-marketing-campaigns]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((campaign) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" &&
+              (!campaign.store_id || campaign.store_id === state.user.store_id));
+          return `<div class="row"><div>
+            <div><span class="tag ${campaign.status === "active" ? "ok" : campaign.status === "draft" ? "warn" : ""}">${campaignStatusLabels[campaign.status]}</span><span class="tag">${channelLabels[campaign.channel] || campaign.channel}</span><strong>${escapeHtml(campaign.name)}</strong></div>
+            <div class="meta">${campaign.store_name ? escapeHtml(campaign.store_name) : "全公司"} · ${campaign.start_date} 至 ${campaign.end_date} · 预算 ¥${money(campaign.budget)} · 线索 ${campaign.lead_count}${campaign.remark ? ` · ${escapeHtml(campaign.remark)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-mkt-events="campaign:${campaign.id}:活动">履历</button>
+            ${canManage && campaign.status === "draft" ? `<button class="btn" data-activate-campaign="${campaign.id}">启用</button>` : ""}
+            ${canManage && ["draft", "active"].includes(campaign.status) ? `<button class="btn danger" data-close-campaign="${campaign.id}">关闭</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无营销活动</div>`;
+    list.querySelectorAll("[data-activate-campaign]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("marketing.campaigns.status", {
+          id: (button as HTMLElement).dataset.activateCampaign,
+          status: "active",
+        });
+        toast(result.ok ? "活动已启用" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-close-campaign]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("marketing.campaigns.status", {
+          id: (button as HTMLElement).dataset.closeCampaign,
+          status: "closed",
+        });
+        toast(result.ok ? "活动已关闭" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const drawLeads = async () => {
+    const status = (main.querySelector("[data-lead-status]") as HTMLSelectElement).value;
+    const channel = (main.querySelector("[data-lead-channel]") as HTMLSelectElement).value;
+    const result = await api("marketing.leads.list", {
+      status: status || undefined,
+      channel: channel || undefined,
+    });
+    const list = main.querySelector("[data-marketing-leads]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const leads = result.data as any[];
+    list.innerHTML =
+      leads
+        .map((lead) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" && lead.store_id === state.user.store_id);
+          const canOperate =
+            canManage ||
+            lead.assignee_user_id === state.user.id ||
+            (lead.created_by === state.user.id && !lead.assignee_user_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${lead.status === "converted" ? "ok" : ["lost", "invalid"].includes(lead.status) ? "danger" : "warn"}">${leadStatusLabels[lead.status]}</span><span class="tag">${channelLabels[lead.channel] || lead.channel}</span><span class="tag">${intentLabels[lead.intent] || lead.intent}</span><strong>${escapeHtml(lead.contact_name)}</strong> · ${escapeHtml(lead.contact_phone)}</div>
+            <div class="meta">${escapeHtml(lead.store_name)}${lead.campaign_name ? ` · 活动 ${escapeHtml(lead.campaign_name)}` : ""} · 负责人 ${escapeHtml(lead.assignee_name || "未分派")}${lead.need ? ` · ${escapeHtml(lead.need)}` : ""}${lead.budget_note ? ` · ${escapeHtml(lead.budget_note)}` : ""}${lead.lost_reason ? ` · 原因：${escapeHtml(lead.lost_reason)}` : ""}${lead.converted_customer_id ? ` · 客源 ${escapeHtml(lead.converted_customer_id)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-mkt-events="lead:${lead.id}:线索">履历</button>
+            ${canManage && ["new", "contacting", "qualified"].includes(lead.status) ? `<button class="btn ghost" data-assign-lead="${lead.id}">分派</button>` : ""}
+            ${canOperate && lead.status === "new" ? `<button class="btn" data-lead-status="${lead.id}:contacting">开始跟进</button>` : ""}
+            ${canOperate && lead.status === "contacting" ? `<button class="btn" data-lead-status="${lead.id}:qualified">确认意向</button>` : ""}
+            ${canOperate && ["contacting", "qualified"].includes(lead.status) ? `<button class="btn" data-convert-lead="${lead.id}">转客源</button>` : ""}
+            ${canOperate && ["new", "contacting", "qualified"].includes(lead.status) ? `<button class="btn danger" data-lose-lead="${lead.id}">流失/无效</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无商机线索</div>`;
+    list.querySelectorAll("[data-assign-lead]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "分派营销线索",
+          `<label>负责人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label>`,
+          async (fd) => {
+            const result = await api("marketing.leads.assign", {
+              id: (button as HTMLElement).dataset.assignLead,
+              assignee_user_id: fd.get("assignee_user_id"),
+            });
+            toast(result.ok ? "线索已分派" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-lead-status]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const [id, status] = String((button as HTMLElement).dataset.leadStatus).split(":");
+        const result = await api("marketing.leads.status", { id, status });
+        toast(result.ok ? "线索状态已更新" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-convert-lead]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("确认将该线索转为私客？")) return;
+        const result = await api("marketing.leads.convert", {
+          id: (button as HTMLElement).dataset.convertLead,
+        });
+        toast(result.ok ? "线索已转客源" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-lose-lead]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "标记线索流失或无效",
+          `<label>结果<select name="status"><option value="lost">已流失</option><option value="invalid">无效</option></select></label><label class="full">原因<input name="reason" required /></label>`,
+          async (fd) => {
+            const result = await api("marketing.leads.status", {
+              id: (button as HTMLElement).dataset.loseLead,
+              status: fd.get("status"),
+              reason: fd.get("reason"),
+            });
+            toast(result.ok ? "线索已关闭" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  const drawEntrustments = async () => {
+    const result = await api("marketing.entrustments.list");
+    const list = main.querySelector("[data-marketing-entrustments]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((item) => {
+          const canManage =
+            state.user.role === "admin" ||
+            (state.user.role === "store_manager" && item.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${item.status === "converted" ? "ok" : item.status === "rejected" ? "danger" : "warn"}">${entrustStatusLabels[item.status]}</span><span class="tag">${entrustLabels[item.entrust_type]}</span><strong>${escapeHtml(item.contact_name)}</strong> · ${escapeHtml(item.contact_phone)}</div>
+            <div>${escapeHtml(item.content)}</div>
+            <div class="meta">${escapeHtml(item.store_name)}${item.community ? ` · ${escapeHtml(item.community)}` : ""}${item.expected_price != null ? ` · 期望 ¥${money(item.expected_price)}` : ""}${item.lead_id ? ` · 线索 ${escapeHtml(item.lead_id)}` : ""}${item.reject_reason ? ` · 驳回：${escapeHtml(item.reject_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-mkt-events="entrustment:${item.id}:在线委托">履历</button>
+            ${canManage && item.status === "new" ? `<button class="btn" data-accept-entrustment="${item.id}">转线索</button><button class="btn danger" data-reject-entrustment="${item.id}">驳回</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无在线委托</div>`;
+    list.querySelectorAll("[data-accept-entrustment]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "受理在线委托并转线索",
+          `<label>线索负责人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label>`,
+          async (fd) => {
+            const result = await api("marketing.entrustments.accept", {
+              id: (button as HTMLElement).dataset.acceptEntrustment,
+              assignee_user_id: fd.get("assignee_user_id"),
+            });
+            toast(result.ok ? "在线委托已转线索" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-reject-entrustment]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const result = await api("marketing.entrustments.reject", {
+          id: (button as HTMLElement).dataset.rejectEntrustment,
+          reason,
+        });
+        toast(result.ok ? "在线委托已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const bindEvents = () => {
+    main.querySelectorAll("[data-mkt-events]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [entityType, entityId, title] = String(
+          (button as HTMLElement).dataset.mktEvents
+        ).split(":");
+        showEvents(entityType, entityId, title);
+      })
+    );
+  };
+  const draw = async () => {
+    await Promise.all([drawCampaigns(), drawLeads(), drawEntrustments()]);
+    bindEvents();
+  };
+  main.querySelector("[data-new-campaign]")?.addEventListener("click", () =>
+    openDialog(
+      "新建营销活动",
+      `${state.user.role === "admin" ? `<label>门店范围<select name="store_id"><option value="">全公司</option>${options.stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label>` : ""}<label>活动名称<input name="name" required /></label><label>渠道<select name="channel">${Object.entries(channelLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>开始日期<input name="start_date" type="date" required /></label><label>结束日期<input name="end_date" type="date" required /></label><label>预算<input name="budget" type="number" min="0" step="0.01" value="0" /></label><label class="full">备注<input name="remark" /></label>`,
+      async (fd) => {
+        const result = await api("marketing.campaigns.create", {
+          store_id: fd.get("store_id") || null,
+          name: fd.get("name"),
+          channel: fd.get("channel"),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          budget: Number(fd.get("budget")),
+          remark: fd.get("remark"),
+        });
+        toast(result.ok ? "营销活动草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-lead]")!.addEventListener("click", () =>
+    openDialog(
+      "录入商机线索",
+      `<label>联系人<input name="contact_name" required /></label><label>手机号<input name="contact_phone" required /></label><label>意向<select name="intent">${Object.entries(intentLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>渠道<select name="channel">${Object.entries(channelLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>关联活动<select name="campaign_id"><option value="">不关联</option>${options.campaigns.map((campaign: any) => `<option value="${campaign.id}">${escapeHtml(campaign.name)}</option>`).join("")}</select></label>${isManagerial ? `<label>负责人<select name="assignee_user_id"><option value="">暂不分派</option>${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>` : ""}<label class="full">需求说明<input name="need" /></label><label class="full">预算说明<input name="budget_note" /></label>`,
+      async (fd) => {
+        const result = await api("marketing.leads.create", {
+          contact_name: fd.get("contact_name"),
+          contact_phone: fd.get("contact_phone"),
+          intent: fd.get("intent"),
+          channel: fd.get("channel"),
+          campaign_id: fd.get("campaign_id") || null,
+          assignee_user_id: fd.get("assignee_user_id") || null,
+          need: fd.get("need"),
+          budget_note: fd.get("budget_note"),
+        });
+        if (result.ok && (result.data as any).existing_customer_hint) {
+          toast(
+            `线索已创建，系统已有同号客源：${(result.data as any).existing_customer_hint.name}`,
+            "warn"
+          );
+          draw();
+          return;
+        }
+        toast(result.ok ? "商机线索已录入" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-entrustment]")!.addEventListener("click", () =>
+    openDialog(
+      "登记在线委托",
+      `<label>委托类型<select name="entrust_type">${Object.entries(entrustLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>联系人<input name="contact_name" required /></label><label>手机号<input name="contact_phone" required /></label><label>小区<input name="community" /></label><label>期望价格<input name="expected_price" type="number" min="0" step="0.01" /></label><label>户型<input name="rooms" /></label><label>面积㎡<input name="area_size" type="number" min="0" step="0.01" /></label><label class="full">地址<input name="address" /></label><label class="full">委托内容<textarea name="content" rows="4" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("marketing.entrustments.create", {
+          entrust_type: fd.get("entrust_type"),
+          contact_name: fd.get("contact_name"),
+          contact_phone: fd.get("contact_phone"),
+          community: fd.get("community"),
+          expected_price: fd.get("expected_price") || null,
+          rooms: fd.get("rooms"),
+          area_size: fd.get("area_size") || null,
+          address: fd.get("address"),
+          content: fd.get("content"),
+        });
+        toast(result.ok ? "在线委托已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-lead-status]")!.addEventListener("change", draw);
+  main.querySelector("[data-lead-channel]")!.addEventListener("change", draw);
+  await draw();
+}
+
+async function renderPerformance(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const isFinance = state.user.role === "finance";
+  const isManagerial = isAdmin || state.user.role === "store_manager";
+  const optionsResult = await api("performance.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { stores: [], users: [], rules: [] };
+  const metricLabels: Record<string, string> = {
+    commission: "佣金业绩",
+    deals: "成交单数",
+  };
+  const statusLabels: Record<string, string> = {
+    pending: "待审批",
+    approved: "已通过",
+    rejected: "已驳回",
+    draft: "草稿",
+    calculated: "已计算",
+    paid: "已发放",
+    active: "生效",
+    inactive: "停用",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>积分分红</h2><div class="ops">
+      ${isAdmin ? `<button class="btn ghost" data-new-point-rule>积分规则</button><button class="btn ghost" data-new-dividend>新建分红</button>` : ""}
+      ${isManagerial ? `<button class="btn ghost" data-new-point>录入积分</button><button class="btn ghost" data-new-target>设定目标</button>` : ""}
+      ${isAdmin || isFinance ? `<button class="btn" data-new-bonus>生成管理奖</button>` : ""}
+    </div></div>
+    <section><h3>积分规则</h3><div class="list" data-point-rules></div></section>
+    <section><h3>积分台账 <span class="meta" data-point-balance></span></h3><div class="list" data-point-entries></div></section>
+    <section><h3>业绩目标</h3><div class="list" data-performance-targets></div></section>
+    <section><h3>店长管理奖</h3><div class="list" data-bonus-batches></div></section>
+    <section><h3>利润分红</h3><div class="list" data-dividend-batches></div></section>
+  `;
+  const drawRules = async () => {
+    const result = await api("performance.rules.list");
+    const list = main.querySelector("[data-point-rules]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (rule) => `<div class="row"><div><div><span class="tag ${rule.status === "active" ? "ok" : ""}">${statusLabels[rule.status]}</span><strong>${escapeHtml(rule.name)}</strong> · ${escapeHtml(rule.code)}</div><div class="meta">${rule.points > 0 ? "+" : ""}${rule.points} 分${rule.applicable_role ? ` · 适用 ${roleLabel(rule.applicable_role)}` : " · 全角色"}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无积分规则</div>`;
+  };
+  const drawPoints = async () => {
+    const result = await api("performance.points.list");
+    const list = main.querySelector("[data-point-entries]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const payload = result.data as any;
+    main.querySelector("[data-point-balance]")!.textContent = `当前有效积分 ${payload.balance}`;
+    list.innerHTML =
+      payload.entries
+        .map(
+          (entry: any) => `<div class="row"><div>
+            <div><span class="tag ${entry.status === "approved" ? "ok" : entry.status === "rejected" ? "danger" : "warn"}">${statusLabels[entry.status]}</span><strong>${escapeHtml(entry.display_name)}</strong> · ${entry.points > 0 ? "+" : ""}${entry.points}</div>
+            <div class="meta">${escapeHtml(entry.store_name)}${entry.rule_name ? ` · ${escapeHtml(entry.rule_name)}` : ""} · ${escapeHtml(entry.reason)}${entry.reject_reason ? ` · 驳回：${escapeHtml(entry.reject_reason)}` : ""}</div>
+          </div><div class="ops">
+            ${isAdmin && entry.status === "pending" ? `<button class="btn" data-approve-point="${entry.id}">通过</button><button class="btn danger" data-reject-point="${entry.id}">驳回</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无积分记录</div>`;
+    list.querySelectorAll("[data-approve-point]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("performance.points.review", {
+          id: (button as HTMLElement).dataset.approvePoint,
+          status: "approved",
+        });
+        toast(result.ok ? "积分已通过" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-reject-point]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const result = await api("performance.points.review", {
+          id: (button as HTMLElement).dataset.rejectPoint,
+          status: "rejected",
+          reject_reason: reason,
+        });
+        toast(result.ok ? "积分已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const drawTargets = async () => {
+    const result = await api("performance.targets.list");
+    const list = main.querySelector("[data-performance-targets]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (target) => `<div class="row"><div>
+            <div><span class="tag ok">${target.period_month}</span><span class="tag">${metricLabels[target.metric]}</span><strong>${escapeHtml(target.user_name || "门店合计")}</strong></div>
+            <div class="meta">${escapeHtml(target.store_name)} · 目标 ${money(target.target_value)} · 完成 ${money(target.actual_value)} · 完成率 ${target.completion_rate}%</div>
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无业绩目标</div>`;
+  };
+  const drawBonus = async () => {
+    const result = await api("performance.bonus.list");
+    const list = main.querySelector("[data-bonus-batches]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (batch) => `<div class="row"><div>
+            <div><span class="tag ${batch.status === "paid" ? "ok" : "warn"}">${statusLabels[batch.status]}</span><strong>${batch.period_month}</strong> · ${escapeHtml(batch.store_name)}</div>
+            <div class="meta">佣金基数 ¥${money(batch.commission_base)} · 比例 ${(Number(batch.award_rate) * 100).toFixed(1)}% · 奖金合计 ¥${money(batch.bonus_total)}${batch.payment_reference ? ` · 流水 ${escapeHtml(batch.payment_reference)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-bonus-items="${batch.id}">明细</button>
+            ${(isAdmin || isFinance) && batch.status === "calculated" ? `<button class="btn" data-pay-bonus="${batch.id}">登记发放</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无管理奖批次</div>`;
+    list.querySelectorAll("[data-bonus-items]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("performance.bonus.items", {
+          batch_id: (button as HTMLElement).dataset.bonusItems,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        openInfoDialog(
+          "管理奖明细",
+          (result.data as any[])
+            .map(
+              (item) =>
+                `<div class="row"><div><strong>${escapeHtml(item.display_name)}</strong><div class="meta">¥${money(item.amount)} · ${escapeHtml(item.note || "")}</div></div></div>`
+            )
+            .join("")
+        );
+      })
+    );
+    list.querySelectorAll("[data-pay-bonus]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记管理奖发放",
+          `<label>发奖流水号<input name="payment_reference" required /></label>`,
+          async (fd) => {
+            const result = await api("performance.bonus.pay", {
+              id: (button as HTMLElement).dataset.payBonus,
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "管理奖已登记发放" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  const drawDividend = async () => {
+    const result = await api("performance.dividend.list");
+    const list = main.querySelector("[data-dividend-batches]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (batch) => `<div class="row"><div>
+            <div><span class="tag ${batch.status === "paid" ? "ok" : "warn"}">${statusLabels[batch.status]}</span><strong>${batch.period_month}</strong> · 分红池 ¥${money(batch.pool_amount)}</div>
+            <div class="meta">参与积分 ${money(batch.total_points)} · 已分配 ¥${money(batch.allocated_total)}${batch.payment_reference ? ` · 流水 ${escapeHtml(batch.payment_reference)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-dividend-items="${batch.id}">明细</button>
+            ${(isAdmin || isFinance) && batch.status === "calculated" ? `<button class="btn" data-pay-dividend="${batch.id}">登记发放</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无利润分红批次</div>`;
+    list.querySelectorAll("[data-dividend-items]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("performance.dividend.items", {
+          batch_id: (button as HTMLElement).dataset.dividendItems,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        openInfoDialog(
+          "分红明细",
+          (result.data as any[])
+            .map(
+              (item) =>
+                `<div class="row"><div><strong>${escapeHtml(item.display_name)}</strong><div class="meta">${escapeHtml(item.store_name)} · 积分 ${money(item.points)} · 分红 ¥${money(item.share_amount)}</div></div></div>`
+            )
+            .join("")
+        );
+      })
+    );
+    list.querySelectorAll("[data-pay-dividend]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记分红发放",
+          `<label>分红流水号<input name="payment_reference" required /></label>`,
+          async (fd) => {
+            const result = await api("performance.dividend.pay", {
+              id: (button as HTMLElement).dataset.payDividend,
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "分红已登记发放" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  const draw = async () => {
+    await Promise.all([drawRules(), drawPoints(), drawTargets(), drawBonus(), drawDividend()]);
+  };
+  main.querySelector("[data-new-point-rule]")?.addEventListener("click", () =>
+    openDialog(
+      "维护积分规则",
+      `<label>代码<input name="code" required /></label><label>名称<input name="name" required /></label><label>积分值<input name="points" type="number" step="0.01" required /></label><label>适用角色<select name="applicable_role"><option value="">全角色</option><option value="agent">经纪人</option><option value="store_manager">店长</option></select></label>`,
+      async (fd) => {
+        const result = await api("performance.rules.save", {
+          code: fd.get("code"),
+          name: fd.get("name"),
+          points: Number(fd.get("points")),
+          applicable_role: fd.get("applicable_role") || null,
+        });
+        toast(result.ok ? "积分规则已保存" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-point]")?.addEventListener("click", () =>
+    openDialog(
+      "录入积分",
+      `<label>员工<select name="user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label><label>积分规则<select name="rule_id"><option value="">自定义分值</option>${options.rules.map((rule: any) => `<option value="${rule.id}">${escapeHtml(rule.name)} (${rule.points > 0 ? "+" : ""}${rule.points})</option>`).join("")}</select></label><label>自定义分值<input name="points" type="number" step="0.01" /></label><label class="full">原因<input name="reason" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.points.create", {
+          user_id: fd.get("user_id"),
+          rule_id: fd.get("rule_id") || null,
+          points: fd.get("points") ? Number(fd.get("points")) : undefined,
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "积分已录入" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-target]")?.addEventListener("click", () =>
+    openDialog(
+      "设定业绩目标",
+      `${isAdmin ? `<label>门店<select name="store_id">${options.stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label>` : ""}<label>月份<input name="period_month" type="month" required /></label><label>指标<select name="metric"><option value="commission">佣金业绩</option><option value="deals">成交单数</option></select></label><label>员工<select name="user_id"><option value="">门店合计</option>${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label><label>目标值<input name="target_value" type="number" min="0.01" step="0.01" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.targets.save", {
+          store_id: fd.get("store_id") || state.user.store_id,
+          period_month: fd.get("period_month"),
+          metric: fd.get("metric"),
+          user_id: fd.get("user_id") || null,
+          target_value: Number(fd.get("target_value")),
+        });
+        toast(result.ok ? "业绩目标已设定" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-bonus]")?.addEventListener("click", () =>
+    openDialog(
+      "生成门店管理奖",
+      `<label>门店<select name="store_id">${options.stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label><label>月份<input name="period_month" type="month" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.bonus.create", {
+          store_id: fd.get("store_id"),
+          period_month: fd.get("period_month"),
+        });
+        toast(
+          result.ok ? `管理奖已计算，合计 ¥${money((result.data as any).bonus_total)}` : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-dividend]")?.addEventListener("click", () =>
+    openDialog(
+      "新建利润分红批次",
+      `<label>月份<input name="period_month" type="month" required /></label><label>分红池金额<input name="pool_amount" type="number" min="0.01" step="0.01" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.dividend.create", {
+          period_month: fd.get("period_month"),
+          pool_amount: Number(fd.get("pool_amount")),
+        });
+        toast(result.ok ? "分红批次已按积分计算" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  await draw();
+}
+
+async function renderFinanceAssets(main: HTMLElement) {
+  const canWrite = ["admin", "finance"].includes(state.user.role);
+  const options = await api("finance.options", {});
+  const storeOptions = options.ok
+    ? ((options.data as any).stores || [])
+        .map((store: any) => `<option value="${store.id}">${store.name}</option>`)
+        .join("")
+    : "";
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
+  main.innerHTML = `
+    <div class="header"><h2>资产台账与备查凭证</h2><div class="ops">
+      ${canWrite ? `<button class="btn ghost" data-new-asset>登记资产</button><button class="btn" data-new-voucher>新建凭证</button>` : ""}
+    </div></div>
+    <h3>固定资产</h3>
+    <div class="filters"><select data-asset-status><option value="">全部状态</option><option value="in_use">在用</option><option value="idle">闲置</option><option value="disposed">已处置</option></select></div>
+    <div class="list" data-assets></div>
+    <h3>备查凭证</h3>
+    <div class="filters"><select data-voucher-status><option value="">全部状态</option><option value="draft">草稿</option><option value="posted">已过账</option><option value="voided">已作废</option></select></div>
+    <div class="list" data-vouchers></div>
+  `;
+  const drawAssets = async () => {
+    const status = (main.querySelector("[data-asset-status]") as HTMLSelectElement).value;
+    const result = await api("finance.assets.list", status ? { status } : {});
+    const list = main.querySelector("[data-assets]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "in_use" ? "ok" : item.status === "disposed" ? "danger" : "warn"}">${item.status}</span><strong>${item.name}</strong> · ${item.code}</div>
+            <div class="meta">${item.store_name} · ${item.category} · 原值 ${item.original_value}${item.custodian_name ? ` · 保管 ${item.custodian_name}` : ""}${item.location ? ` · ${item.location}` : ""}${item.dispose_reason ? ` · ${item.dispose_reason}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite && item.status !== "disposed" ? `<button class="btn danger" data-dispose="${item.id}">处置</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无资产</div>`;
+    list.querySelectorAll("[data-dispose]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "处置资产",
+          `<label class="full">原因<input name="reason" required /></label>
+           <label>处置金额<input name="dispose_amount" type="number" min="0" step="0.01" value="0" /></label>`,
+          async (fd) => {
+            const updated = await api("finance.assets.dispose", {
+              id: (button as HTMLElement).dataset.dispose,
+              reason: fd.get("reason"),
+              dispose_amount: Number(fd.get("dispose_amount") || 0),
+            });
+            toast(updated.ok ? "资产已处置" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawAssets();
+          }
+        )
+      )
+    );
+  };
+  const drawVouchers = async () => {
+    const status = (main.querySelector("[data-voucher-status]") as HTMLSelectElement).value;
+    const result = await api("finance.vouchers.list", status ? { status } : {});
+    const list = main.querySelector("[data-vouchers]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "posted" ? "ok" : item.status === "voided" ? "danger" : "warn"}">${item.status}</span><strong>${item.voucher_no}</strong> · ${item.summary}</div>
+            <div class="meta">${item.store_name} · ${item.voucher_date} · 借 ${item.debit_total} / 贷 ${item.credit_total} · ${item.line_count} 行${item.void_reason ? ` · ${item.void_reason}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite && item.status === "draft" ? `<button class="btn" data-post="${item.id}">过账</button><button class="btn danger" data-void="${item.id}">作废</button>` : ""}
+            ${canWrite && item.status === "posted" ? `<button class="btn danger" data-void="${item.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无凭证</div>`;
+    list.querySelectorAll("[data-post]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("finance.vouchers.post", {
+          id: (button as HTMLElement).dataset.post,
+        });
+        toast(updated.ok ? "凭证已过账" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawVouchers();
+      })
+    );
+    list.querySelectorAll("[data-void]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("作废原因");
+        if (!reason) return;
+        const updated = await api("finance.vouchers.void", {
+          id: (button as HTMLElement).dataset.void,
+          reason,
+        });
+        toast(updated.ok ? "凭证已作废" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawVouchers();
+      })
+    );
+  };
+  main.querySelector("[data-new-asset]")?.addEventListener("click", () =>
+    openDialog(
+      "登记资产",
+      `<label>编码<input name="code" required /></label>
+       <label>名称<input name="name" required /></label>
+       <label>分类<select name="category"><option value="furniture">家具</option><option value="equipment">设备</option><option value="vehicle">车辆</option><option value="electronics">电子设备</option><option value="other">其他</option></select></label>
+       <label>门店<select name="store_id">${storeOptions}</select></label>
+       <label>购置日期<input name="purchase_date" type="date" required /></label>
+       <label>原值<input name="original_value" type="number" min="0.01" step="0.01" required /></label>
+       <label>残值<input name="residual_value" type="number" min="0" step="0.01" value="0" /></label>
+       <label>数量<input name="quantity" type="number" min="0.01" step="0.01" value="1" /></label>
+       <label>保管人<select name="custodian_user_id"><option value="">无</option>${userOptions}</select></label>
+       <label class="full">存放位置<input name="location" /></label>`,
+      async (fd) => {
+        const result = await api("finance.assets.save", {
+          code: fd.get("code"),
+          name: fd.get("name"),
+          category: fd.get("category"),
+          store_id: fd.get("store_id"),
+          purchase_date: fd.get("purchase_date"),
+          original_value: Number(fd.get("original_value")),
+          residual_value: Number(fd.get("residual_value") || 0),
+          quantity: Number(fd.get("quantity") || 1),
+          custodian_user_id: fd.get("custodian_user_id") || null,
+          location: fd.get("location"),
+        });
+        toast(result.ok ? "资产已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAssets();
+      }
+    )
+  );
+  main.querySelector("[data-new-voucher]")?.addEventListener("click", () =>
+    openDialog(
+      "新建备查凭证",
+      `<label>门店<select name="store_id">${storeOptions}</select></label>
+       <label>日期<input name="voucher_date" type="date" required /></label>
+       <label class="full">摘要<input name="summary" required /></label>
+       <label>借方科目<input name="debit_account" value="银行存款" required /></label>
+       <label>贷方科目<input name="credit_account" value="主营业务收入" required /></label>
+       <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>`,
+      async (fd) => {
+        const amount = Number(fd.get("amount"));
+        const result = await api("finance.vouchers.create", {
+          store_id: fd.get("store_id"),
+          voucher_date: fd.get("voucher_date"),
+          summary: fd.get("summary"),
+          lines: [
+            {
+              account_name: fd.get("debit_account"),
+              direction: "debit",
+              amount,
+            },
+            {
+              account_name: fd.get("credit_account"),
+              direction: "credit",
+              amount,
+            },
+          ],
+        });
+        toast(
+          result.ok ? `凭证草稿 ${(result.data as any).voucher_no} 已创建` : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) drawVouchers();
+      }
+    )
+  );
+  main.querySelector("[data-asset-status]")!.addEventListener("change", drawAssets);
+  main.querySelector("[data-voucher-status]")!.addEventListener("change", drawVouchers);
+  await Promise.all([drawAssets(), drawVouchers()]);
+}
+
+async function renderPropertyExt(main: HTMLElement) {
+  const canWrite = state.user.role !== "finance";
+  const options = await api("propertyExt.options", {});
+  const houseOptions = options.ok
+    ? ((options.data as any).houses || [])
+        .map(
+          (house: any) =>
+            `<option value="${house.id}">${house.title} · ${house.community}</option>`
+        )
+        .join("")
+    : "";
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
+  main.innerHTML = `
+    <div class="header"><h2>房源锁定、合作与业态</h2><div class="ops">
+      ${canWrite ? `<button class="btn ghost" data-lock>锁定房源</button><button class="btn ghost" data-coop>建立合作</button><button class="btn ghost" data-media>登记媒体</button><button class="btn ghost" data-auction>拍卖资料</button><button class="btn" data-exclusive>独家/包销</button>` : ""}
+    </div></div>
+    <h3>锁定盘</h3><div class="list" data-locks></div>
+    <h3>合作盘</h3><div class="list" data-coops></div>
+    <h3>视频/全景</h3><div class="list" data-media-list></div>
+  `;
+  const drawLocks = async () => {
+    const result = await api("propertyExt.locks.list", {});
+    const list = main.querySelector("[data-locks]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag warn">锁定</span><strong>${item.title}</strong> · ${item.community}</div>
+            <div class="meta">${item.lock_reason || ""}${item.lock_until ? ` · 至 ${item.lock_until}` : ""} · ${item.locked_by_name || ""}${item.locked_at ? ` · ${item.locked_at.slice(0, 16).replace("T", " ")}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn danger" data-unlock="${item.id}">解锁</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无锁定盘</div>`;
+    list.querySelectorAll("[data-unlock]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("解锁原因");
+        if (!reason) return;
+        const updated = await api("propertyExt.locks.set", {
+          id: (button as HTMLElement).dataset.unlock,
+          locked: false,
+          reason,
+        });
+        toast(updated.ok ? "已解锁" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawLocks();
+      })
+    );
+  };
+  const drawCoops = async () => {
+    const result = await api("propertyExt.cooperations.list", { status: "active" });
+    const list = main.querySelector("[data-coops]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ok">合作</span><strong>${item.house_title}</strong> · ${item.partner_name}</div>
+            <div class="meta">${item.partner_user_name || item.partner_phone || "外部合作"}${item.share_ratio != null ? ` · 分成 ${item.share_ratio}%` : ""}${item.note ? ` · ${item.note}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn danger" data-end-coop="${item.id}">结束</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无有效合作</div>`;
+    list.querySelectorAll("[data-end-coop]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("结束原因");
+        if (!reason) return;
+        const updated = await api("propertyExt.cooperations.end", {
+          id: (button as HTMLElement).dataset.endCoop,
+          reason,
+        });
+        toast(updated.ok ? "合作已结束" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawCoops();
+      })
+    );
+  };
+  const drawMedia = async () => {
+    const result = await api("propertyExt.media.list", { status: "active" });
+    const list = main.querySelector("[data-media-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag">${item.media_type === "video" ? "视频" : "全景"}</span><strong>${item.title}</strong> · ${item.house_title}</div>
+            <div class="meta">${item.local_path}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn danger" data-archive-media="${item.id}">归档</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无视频/全景</div>`;
+    list.querySelectorAll("[data-archive-media]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("propertyExt.media.archive", {
+          id: (button as HTMLElement).dataset.archiveMedia,
+        });
+        toast(updated.ok ? "媒体已归档" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawMedia();
+      })
+    );
+  };
+  main.querySelector("[data-lock]")?.addEventListener("click", () =>
+    openDialog(
+      "锁定房源",
+      `<label class="full">房源<select name="id">${houseOptions}</select></label>
+       <label class="full">原因<input name="reason" required /></label>
+       <label>到期日<input name="lock_until" type="date" /></label>`,
+      async (fd) => {
+        const result = await api("propertyExt.locks.set", {
+          id: fd.get("id"),
+          locked: true,
+          reason: fd.get("reason"),
+          lock_until: fd.get("lock_until") || null,
+        });
+        toast(result.ok ? "房源已锁定" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawLocks();
+      }
+    )
+  );
+  main.querySelector("[data-coop]")?.addEventListener("click", () =>
+    openDialog(
+      "建立合作",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>合作员工<select name="partner_user_id"><option value="">外部合作</option>${userOptions}</select></label>
+       <label>合作方名称<input name="partner_name" required /></label>
+       <label>电话<input name="partner_phone" /></label>
+       <label>分成%<input name="share_ratio" type="number" min="1" max="99" /></label>
+       <label class="full">备注<input name="note" /></label>`,
+      async (fd) => {
+        const result = await api("propertyExt.cooperations.create", {
+          house_id: fd.get("house_id"),
+          partner_user_id: fd.get("partner_user_id") || null,
+          partner_name: fd.get("partner_name"),
+          partner_phone: fd.get("partner_phone"),
+          share_ratio: fd.get("share_ratio") || null,
+          note: fd.get("note"),
+        });
+        toast(result.ok ? "合作已建立" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawCoops();
+      }
+    )
+  );
+  main.querySelector("[data-media]")?.addEventListener("click", () =>
+    openDialog(
+      "登记视频/全景",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>类型<select name="media_type"><option value="video">视频</option><option value="panorama">全景</option></select></label>
+       <label>标题<input name="title" required /></label>
+       <label class="full">本地路径<input name="local_path" required /></label>`,
+      async (fd) => {
+        const result = await api("propertyExt.media.add", {
+          house_id: fd.get("house_id"),
+          media_type: fd.get("media_type"),
+          title: fd.get("title"),
+          local_path: fd.get("local_path"),
+        });
+        toast(result.ok ? "媒体已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawMedia();
+      }
+    )
+  );
+  main.querySelector("[data-auction]")?.addEventListener("click", () =>
+    openDialog(
+      "拍卖资料",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>法院<input name="court_name" /></label>
+       <label>案号<input name="case_no" /></label>
+       <label>起拍价<input name="starting_price" type="number" min="0.01" step="0.01" required /></label>
+       <label>保留价<input name="reserve_price" type="number" min="0" step="0.01" /></label>
+       <label class="full">备注<input name="remark" /></label>`,
+      async (fd) => {
+        const saved = await api("propertyExt.auction.save", {
+          house_id: fd.get("house_id"),
+          court_name: fd.get("court_name"),
+          case_no: fd.get("case_no"),
+          starting_price: Number(fd.get("starting_price")),
+          reserve_price: fd.get("reserve_price") || null,
+          remark: fd.get("remark"),
+        });
+        if (!saved.ok) return toast(saved.message, "error");
+        const activated = await api("propertyExt.auction.activate", {
+          house_id: fd.get("house_id"),
+        });
+        toast(
+          activated.ok ? "拍卖资料已启用" : activated.message,
+          activated.ok ? "ok" : "error"
+        );
+      }
+    )
+  );
+  main.querySelector("[data-exclusive]")?.addEventListener("click", () =>
+    openDialog(
+      "独家/包销",
+      `<label class="full">房源<select name="house_id">${houseOptions}</select></label>
+       <label>类型<select name="agency_type"><option value="exclusive">独家</option><option value="package">包销</option></select></label>
+       <label>开始日期<input name="start_date" type="date" required /></label>
+       <label>结束日期<input name="end_date" type="date" required /></label>
+       <label>包销价<input name="package_price" type="number" min="0" step="0.01" /></label>
+       <label class="full">佣金规则<input name="commission_rule" /></label>`,
+      async (fd) => {
+        const saved = await api("propertyExt.exclusive.save", {
+          house_id: fd.get("house_id"),
+          agency_type: fd.get("agency_type"),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          package_price: fd.get("package_price") || null,
+          commission_rule: fd.get("commission_rule"),
+        });
+        if (!saved.ok) return toast(saved.message, "error");
+        const activated = await api("propertyExt.exclusive.activate", {
+          house_id: fd.get("house_id"),
+        });
+        toast(
+          activated.ok ? "独家/包销已启用" : activated.message,
+          activated.ok ? "ok" : "error"
+        );
+      }
+    )
+  );
+  await Promise.all([drawLocks(), drawCoops(), drawMedia()]);
+}
+
+async function renderDealExt(main: HTMLElement) {
+  const canManage = ["admin", "store_manager"].includes(state.user.role);
+  const canWrite = state.user.role !== "finance";
+  const options = await api("dealExt.options", {});
+  const dealOptions = options.ok
+    ? ((options.data as any).deals || [])
+        .map(
+          (deal: any) =>
+            `<option value="${deal.id}">${deal.house_title} · ${deal.customer_name}</option>`
+        )
+        .join("")
+    : "";
+  const userOptions = options.ok
+    ? ((options.data as any).users || [])
+        .map((user: any) => `<option value="${user.id}">${user.display_name}</option>`)
+        .join("")
+    : "";
+  main.innerHTML = `
+    <div class="header"><h2>成交投诉与更名</h2><div class="ops">
+      ${canWrite ? `<button class="btn ghost" data-new-complaint>登记投诉</button><button class="btn" data-new-rename>申请更名</button>` : ""}
+    </div></div>
+    <h3>成交投诉</h3>
+    <div class="filters"><select data-complaint-status><option value="">全部状态</option><option value="open">待处理</option><option value="investigating">调查中</option><option value="resolved">已结案</option><option value="rejected">已驳回</option><option value="withdrawn">已撤回</option></select></div>
+    <div class="list" data-complaints></div>
+    <h3>成交更名</h3>
+    <div class="filters"><select data-rename-status><option value="">全部状态</option><option value="draft">草稿</option><option value="submitted">待审批</option><option value="approved">已审批</option><option value="rejected">已驳回</option><option value="cancelled">已取消</option></select></div>
+    <div class="list" data-renames></div>
+  `;
+  const drawComplaints = async () => {
+    const status = (main.querySelector("[data-complaint-status]") as HTMLSelectElement).value;
+    const result = await api("dealExt.complaints.list", status ? { status } : {});
+    const list = main.querySelector("[data-complaints]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "resolved" ? "ok" : item.status === "rejected" || item.status === "withdrawn" ? "danger" : "warn"}">${item.status}</span><strong>${item.title}</strong> · ${item.house_title}</div>
+            <div class="meta">${item.category} · ${item.customer_name} · 附件 ${item.attachment_count}${item.assignee_name ? ` · 处理人 ${item.assignee_name}` : ""}${item.resolution ? ` · ${item.resolution}` : ""}${item.reject_reason ? ` · ${item.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${item.status === "open" && canWrite ? `<button class="btn danger" data-withdraw-complaint="${item.id}">撤回</button>` : ""}
+            ${item.status === "open" && canManage ? `<button class="btn" data-investigate="${item.id}">开始调查</button><button class="btn danger" data-reject-complaint="${item.id}">驳回</button>` : ""}
+            ${item.status === "investigating" && (canManage || item.assignee_user_id === state.user.id) ? `<button class="btn ghost" data-complaint-attach="${item.id}">上传凭证</button><button class="btn" data-resolve="${item.id}">结案</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无成交投诉</div>`;
+    list.querySelectorAll("[data-investigate]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "开始调查",
+          `<label>处理人<select name="assignee_user_id">${userOptions}</select></label>`,
+          async (fd) => {
+            const updated = await api("dealExt.complaints.investigate", {
+              id: (button as HTMLElement).dataset.investigate,
+              assignee_user_id: fd.get("assignee_user_id"),
+            });
+            toast(updated.ok ? "已进入调查" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawComplaints();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-complaint-attach]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const localPath = prompt("本地处理凭证路径");
+        if (!localPath) return;
+        const uploaded = await api("attachment.add", {
+          parent_type: "deal_complaint",
+          parent_id: (button as HTMLElement).dataset.complaintAttach,
+          category: "complaint_evidence",
+          name: "投诉凭证.pdf",
+          local_path: localPath,
+        });
+        toast(uploaded.ok ? "凭证已上传" : uploaded.message, uploaded.ok ? "ok" : "error");
+        if (uploaded.ok) drawComplaints();
+      })
+    );
+    list.querySelectorAll("[data-resolve]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "结案",
+          `<label class="full">处理结果<input name="resolution" required /></label>`,
+          async (fd) => {
+            const updated = await api("dealExt.complaints.resolve", {
+              id: (button as HTMLElement).dataset.resolve,
+              resolution: fd.get("resolution"),
+            });
+            toast(updated.ok ? "投诉已结案" : updated.message, updated.ok ? "ok" : "error");
+            if (updated.ok) drawComplaints();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-reject-complaint]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const updated = await api("dealExt.complaints.reject", {
+          id: (button as HTMLElement).dataset.rejectComplaint,
+          reason,
+        });
+        toast(updated.ok ? "投诉已驳回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawComplaints();
+      })
+    );
+    list.querySelectorAll("[data-withdraw-complaint]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("撤回原因");
+        if (!reason) return;
+        const updated = await api("dealExt.complaints.withdraw", {
+          id: (button as HTMLElement).dataset.withdrawComplaint,
+          reason,
+        });
+        toast(updated.ok ? "投诉已撤回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawComplaints();
+      })
+    );
+  };
+  const drawRenames = async () => {
+    const status = (main.querySelector("[data-rename-status]") as HTMLSelectElement).value;
+    const result = await api("dealExt.renames.list", status ? { status } : {});
+    const list = main.querySelector("[data-renames]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (item) => `<div class="row"><div>
+            <div><span class="tag ${item.status === "approved" ? "ok" : item.status === "rejected" || item.status === "cancelled" ? "danger" : "warn"}">${item.status}</span><strong>${item.house_title}</strong> · ${item.target}</div>
+            <div class="meta">${item.new_customer_name ? `客户 ${item.old_customer_name}→${item.new_customer_name}` : ""}${item.new_owner_name ? ` · 业主 ${item.old_owner_name}→${item.new_owner_name}` : ""} · 附件 ${item.attachment_count}${item.reject_reason ? ` · ${item.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${["draft", "rejected"].includes(item.status) && canWrite ? `<button class="btn ghost" data-rename-attach="${item.id}">上传证明</button><button class="btn" data-submit-rename="${item.id}">提交</button><button class="btn danger" data-cancel-rename="${item.id}">取消</button>` : ""}
+            ${item.status === "submitted" && canManage ? `<button class="btn" data-approve-rename="${item.id}">审批</button><button class="btn danger" data-reject-rename="${item.id}">驳回</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无成交更名</div>`;
+    list.querySelectorAll("[data-rename-attach]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const localPath = prompt("本地更名证明路径");
+        if (!localPath) return;
+        const uploaded = await api("attachment.add", {
+          parent_type: "deal_rename",
+          parent_id: (button as HTMLElement).dataset.renameAttach,
+          category: "rename_evidence",
+          name: "更名证明.pdf",
+          local_path: localPath,
+        });
+        toast(uploaded.ok ? "证明已上传" : uploaded.message, uploaded.ok ? "ok" : "error");
+        if (uploaded.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-submit-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("dealExt.renames.submit", {
+          id: (button as HTMLElement).dataset.submitRename,
+        });
+        toast(updated.ok ? "更名已提交" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-approve-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("dealExt.renames.approve", {
+          id: (button as HTMLElement).dataset.approveRename,
+        });
+        toast(updated.ok ? "更名已审批并生效" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-reject-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const updated = await api("dealExt.renames.reject", {
+          id: (button as HTMLElement).dataset.rejectRename,
+          reason,
+        });
+        toast(updated.ok ? "更名已驳回" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+    list.querySelectorAll("[data-cancel-rename]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("取消原因");
+        if (!reason) return;
+        const updated = await api("dealExt.renames.cancel", {
+          id: (button as HTMLElement).dataset.cancelRename,
+          reason,
+        });
+        toast(updated.ok ? "更名已取消" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) drawRenames();
+      })
+    );
+  };
+  main.querySelector("[data-new-complaint]")?.addEventListener("click", () =>
+    openDialog(
+      "登记成交投诉",
+      `<label class="full">成交单<select name="deal_id">${dealOptions}</select></label>
+       <label>分类<select name="category"><option value="commission">佣金</option><option value="service">服务</option><option value="document">资料</option><option value="payment">收付款</option><option value="other">其他</option></select></label>
+       <label>标题<input name="title" required /></label>
+       <label class="full">说明<textarea name="description" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("dealExt.complaints.create", {
+          deal_id: fd.get("deal_id"),
+          category: fd.get("category"),
+          title: fd.get("title"),
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "投诉已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawComplaints();
+      }
+    )
+  );
+  main.querySelector("[data-new-rename]")?.addEventListener("click", () =>
+    openDialog(
+      "申请成交更名",
+      `<label class="full">成交单<select name="deal_id">${dealOptions}</select></label>
+       <label>更名对象<select name="target"><option value="customer">客户</option><option value="owner">业主</option><option value="both">双方</option></select></label>
+       <label>新客户姓名<input name="new_customer_name" /></label>
+       <label>新业主姓名<input name="new_owner_name" /></label>
+       <label class="full">原因<input name="reason" required /></label>`,
+      async (fd) => {
+        const result = await api("dealExt.renames.create", {
+          deal_id: fd.get("deal_id"),
+          target: fd.get("target"),
+          new_customer_name: fd.get("new_customer_name"),
+          new_owner_name: fd.get("new_owner_name"),
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "更名草稿已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawRenames();
+      }
+    )
+  );
+  main.querySelector("[data-complaint-status]")!.addEventListener("change", drawComplaints);
+  main.querySelector("[data-rename-status]")!.addEventListener("change", drawRenames);
+  await Promise.all([drawComplaints(), drawRenames()]);
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
 > = {
-  property_ext: {
-    title: "房源扩展",
-    types: [
-      ["listing_lock", "锁定盘"],
-      ["cooperation", "合作盘"],
-      ["media", "视频/全景"],
-      ["auction", "拍卖模式"],
-      ["exclusive_agency", "包销/独家代理"],
-    ],
-  },
-  deal_ext: {
-    title: "交易扩展",
-    types: [
-      ["deal_complaint", "成交投诉"],
-      ["rename", "成交更名"],
-    ],
-  },
-  newhome: {
-    title: "新房分销",
-    types: [
-      ["project", "新房项目"],
-      ["registration", "客户报备"],
-      ["arrival", "到场确认"],
-      ["distribution_company", "分销公司"],
-      ["sales_report", "销售报告"],
-    ],
-  },
-  finance: {
-    title: "财务管理",
-    types: [
-      ["asset", "资产"],
-      ["voucher", "会计凭证"],
-    ],
-  },
   office: {
     title: "办公协同",
     types: [
-      ["announcement", "公告"],
-      ["knowledge", "知识文章"],
       ["exam", "考试"],
       ["event", "会议活动"],
       ["workflow", "流程会签"],
@@ -3462,43 +5819,6 @@ const suiteMeta: Record<
       ["work_summary", "工作总结"],
       ["circle_post", "同事圈"],
       ["call_record", "来电记录"],
-    ],
-  },
-  rental: {
-    title: "租赁托管",
-    types: [
-      ["managed_property", "托管物业"],
-      ["lease", "租约"],
-      ["bill", "租金账单"],
-      ["maintenance", "维修工单"],
-      ["cleaning", "保洁工单"],
-    ],
-  },
-  customer_care: {
-    title: "客户关怀",
-    types: [
-      ["complaint", "投诉"],
-      ["lawsuit", "诉讼"],
-      ["survey", "满意度问卷"],
-      ["callback", "客户回访"],
-    ],
-  },
-  marketing: {
-    title: "营销线索",
-    types: [
-      ["website_page", "官网内容"],
-      ["online_entrustment", "在线委托"],
-      ["lead", "商机线索"],
-      ["campaign", "营销活动"],
-    ],
-  },
-  performance: {
-    title: "积分分红",
-    types: [
-      ["points", "积分"],
-      ["bonus", "管理奖"],
-      ["dividend", "利润分红"],
-      ["target", "业绩目标"],
     ],
   },
 };

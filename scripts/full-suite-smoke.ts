@@ -117,13 +117,12 @@ assert(
 );
 
 const cases = [
-  { module: "finance", type: "asset", actor: finance, approver: finance },
-  { module: "office", type: "knowledge", actor: agent, approver: manager },
-  { module: "office", type: "announcement", actor: agent, approver: manager },
-  { module: "marketing", type: "lead", actor: manager, approver: manager },
-  { module: "rental", type: "lease", actor: agent, approver: manager },
-  { module: "customer_care", type: "complaint", actor: manager, approver: manager },
-  { module: "performance", type: "points", actor: manager, approver: manager },
+  { module: "office", type: "exam", actor: agent, approver: manager },
+  { module: "office", type: "event", actor: agent, approver: manager },
+  { module: "office", type: "work_summary", actor: agent, approver: manager },
+  { module: "office", type: "workflow", actor: agent, approver: manager },
+  { module: "office", type: "ticket", actor: agent, approver: manager },
+  { module: "office", type: "circle_post", actor: agent, approver: manager },
 ];
 
 for (const item of cases) {
@@ -157,7 +156,7 @@ for (const item of cases) {
 
 const officeList = app.call("suite.list", { module: "office" }, manager);
 assert(
-  officeList.ok && dataOf<any[]>(officeList).some((item) => item.record_type === "announcement"),
+  officeList.ok && dataOf<any[]>(officeList).some((item) => item.record_type === "exam"),
   "list office records"
 );
 

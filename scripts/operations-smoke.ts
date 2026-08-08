@@ -41,7 +41,14 @@ const house = app.call(
 );
 check(house.ok, "create export house");
 const houseId = data<any>(house).id;
-check(app.call("house.lock", { id: houseId, locked: true }, agent).ok, "lock export house");
+check(
+  app.call(
+    "house.lock",
+    { id: houseId, locked: true, reason: "导出前锁定保护" },
+    agent
+  ).ok,
+  "lock export house"
+);
 check(
   app.call("house.update", { id: houseId, title: "锁定后更新", is_locked: false }, agent).ok &&
     data<any>(app.call("house.get", { id: houseId }, agent)).is_locked === 1,

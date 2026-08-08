@@ -6,22 +6,7 @@ import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
 
 const TYPES: Record<string, Set<string>> = {
-  property_ext: new Set([
-    "listing_lock",
-    "cooperation",
-    "media",
-    "auction",
-    "exclusive_agency",
-  ]),
-  deal_ext: new Set(["deal_complaint", "rename"]),
-  newhome: new Set([
-    "distribution_company",
-    "sales_report",
-  ]),
-  finance: new Set(["asset", "voucher"]),
   office: new Set([
-    "announcement",
-    "knowledge",
     "exam",
     "event",
     "workflow",
@@ -30,18 +15,9 @@ const TYPES: Record<string, Set<string>> = {
     "circle_post",
     "call_record",
   ]),
-  marketing: new Set(["website_page", "online_entrustment", "lead", "campaign"]),
-  rental: new Set(["managed_property", "lease", "bill", "maintenance", "cleaning"]),
-  customer_care: new Set(["complaint", "lawsuit", "survey", "callback"]),
-  performance: new Set(["points", "bonus", "dividend", "target"]),
 };
 
-const MANAGER_ONLY = new Set([
-  "finance",
-  "customer_care",
-  "performance",
-  "marketing",
-]);
+const MANAGER_ONLY = new Set<string>([]);
 
 const TRANSITIONS: Record<string, string[]> = {
   draft: ["pending", "active", "cancelled"],
@@ -57,18 +33,17 @@ const TRANSITIONS: Record<string, string[]> = {
 
 function canCreate(user: SessionUser, module: string): boolean {
   if (user.role === "admin") return true;
-  if (module === "finance") return user.role === "finance";
-  if (module === "hr" || module === "performance") return user.role === "store_manager";
+  if (module === "hr") return user.role === "store_manager";
   if (MANAGER_ONLY.has(module)) return user.role === "store_manager";
   return user.role !== "finance";
 }
 
 function visible(user: SessionUser, row: any): boolean {
   if (user.role === "admin") return true;
-  if (user.role === "finance") return row.module === "finance" || row.module === "performance";
+  if (user.role === "finance") return false;
   if (row.store_id && row.store_id !== user.store_id) return false;
   if (user.role === "store_manager") return true;
-  if (row.module === "office" && ["announcement", "knowledge", "event"].includes(row.record_type)) {
+  if (row.module === "office" && row.record_type === "event") {
     return row.status === "active" || row.status === "approved" || row.created_by === user.id;
   }
   return (
@@ -167,7 +142,6 @@ export function updateRecord(db: Db, user: SessionUser, payload: any): ApiResult
   }
   const canEdit =
     user.role === "admin" ||
-    (user.role === "finance" && row.module === "finance") ||
     (user.role === "store_manager" && row.store_id === user.store_id) ||
     (row.created_by === user.id && ["draft", "rejected"].includes(row.status));
   if (!canEdit) return { ok: false, message: "当前记录不可编辑", code: 403 };
@@ -207,8 +181,7 @@ export function changeStatus(db: Db, user: SessionUser, payload: any): ApiResult
     approval &&
     !(
       user.role === "admin" ||
-      (user.role === "store_manager" && row.store_id === user.store_id) ||
-      (user.role === "finance" && row.module === "finance")
+      (user.role === "store_manager" && row.store_id === user.store_id)
     )
   ) {
     return { ok: false, message: "无审批权限", code: 403 };
