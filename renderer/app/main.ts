@@ -92,6 +92,7 @@ function canSee(tab: string) {
   )
     return role !== "finance";
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
+  if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
   if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
   if (["suite-hr", "suite-performance", "suite-marketing", "suite-care"].includes(tab))
     return ["admin", "store_manager"].includes(role);
@@ -1648,7 +1649,7 @@ async function renderSuite(main: HTMLElement, module: string) {
             <div class="meta">${record.due_at ? `截止 ${record.due_at} · ` : ""}${record.data?.description || record.data?.note || "无补充说明"}${record.reject_reason ? ` · 驳回：${record.reject_reason}` : ""}</div>
           </div><div class="ops">
             ${["draft", "rejected"].includes(record.status) ? `<button class="btn" data-status-id="${record.id}" data-to="pending">提交</button>` : ""}
-            ${record.status === "pending" && ["admin", "store_manager", "finance"].includes(state.user.role) ? `<button class="btn" data-status-id="${record.id}" data-to="approved">审批</button><button class="btn danger" data-reject-record="${record.id}">驳回</button>` : ""}
+            ${record.status === "pending" && (["admin", "store_manager"].includes(state.user.role) || (state.user.role === "finance" && module === "finance")) ? `<button class="btn" data-status-id="${record.id}" data-to="approved">审批</button><button class="btn danger" data-reject-record="${record.id}">驳回</button>` : ""}
             ${["approved", "active"].includes(record.status) ? `<button class="btn ghost" data-status-id="${record.id}" data-to="in_progress">开始</button>` : ""}
             ${["approved", "active", "in_progress"].includes(record.status) ? `<button class="btn" data-status-id="${record.id}" data-to="completed">完成</button>` : ""}
           </div></div>`
