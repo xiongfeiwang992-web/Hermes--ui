@@ -7239,11 +7239,28 @@ async function renderOrg(main: HTMLElement) {
 }
 
 async function renderAudit(main: HTMLElement) {
+  const usersResult =
+    state.user.role === "admin"
+      ? await api("org.users.list")
+      : await api("org.users.store", {});
+  const users = usersResult.ok ? ((usersResult.data as any[]) || []) : [];
+  const userOptions = users
+    .map(
+      (user) =>
+        `<option value="${escapeHtml(user.id)}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`
+    )
+    .join("");
   main.innerHTML = `
     <div class="header"><h2>审计日志</h2><button class="btn ghost" data-export>导出 CSV</button></div>
     <div class="filters">
+      ${
+        users.length
+          ? `<select data-user><option value="">全部用户</option>${userOptions}</select>`
+          : `<input data-user placeholder="用户 ID" />`
+      }
       <input data-action placeholder="动作，如 deal" />
       <input data-target placeholder="对象类型，如 customer" />
+      <input data-target-id placeholder="对象 ID" />
       <input data-start type="date" />
       <input data-end type="date" />
     </div>
@@ -7252,13 +7269,18 @@ async function renderAudit(main: HTMLElement) {
   const list = main.querySelector("[data-list]")!;
   let currentRows: any[] = [];
   const draw = async () => {
+    const userFilter = (main.querySelector("[data-user]") as HTMLInputElement | HTMLSelectElement)
+      .value;
     const action = (main.querySelector("[data-action]") as HTMLInputElement).value;
     const targetType = (main.querySelector("[data-target]") as HTMLInputElement).value;
+    const targetId = (main.querySelector("[data-target-id]") as HTMLInputElement).value;
     const start = (main.querySelector("[data-start]") as HTMLInputElement).value;
     const end = (main.querySelector("[data-end]") as HTMLInputElement).value;
     const result = await api("audit.list", {
+      user_id: userFilter || undefined,
       action: action || undefined,
       target_type: targetType || undefined,
+      target_id: targetId || undefined,
       start_at: start ? `${start}T00:00:00.000Z` : undefined,
       end_at: end ? `${end}T23:59:59.999Z` : undefined,
       limit: 500,
@@ -7269,22 +7291,33 @@ async function renderAudit(main: HTMLElement) {
       currentRows
         .map(
           (a) => `<div class="row"><div>
-          <div><strong>${a.action}</strong></div>
-          <div class="meta">${a.user_id || "-"} · ${a.target_type || ""} ${a.target_id || ""} · ${a.created_at}</div>
+          <div><strong>${escapeHtml(a.action)}</strong></div>
+          <div class="meta">${escapeHtml(a.user_name || a.user_id || "-")} · ${escapeHtml(a.target_type || "")} ${escapeHtml(a.target_id || "")} · ${escapeHtml(a.created_at)}</div>
         </div></div>`
         )
         .join("") || `<div class="empty">暂无日志</div>`;
   };
-  main.querySelectorAll(".filters input").forEach((input) =>
+  main.querySelectorAll(".filters input, .filters select").forEach((input) =>
     input.addEventListener("change", draw)
   );
   main.querySelector("[data-action]")!.addEventListener("input", draw);
+  main.querySelector("[data-target]")!.addEventListener("input", draw);
+  main.querySelector("[data-target-id]")!.addEventListener("input", draw);
+  const userInput = main.querySelector("[data-user]");
+  if (userInput instanceof HTMLInputElement) userInput.addEventListener("input", draw);
   main.querySelector("[data-export]")!.addEventListener("click", () => {
     const cell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      ["动作", "用户", "对象类型", "对象ID", "时间"].map(cell).join(","),
+      ["动作", "用户", "用户姓名", "对象类型", "对象ID", "时间"].map(cell).join(","),
       ...currentRows.map((row) =>
-        [row.action, row.user_id, row.target_type, row.target_id, row.created_at]
+        [
+          row.action,
+          row.user_id,
+          row.user_name || "",
+          row.target_type,
+          row.target_id,
+          row.created_at,
+        ]
           .map(cell)
           .join(",")
       ),
