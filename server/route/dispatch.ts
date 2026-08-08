@@ -19,6 +19,7 @@ import * as dealDocuments from "../domain/dealDocuments";
 import * as mortgage from "../domain/mortgage";
 import * as entrustment from "../domain/entrustment";
 import * as newhome from "../domain/newhome";
+import * as offboarding from "../domain/offboarding";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -239,6 +240,16 @@ function route(
       return newhome.invalidateRegistration(db, user!, payload);
     case "newhome.registrations.expire":
       return newhome.expireRegistrations(db, user!);
+    case "offboarding.list":
+      return offboarding.listOffboarding(db, user!, payload);
+    case "offboarding.preview":
+      return offboarding.previewOffboarding(db, user!, payload);
+    case "offboarding.start":
+      return offboarding.startOffboarding(db, user!, payload);
+    case "offboarding.execute":
+      return offboarding.executeOffboarding(db, user!, payload);
+    case "offboarding.cancel":
+      return offboarding.cancelOffboarding(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

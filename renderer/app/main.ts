@@ -78,6 +78,7 @@ function canSee(tab: string) {
   const role = state.user?.role;
   if (!role) return false;
   if (tab === "org" || tab === "audit") return role === "admin" || (tab === "audit" && role === "store_manager");
+  if (tab === "offboarding") return ["admin", "store_manager"].includes(role);
   if (
     [
       "houses",
@@ -184,6 +185,7 @@ function renderSide(side: HTMLElement) {
     ["suite-finance", "财务管理"],
     ["suite-office", "办公协同"],
     ["suite-hr", "人事管理"],
+    ["offboarding", "离职交接"],
     ["suite-rental", "租赁托管"],
     ["suite-care", "客户关怀"],
     ["suite-marketing", "营销线索"],
@@ -244,6 +246,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "commissions") return renderCommissions(main);
   if (state.tab === "reports") return renderReports(main);
   if (state.tab === "suite-newhome") return renderNewhome(main);
+  if (state.tab === "offboarding") return renderOffboarding(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -2038,6 +2041,107 @@ async function renderNewhome(main: HTMLElement) {
   await drawRegistrations();
 }
 
+async function renderOffboarding(main: HTMLElement) {
+  const [users, tasks] = await Promise.all([
+    api("org.users.store", {}),
+    api("offboarding.list", {}),
+  ]);
+  const employees = users.ok ? (users.data as any[]) : [];
+  main.innerHTML = `
+    <div class="header"><h2>离职交接</h2><div class="ops">
+      <button class="btn ghost" data-preview>资产预览</button>
+      <button class="btn" data-start>发起交接</button>
+    </div></div>
+    <div class="list" data-list></div>
+  `;
+  const draw = async () => {
+    const result = await api("offboarding.list", {});
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (task) => `<div class="row"><div>
+            <div><span class="tag ${task.status === "completed" ? "ok" : task.status === "cancelled" ? "danger" : "warn"}">${task.status === "pending" ? "待执行" : task.status === "completed" ? "已完成" : "已取消"}</span><strong>${task.employee_name}</strong> → ${task.target_name}</div>
+            <div class="meta">房源 ${task.house_count} · 客源 ${task.customer_count} · 钥匙 ${task.key_count} · 角色 ${task.role_count} · ${task.reason}${task.cancel_reason ? ` · 取消：${task.cancel_reason}` : ""}</div>
+          </div><div class="ops">
+            ${task.status === "pending" ? `<button class="btn" data-execute="${task.id}">执行交接</button><button class="btn danger" data-cancel-offboarding="${task.id}">取消</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无离职交接任务</div>`;
+    list.querySelectorAll("[data-execute]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("执行后将转交资产并立即停用离职员工账号，是否继续？")) return;
+        const result = await api("offboarding.execute", {
+          id: (button as HTMLElement).dataset.execute,
+        });
+        toast(
+          result.ok
+            ? `交接完成：房 ${(result.data as any).houses}、客 ${(result.data as any).customers}、钥匙 ${(result.data as any).keys}`
+            : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-cancel-offboarding]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("取消原因");
+        if (!reason) return;
+        const result = await api("offboarding.cancel", {
+          id: (button as HTMLElement).dataset.cancelOffboarding,
+          reason,
+        });
+        toast(result.ok ? "交接任务已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const sourceOptions = employees
+    .filter((employee) => employee.role !== "admin" && employee.id !== state.user.id)
+    .map((employee) => `<option value="${employee.id}">${employee.display_name}（${roleLabel(employee.role)}）</option>`)
+    .join("");
+  const targetOptions = employees
+    .filter((employee) => ["agent", "store_manager"].includes(employee.role))
+    .map((employee) => `<option value="${employee.id}">${employee.display_name}</option>`)
+    .join("");
+  main.querySelector("[data-preview]")!.addEventListener("click", () =>
+    openDialog(
+      "预览员工待交接资产",
+      `<label class="full">员工<select name="user_id">${sourceOptions}</select></label>`,
+      async (fd) => {
+        const result = await api("offboarding.preview", { user_id: fd.get("user_id") });
+        if (!result.ok) return toast(result.message, "error");
+        const value = result.data as any;
+        toast(
+          `房源 ${value.houses.length}、客源 ${value.customers.length}、钥匙 ${value.keys.length}、角色 ${value.roles.length}`,
+          "warn"
+        );
+      }
+    )
+  );
+  main.querySelector("[data-start]")!.addEventListener("click", () =>
+    openDialog(
+      "发起离职交接",
+      `
+      <label>离职员工<select name="user_id">${sourceOptions}</select></label>
+      <label>接收人<select name="target_user_id">${targetOptions}</select></label>
+      <label class="full">离职原因<input name="reason" required /></label>
+      `,
+      async (fd) => {
+        const result = await api("offboarding.start", {
+          user_id: fd.get("user_id"),
+          target_user_id: fd.get("target_user_id"),
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "离职交接任务已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -2099,7 +2203,6 @@ const suiteMeta: Record<
     types: [
       ["job_grade", "岗位职级"],
       ["transfer", "员工调动"],
-      ["offboarding", "离职交接"],
       ["attendance", "考勤"],
       ["leave", "请假"],
       ["job", "招聘岗位"],
