@@ -28,12 +28,10 @@ const TYPES: Record<string, Set<string>> = {
     "circle_post",
     "call_record",
   ]),
-  performance: new Set(["points", "bonus", "dividend", "target"]),
 };
 
 const MANAGER_ONLY = new Set([
   "finance",
-  "performance",
 ]);
 
 const TRANSITIONS: Record<string, string[]> = {
@@ -51,14 +49,14 @@ const TRANSITIONS: Record<string, string[]> = {
 function canCreate(user: SessionUser, module: string): boolean {
   if (user.role === "admin") return true;
   if (module === "finance") return user.role === "finance";
-  if (module === "hr" || module === "performance") return user.role === "store_manager";
+  if (module === "hr") return user.role === "store_manager";
   if (MANAGER_ONLY.has(module)) return user.role === "store_manager";
   return user.role !== "finance";
 }
 
 function visible(user: SessionUser, row: any): boolean {
   if (user.role === "admin") return true;
-  if (user.role === "finance") return row.module === "finance" || row.module === "performance";
+  if (user.role === "finance") return row.module === "finance";
   if (row.store_id && row.store_id !== user.store_id) return false;
   if (user.role === "store_manager") return true;
   if (row.module === "office" && row.record_type === "event") {

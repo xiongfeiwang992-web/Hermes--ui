@@ -31,6 +31,7 @@ import * as officeContent from "../domain/officeContent";
 import * as rental from "../domain/rental";
 import * as customerCare from "../domain/customerCare";
 import * as marketing from "../domain/marketing";
+import * as performance from "../domain/performance";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -489,6 +490,40 @@ function route(
       return marketing.rejectEntrustment(db, user!, payload);
     case "marketing.events":
       return marketing.listMarketingEvents(db, user!, payload);
+    case "performance.options":
+      return performance.performanceOptions(db, user!);
+    case "performance.rules.list":
+      return performance.listPointRules(db, user!);
+    case "performance.rules.save":
+      return performance.savePointRule(db, user!, payload);
+    case "performance.points.list":
+      return performance.listPointEntries(db, user!, payload);
+    case "performance.points.create":
+      return performance.createPointEntry(db, user!, payload);
+    case "performance.points.review":
+      return performance.reviewPointEntry(db, user!, payload);
+    case "performance.targets.list":
+      return performance.listTargets(db, user!, payload);
+    case "performance.targets.save":
+      return performance.saveTarget(db, user!, payload);
+    case "performance.bonus.list":
+      return performance.listBonusBatches(db, user!, payload);
+    case "performance.bonus.create":
+      return performance.createBonusBatch(db, user!, payload);
+    case "performance.bonus.items":
+      return performance.listBonusItems(db, user!, payload);
+    case "performance.bonus.pay":
+      return performance.payBonusBatch(db, user!, payload);
+    case "performance.dividend.list":
+      return performance.listDividendBatches(db, user!);
+    case "performance.dividend.create":
+      return performance.createDividendBatch(db, user!, payload);
+    case "performance.dividend.items":
+      return performance.listDividendItems(db, user!, payload);
+    case "performance.dividend.pay":
+      return performance.payDividendBatch(db, user!, payload);
+    case "performance.events":
+      return performance.listPerformanceEvents(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

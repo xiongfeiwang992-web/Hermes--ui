@@ -94,6 +94,7 @@ function canSee(tab: string) {
   if (tab === "recruitment") return ["admin", "store_manager"].includes(role);
   if (tab === "customer-care") return role !== "finance";
   if (tab === "marketing") return role !== "finance";
+  if (tab === "performance") return true;
   if (
     [
       "houses",
@@ -110,7 +111,6 @@ function canSee(tab: string) {
   if (tab === "payments") return ["admin", "finance", "store_manager"].includes(role);
   if (role === "finance" && tab.startsWith("suite-")) return tab === "suite-finance";
   if (tab === "suite-finance") return ["admin", "finance", "store_manager"].includes(role);
-  if (tab === "suite-performance") return ["admin", "store_manager"].includes(role);
   return true;
 }
 
@@ -210,7 +210,7 @@ function renderSide(side: HTMLElement) {
     ["rental", "租赁托管"],
     ["customer-care", "客户关怀"],
     ["marketing", "营销线索"],
-    ["suite-performance", "积分分红"],
+    ["performance", "积分分红"],
     ["system-center", "系统中心"],
     ["messages", "消息"],
     ["org", "组织"],
@@ -279,13 +279,13 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "rental") return renderRental(main);
   if (state.tab === "customer-care") return renderCustomerCare(main);
   if (state.tab === "marketing") return renderMarketing(main);
+  if (state.tab === "performance") return renderPerformance(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
       "suite-deal": "deal_ext",
       "suite-finance": "finance",
       "suite-office": "office",
-      "suite-performance": "performance",
     };
     return renderSuite(main, moduleMap[state.tab]);
   }
@@ -4660,6 +4660,292 @@ async function renderMarketing(main: HTMLElement) {
   await draw();
 }
 
+async function renderPerformance(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const isFinance = state.user.role === "finance";
+  const isManagerial = isAdmin || state.user.role === "store_manager";
+  const optionsResult = await api("performance.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { stores: [], users: [], rules: [] };
+  const metricLabels: Record<string, string> = {
+    commission: "佣金业绩",
+    deals: "成交单数",
+  };
+  const statusLabels: Record<string, string> = {
+    pending: "待审批",
+    approved: "已通过",
+    rejected: "已驳回",
+    draft: "草稿",
+    calculated: "已计算",
+    paid: "已发放",
+    active: "生效",
+    inactive: "停用",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>积分分红</h2><div class="ops">
+      ${isAdmin ? `<button class="btn ghost" data-new-point-rule>积分规则</button><button class="btn ghost" data-new-dividend>新建分红</button>` : ""}
+      ${isManagerial ? `<button class="btn ghost" data-new-point>录入积分</button><button class="btn ghost" data-new-target>设定目标</button>` : ""}
+      ${isAdmin || isFinance ? `<button class="btn" data-new-bonus>生成管理奖</button>` : ""}
+    </div></div>
+    <section><h3>积分规则</h3><div class="list" data-point-rules></div></section>
+    <section><h3>积分台账 <span class="meta" data-point-balance></span></h3><div class="list" data-point-entries></div></section>
+    <section><h3>业绩目标</h3><div class="list" data-performance-targets></div></section>
+    <section><h3>店长管理奖</h3><div class="list" data-bonus-batches></div></section>
+    <section><h3>利润分红</h3><div class="list" data-dividend-batches></div></section>
+  `;
+  const drawRules = async () => {
+    const result = await api("performance.rules.list");
+    const list = main.querySelector("[data-point-rules]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (rule) => `<div class="row"><div><div><span class="tag ${rule.status === "active" ? "ok" : ""}">${statusLabels[rule.status]}</span><strong>${escapeHtml(rule.name)}</strong> · ${escapeHtml(rule.code)}</div><div class="meta">${rule.points > 0 ? "+" : ""}${rule.points} 分${rule.applicable_role ? ` · 适用 ${roleLabel(rule.applicable_role)}` : " · 全角色"}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无积分规则</div>`;
+  };
+  const drawPoints = async () => {
+    const result = await api("performance.points.list");
+    const list = main.querySelector("[data-point-entries]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const payload = result.data as any;
+    main.querySelector("[data-point-balance]")!.textContent = `当前有效积分 ${payload.balance}`;
+    list.innerHTML =
+      payload.entries
+        .map(
+          (entry: any) => `<div class="row"><div>
+            <div><span class="tag ${entry.status === "approved" ? "ok" : entry.status === "rejected" ? "danger" : "warn"}">${statusLabels[entry.status]}</span><strong>${escapeHtml(entry.display_name)}</strong> · ${entry.points > 0 ? "+" : ""}${entry.points}</div>
+            <div class="meta">${escapeHtml(entry.store_name)}${entry.rule_name ? ` · ${escapeHtml(entry.rule_name)}` : ""} · ${escapeHtml(entry.reason)}${entry.reject_reason ? ` · 驳回：${escapeHtml(entry.reject_reason)}` : ""}</div>
+          </div><div class="ops">
+            ${isAdmin && entry.status === "pending" ? `<button class="btn" data-approve-point="${entry.id}">通过</button><button class="btn danger" data-reject-point="${entry.id}">驳回</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无积分记录</div>`;
+    list.querySelectorAll("[data-approve-point]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("performance.points.review", {
+          id: (button as HTMLElement).dataset.approvePoint,
+          status: "approved",
+        });
+        toast(result.ok ? "积分已通过" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-reject-point]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("驳回原因");
+        if (!reason) return;
+        const result = await api("performance.points.review", {
+          id: (button as HTMLElement).dataset.rejectPoint,
+          status: "rejected",
+          reject_reason: reason,
+        });
+        toast(result.ok ? "积分已驳回" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  const drawTargets = async () => {
+    const result = await api("performance.targets.list");
+    const list = main.querySelector("[data-performance-targets]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (target) => `<div class="row"><div>
+            <div><span class="tag ok">${target.period_month}</span><span class="tag">${metricLabels[target.metric]}</span><strong>${escapeHtml(target.user_name || "门店合计")}</strong></div>
+            <div class="meta">${escapeHtml(target.store_name)} · 目标 ${money(target.target_value)} · 完成 ${money(target.actual_value)} · 完成率 ${target.completion_rate}%</div>
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无业绩目标</div>`;
+  };
+  const drawBonus = async () => {
+    const result = await api("performance.bonus.list");
+    const list = main.querySelector("[data-bonus-batches]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (batch) => `<div class="row"><div>
+            <div><span class="tag ${batch.status === "paid" ? "ok" : "warn"}">${statusLabels[batch.status]}</span><strong>${batch.period_month}</strong> · ${escapeHtml(batch.store_name)}</div>
+            <div class="meta">佣金基数 ¥${money(batch.commission_base)} · 比例 ${(Number(batch.award_rate) * 100).toFixed(1)}% · 奖金合计 ¥${money(batch.bonus_total)}${batch.payment_reference ? ` · 流水 ${escapeHtml(batch.payment_reference)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-bonus-items="${batch.id}">明细</button>
+            ${(isAdmin || isFinance) && batch.status === "calculated" ? `<button class="btn" data-pay-bonus="${batch.id}">登记发放</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无管理奖批次</div>`;
+    list.querySelectorAll("[data-bonus-items]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("performance.bonus.items", {
+          batch_id: (button as HTMLElement).dataset.bonusItems,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        openInfoDialog(
+          "管理奖明细",
+          (result.data as any[])
+            .map(
+              (item) =>
+                `<div class="row"><div><strong>${escapeHtml(item.display_name)}</strong><div class="meta">¥${money(item.amount)} · ${escapeHtml(item.note || "")}</div></div></div>`
+            )
+            .join("")
+        );
+      })
+    );
+    list.querySelectorAll("[data-pay-bonus]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记管理奖发放",
+          `<label>发奖流水号<input name="payment_reference" required /></label>`,
+          async (fd) => {
+            const result = await api("performance.bonus.pay", {
+              id: (button as HTMLElement).dataset.payBonus,
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "管理奖已登记发放" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  const drawDividend = async () => {
+    const result = await api("performance.dividend.list");
+    const list = main.querySelector("[data-dividend-batches]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (batch) => `<div class="row"><div>
+            <div><span class="tag ${batch.status === "paid" ? "ok" : "warn"}">${statusLabels[batch.status]}</span><strong>${batch.period_month}</strong> · 分红池 ¥${money(batch.pool_amount)}</div>
+            <div class="meta">参与积分 ${money(batch.total_points)} · 已分配 ¥${money(batch.allocated_total)}${batch.payment_reference ? ` · 流水 ${escapeHtml(batch.payment_reference)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-dividend-items="${batch.id}">明细</button>
+            ${(isAdmin || isFinance) && batch.status === "calculated" ? `<button class="btn" data-pay-dividend="${batch.id}">登记发放</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无利润分红批次</div>`;
+    list.querySelectorAll("[data-dividend-items]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("performance.dividend.items", {
+          batch_id: (button as HTMLElement).dataset.dividendItems,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        openInfoDialog(
+          "分红明细",
+          (result.data as any[])
+            .map(
+              (item) =>
+                `<div class="row"><div><strong>${escapeHtml(item.display_name)}</strong><div class="meta">${escapeHtml(item.store_name)} · 积分 ${money(item.points)} · 分红 ¥${money(item.share_amount)}</div></div></div>`
+            )
+            .join("")
+        );
+      })
+    );
+    list.querySelectorAll("[data-pay-dividend]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记分红发放",
+          `<label>分红流水号<input name="payment_reference" required /></label>`,
+          async (fd) => {
+            const result = await api("performance.dividend.pay", {
+              id: (button as HTMLElement).dataset.payDividend,
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "分红已登记发放" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+  };
+  const draw = async () => {
+    await Promise.all([drawRules(), drawPoints(), drawTargets(), drawBonus(), drawDividend()]);
+  };
+  main.querySelector("[data-new-point-rule]")?.addEventListener("click", () =>
+    openDialog(
+      "维护积分规则",
+      `<label>代码<input name="code" required /></label><label>名称<input name="name" required /></label><label>积分值<input name="points" type="number" step="0.01" required /></label><label>适用角色<select name="applicable_role"><option value="">全角色</option><option value="agent">经纪人</option><option value="store_manager">店长</option></select></label>`,
+      async (fd) => {
+        const result = await api("performance.rules.save", {
+          code: fd.get("code"),
+          name: fd.get("name"),
+          points: Number(fd.get("points")),
+          applicable_role: fd.get("applicable_role") || null,
+        });
+        toast(result.ok ? "积分规则已保存" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-point]")?.addEventListener("click", () =>
+    openDialog(
+      "录入积分",
+      `<label>员工<select name="user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label><label>积分规则<select name="rule_id"><option value="">自定义分值</option>${options.rules.map((rule: any) => `<option value="${rule.id}">${escapeHtml(rule.name)} (${rule.points > 0 ? "+" : ""}${rule.points})</option>`).join("")}</select></label><label>自定义分值<input name="points" type="number" step="0.01" /></label><label class="full">原因<input name="reason" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.points.create", {
+          user_id: fd.get("user_id"),
+          rule_id: fd.get("rule_id") || null,
+          points: fd.get("points") ? Number(fd.get("points")) : undefined,
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "积分已录入" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-target]")?.addEventListener("click", () =>
+    openDialog(
+      "设定业绩目标",
+      `${isAdmin ? `<label>门店<select name="store_id">${options.stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label>` : ""}<label>月份<input name="period_month" type="month" required /></label><label>指标<select name="metric"><option value="commission">佣金业绩</option><option value="deals">成交单数</option></select></label><label>员工<select name="user_id"><option value="">门店合计</option>${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label><label>目标值<input name="target_value" type="number" min="0.01" step="0.01" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.targets.save", {
+          store_id: fd.get("store_id") || state.user.store_id,
+          period_month: fd.get("period_month"),
+          metric: fd.get("metric"),
+          user_id: fd.get("user_id") || null,
+          target_value: Number(fd.get("target_value")),
+        });
+        toast(result.ok ? "业绩目标已设定" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-bonus]")?.addEventListener("click", () =>
+    openDialog(
+      "生成门店管理奖",
+      `<label>门店<select name="store_id">${options.stores.map((store: any) => `<option value="${store.id}">${escapeHtml(store.name)}</option>`).join("")}</select></label><label>月份<input name="period_month" type="month" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.bonus.create", {
+          store_id: fd.get("store_id"),
+          period_month: fd.get("period_month"),
+        });
+        toast(
+          result.ok ? `管理奖已计算，合计 ¥${money((result.data as any).bonus_total)}` : result.message,
+          result.ok ? "ok" : "error"
+        );
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-new-dividend]")?.addEventListener("click", () =>
+    openDialog(
+      "新建利润分红批次",
+      `<label>月份<input name="period_month" type="month" required /></label><label>分红池金额<input name="pool_amount" type="number" min="0.01" step="0.01" required /></label>`,
+      async (fd) => {
+        const result = await api("performance.dividend.create", {
+          period_month: fd.get("period_month"),
+          pool_amount: Number(fd.get("pool_amount")),
+        });
+        toast(result.ok ? "分红批次已按积分计算" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -4708,15 +4994,6 @@ const suiteMeta: Record<
       ["work_summary", "工作总结"],
       ["circle_post", "同事圈"],
       ["call_record", "来电记录"],
-    ],
-  },
-  performance: {
-    title: "积分分红",
-    types: [
-      ["points", "积分"],
-      ["bonus", "管理奖"],
-      ["dividend", "利润分红"],
-      ["target", "业绩目标"],
     ],
   },
 };

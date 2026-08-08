@@ -123,7 +123,7 @@ const cases = [
   { module: "office", type: "work_summary", actor: agent, approver: manager },
   { module: "office", type: "workflow", actor: agent, approver: manager },
   { module: "office", type: "ticket", actor: agent, approver: manager },
-  { module: "performance", type: "points", actor: manager, approver: manager },
+  { module: "office", type: "circle_post", actor: agent, approver: manager },
 ];
 
 for (const item of cases) {
