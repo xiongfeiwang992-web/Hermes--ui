@@ -24,6 +24,20 @@ export function listAttachments(db: Db, user: SessionUser, payload: any): ApiRes
     )
       return { ok: false, message: "报销单不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "cashbook_entry") {
+    const entry = db
+      .prepare(`SELECT * FROM cashbook_entries WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !entry ||
+      !(
+        user.role === "admin" ||
+        user.role === "finance" ||
+        (user.role === "store_manager" && entry.store_id === user.store_id)
+      )
+    )
+      return { ok: false, message: "收支记录不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -102,6 +116,20 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     if (!canAddReceipt && !canAddVoucher)
       return { ok: false, message: "当前状态无附件上传权限", code: 403 };
     attachmentStoreId = expense.store_id;
+  }
+  if (payload.parent_type === "cashbook_entry") {
+    const entry = db
+      .prepare(`SELECT * FROM cashbook_entries WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !entry ||
+      entry.status !== "confirmed" ||
+      !(user.role === "admin" || user.role === "finance")
+    )
+      return { ok: false, message: "收支记录不存在或无凭证上传权限", code: 403 };
+    if (payload.category !== "cashbook_voucher")
+      return { ok: false, message: "收支凭证分类无效" };
+    attachmentStoreId = entry.store_id;
   }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");

@@ -22,6 +22,7 @@ import * as newhome from "../domain/newhome";
 import * as offboarding from "../domain/offboarding";
 import * as expense from "../domain/expense";
 import * as attendance from "../domain/attendance";
+import * as cashbook from "../domain/cashbook";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -284,6 +285,18 @@ function route(
       return attendance.reviewLeave(db, user!, payload);
     case "leave.cancel":
       return attendance.cancelLeave(db, user!, payload);
+    case "cashbook.list":
+      return cashbook.listCashbook(db, user!, payload);
+    case "cashbook.options":
+      return cashbook.cashbookOptions(db, user!);
+    case "cashbook.create":
+      return cashbook.createCashbook(db, user!, payload);
+    case "cashbook.void":
+      return cashbook.voidCashbook(db, user!, payload);
+    case "cashbook.summary":
+      return cashbook.summarizeCashbook(db, user!, payload);
+    case "cashbook.export":
+      return cashbook.exportCashbook(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

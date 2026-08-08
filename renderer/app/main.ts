@@ -80,6 +80,7 @@ function canSee(tab: string) {
   if (tab === "org" || tab === "audit") return role === "admin" || (tab === "audit" && role === "store_manager");
   if (tab === "offboarding") return ["admin", "store_manager"].includes(role);
   if (tab === "expenses") return true;
+  if (tab === "cashbook") return ["admin", "finance", "store_manager"].includes(role);
   if (
     [
       "houses",
@@ -184,6 +185,7 @@ function renderSide(side: HTMLElement) {
     ["suite-deal", "交易扩展"],
     ["suite-newhome", "新房分销"],
     ["suite-finance", "财务管理"],
+    ["cashbook", "收支流水"],
     ["expenses", "费用报销"],
     ["suite-office", "办公协同"],
     ["suite-hr", "人事管理"],
@@ -252,6 +254,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "offboarding") return renderOffboarding(main);
   if (state.tab === "expenses") return renderExpenses(main);
   if (state.tab === "attendance-leave") return renderAttendanceLeave(main);
+  if (state.tab === "cashbook") return renderCashbook(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -319,6 +322,7 @@ function openDialog(title: string, fieldsHtml: string, onSubmit: (fd: FormData) 
     backdrop.remove();
     render();
   });
+  return backdrop;
 }
 
 function openInfoDialog(title: string, bodyHtml: string) {
@@ -574,7 +578,7 @@ async function renderHouses(main: HTMLElement) {
     });
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
-    openDialog(
+    const dialog = openDialog(
       "新建房源",
       `
       <label>标题<input name="title" required /></label>
@@ -2473,6 +2477,174 @@ async function renderAttendanceLeave(main: HTMLElement) {
   await draw();
 }
 
+const cashbookCategories: Record<string, string> = {
+  commission: "佣金收入",
+  deposit: "押金收入",
+  service: "服务收入",
+  other_income: "其他收入",
+  office: "办公支出",
+  marketing: "营销支出",
+  salary: "薪酬支出",
+  rent: "租金支出",
+  tax: "税费支出",
+  reimbursement: "报销支出",
+  other_expense: "其他支出",
+};
+
+async function renderCashbook(main: HTMLElement) {
+  const canWrite = ["admin", "finance"].includes(state.user.role);
+  const desktopShell = (window as any).weilaijia?.shell;
+  const optionsResult = await api("cashbook.options", {});
+  const options = optionsResult.ok ? (optionsResult.data as any) : { stores: [], deals: [] };
+  const defaultMonth = new Date().toISOString().slice(0, 7);
+  main.innerHTML = `
+    <div class="header"><h2>简易收支流水</h2><div class="ops">
+      <button class="btn ghost" data-cashbook-export>导出 CSV</button>
+      ${canWrite ? `<button class="btn" data-new-cashbook>登记收支</button>` : ""}
+    </div></div>
+    <div class="filters">
+      <input data-cashbook-month type="month" value="${defaultMonth}" />
+      <select data-cashbook-direction><option value="">全部方向</option><option value="income">收入</option><option value="expense">支出</option></select>
+      <select data-cashbook-status><option value="">全部状态</option><option value="confirmed">有效</option><option value="voided">已作废</option></select>
+    </div>
+    <div class="stats" data-cashbook-summary></div>
+    <div class="list" data-cashbook-list></div>
+  `;
+  const query = () => {
+    const month = (main.querySelector("[data-cashbook-month]") as HTMLInputElement).value;
+    const direction = (main.querySelector("[data-cashbook-direction]") as HTMLSelectElement).value;
+    const status = (main.querySelector("[data-cashbook-status]") as HTMLSelectElement).value;
+    const [year, value] = month.split("-").map(Number);
+    return {
+      start_at: `${month}-01T00:00:00.000Z`,
+      end_at: new Date(Date.UTC(year, value, 1) - 1).toISOString(),
+      ...(direction ? { direction } : {}),
+      ...(status ? { status } : {}),
+    };
+  };
+  const draw = async () => {
+    const filter = query();
+    const [listResult, summaryResult] = await Promise.all([
+      api("cashbook.list", filter),
+      api("cashbook.summary", filter),
+    ]);
+    const summary = main.querySelector("[data-cashbook-summary]")!;
+    summary.innerHTML = summaryResult.ok
+      ? `<div class="stat"><div class="n">¥${money((summaryResult.data as any).income)}</div><div class="l">收入</div></div><div class="stat"><div class="n">¥${money((summaryResult.data as any).expense)}</div><div class="l">支出</div></div><div class="stat"><div class="n">¥${money((summaryResult.data as any).balance)}</div><div class="l">结余</div></div><div class="stat"><div class="n">${(summaryResult.data as any).count}</div><div class="l">有效笔数</div></div>`
+      : `<div class="error">${summaryResult.message}</div>`;
+    const list = main.querySelector("[data-cashbook-list]")!;
+    if (!listResult.ok) return (list.innerHTML = `<div class="error">${listResult.message}</div>`);
+    list.innerHTML =
+      (listResult.data as any[])
+        .map(
+          (entry) => `<div class="row"><div>
+            <div><span class="tag ${entry.direction === "income" ? "ok" : "warn"}">${entry.direction === "income" ? "收入" : "支出"}</span><span class="tag ${entry.status === "voided" ? "danger" : "ok"}">${entry.status === "voided" ? "已作废" : "有效"}</span><strong>${cashbookCategories[entry.category] || entry.category}</strong> · ¥${money(entry.amount)}</div>
+            <div class="meta">${entry.store_name} · ${new Date(entry.occurred_at).toLocaleString("zh-CN")} · ${entry.payment_method}${entry.counterparty ? ` · ${entry.counterparty}` : ""}${entry.deal_id ? ` · 成交 ${entry.deal_id}` : ""} · 凭证 ${entry.voucher_count}${entry.note ? ` · ${entry.note}` : ""}${entry.void_reason ? ` · 作废：${entry.void_reason}` : ""}</div>
+          </div><div class="ops">
+            ${canWrite && entry.status === "confirmed" ? `<button class="btn ghost" data-cashbook-voucher="${entry.id}">上传凭证</button><button class="btn danger" data-void-cashbook="${entry.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">本月暂无收支流水</div>`;
+    list.querySelectorAll("[data-cashbook-voucher]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传凭证", "error");
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const result = await api("attachment.add", {
+            parent_type: "cashbook_entry",
+            parent_id: (button as HTMLElement).dataset.cashbookVoucher,
+            category: "cashbook_voucher",
+            name: localPath.split(/[\\/]/).pop() || "收支凭证",
+            local_path: localPath,
+          });
+          if (!result.ok) return toast(result.message, "error");
+        }
+        toast(paths.length ? `已上传 ${paths.length} 个凭证` : "未选择文件");
+        if (paths.length) draw();
+      })
+    );
+    list.querySelectorAll("[data-void-cashbook]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("作废原因");
+        if (!reason) return;
+        const result = await api("cashbook.void", {
+          id: (button as HTMLElement).dataset.voidCashbook,
+          reason,
+        });
+        toast(result.ok ? "收支流水已作废" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelector("[data-new-cashbook]")?.addEventListener("click", () => {
+    const storeOptions = options.stores
+      .map((store: any) => `<option value="${store.id}">${store.name}</option>`)
+      .join("");
+    const dealOptions = options.deals
+      .map((deal: any) => `<option value="${deal.id}">${deal.id} · ${deal.deal_date}</option>`)
+      .join("");
+    openDialog(
+      "登记简易收支",
+      `
+      <label>方向<select name="direction"><option value="income">收入</option><option value="expense">支出</option></select></label>
+      <label>类别<select name="category"></select></label>
+      <label>门店<select name="store_id">${storeOptions}</select></label>
+      <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>
+      <label>发生时间<input name="occurred_at" type="datetime-local" required /></label>
+      <label>收付方式<select name="payment_method"><option value="bank">银行</option><option value="cash">现金</option><option value="wechat">微信</option><option value="alipay">支付宝</option><option value="other">其他</option></select></label>
+      <label>往来方<input name="counterparty" /></label>
+      <label>关联成交<select name="deal_id"><option value="">无</option>${dealOptions}</select></label>
+      <label class="full">备注<textarea name="note" rows="3"></textarea></label>
+      `,
+      async (fd) => {
+        const occurred = String(fd.get("occurred_at") || "");
+        const result = await api("cashbook.create", {
+          direction: fd.get("direction"),
+          category: fd.get("category"),
+          store_id: fd.get("store_id"),
+          amount: Number(fd.get("amount")),
+          occurred_at: occurred ? new Date(occurred).toISOString() : null,
+          payment_method: fd.get("payment_method"),
+          counterparty: fd.get("counterparty"),
+          deal_id: fd.get("deal_id") || null,
+          note: fd.get("note"),
+        });
+        toast(result.ok ? "收支流水已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    );
+    const direction = dialog.querySelector('[name="direction"]') as HTMLSelectElement;
+    const category = dialog.querySelector('[name="category"]') as HTMLSelectElement;
+    const refreshCategories = () => {
+      const allowed =
+        direction.value === "income"
+          ? ["commission", "deposit", "service", "other_income"]
+          : ["office", "marketing", "salary", "rent", "tax", "reimbursement", "other_expense"];
+      category.innerHTML = allowed
+        .map((value) => `<option value="${value}">${cashbookCategories[value]}</option>`)
+        .join("");
+    };
+    direction.addEventListener("change", refreshCategories);
+    refreshCategories();
+  });
+  main.querySelector("[data-cashbook-export]")!.addEventListener("click", async () => {
+    const result = await api("cashbook.export", query());
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const url = URL.createObjectURL(new Blob([file.content], { type: file.mime }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = file.filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条收支流水`);
+  });
+  main.querySelectorAll("[data-cashbook-month], [data-cashbook-direction], [data-cashbook-status]").forEach((input) =>
+    input.addEventListener("change", draw)
+  );
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -2507,8 +2679,6 @@ const suiteMeta: Record<
   finance: {
     title: "财务管理",
     types: [
-      ["income", "收入"],
-      ["expense", "支出"],
       ["asset", "资产"],
       ["voucher", "会计凭证"],
       ["payroll", "薪酬发放"],
