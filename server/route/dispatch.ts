@@ -28,6 +28,7 @@ import * as recruitment from "../domain/recruitment";
 import * as employeeContract from "../domain/employeeContract";
 import * as payroll from "../domain/payroll";
 import * as officeContent from "../domain/officeContent";
+import * as rental from "../domain/rental";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -398,6 +399,40 @@ function route(
       return officeContent.unreadDocuments(db, user!);
     case "officeContent.versions":
       return officeContent.listVersions(db, user!, payload);
+    case "rental.options":
+      return rental.rentalOptions(db, user!);
+    case "rental.properties.list":
+      return rental.listProperties(db, user!, payload);
+    case "rental.properties.create":
+      return rental.createProperty(db, user!, payload);
+    case "rental.properties.activate":
+      return rental.activateProperty(db, user!, payload);
+    case "rental.properties.terminate":
+      return rental.terminateProperty(db, user!, payload);
+    case "rental.leases.list":
+      return rental.listLeases(db, user!, payload);
+    case "rental.leases.create":
+      return rental.createLease(db, user!, payload);
+    case "rental.leases.activate":
+      return rental.activateLease(db, user!, payload);
+    case "rental.leases.terminate":
+      return rental.terminateLease(db, user!, payload);
+    case "rental.bills.list":
+      return rental.listBills(db, user!, payload);
+    case "rental.bills.pay":
+      return rental.payBill(db, user!, payload);
+    case "rental.bills.void":
+      return rental.voidBill(db, user!, payload);
+    case "rental.workOrders.list":
+      return rental.listWorkOrders(db, user!, payload);
+    case "rental.workOrders.create":
+      return rental.createWorkOrder(db, user!, payload);
+    case "rental.workOrders.status":
+      return rental.changeWorkOrderStatus(db, user!, payload);
+    case "rental.workOrders.cancel":
+      return rental.cancelWorkOrder(db, user!, payload);
+    case "rental.events":
+      return rental.listEvents(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

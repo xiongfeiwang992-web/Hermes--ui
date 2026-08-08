@@ -206,7 +206,7 @@ function renderSide(side: HTMLElement) {
     ["employee-contracts", "员工合同"],
     ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
-    ["suite-rental", "租赁托管"],
+    ["rental", "租赁托管"],
     ["suite-care", "客户关怀"],
     ["suite-marketing", "营销线索"],
     ["suite-performance", "积分分红"],
@@ -275,13 +275,13 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "employee-contracts") return renderEmployeeContracts(main);
   if (state.tab === "payroll") return renderPayroll(main);
   if (state.tab === "office-content") return renderOfficeContent(main);
+  if (state.tab === "rental") return renderRental(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
       "suite-deal": "deal_ext",
       "suite-finance": "finance",
       "suite-office": "office",
-      "suite-rental": "rental",
       "suite-care": "customer_care",
       "suite-marketing": "marketing",
       "suite-performance": "performance",
@@ -3643,6 +3643,366 @@ async function renderOfficeContent(main: HTMLElement) {
   await Promise.all([draw(), drawUnread()]);
 }
 
+async function renderRental(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const isFinance = state.user.role === "finance";
+  const isManagerial = isAdmin || state.user.role === "store_manager";
+  const optionsResult = await api("rental.options");
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { houses: [], users: [], stores: [] };
+  const managementLabels: Record<string, string> = {
+    rent_out: "委托出租",
+    centralized: "集中式托管",
+    self_owned: "自有物业",
+  };
+  const statusLabels: Record<string, string> = {
+    draft: "草稿",
+    active: "生效",
+    expired: "已到期",
+    terminated: "已终止",
+    pending: "待处理",
+    overdue: "已逾期",
+    paid: "已收款",
+    voided: "已作废",
+    in_progress: "处理中",
+    completed: "已完成",
+    cancelled: "已取消",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>租赁托管</h2><div class="ops">
+      ${isManagerial ? `<button class="btn ghost" data-new-rental-property>登记托管物业</button><button class="btn ghost" data-new-rental-lease>登记租约</button>` : ""}
+      ${!isFinance ? `<button class="btn" data-new-rental-work>新建维修/保洁工单</button>` : ""}
+    </div></div>
+    <section><h3>托管物业</h3><div class="list" data-rental-properties></div></section>
+    <section><h3>租约</h3><div class="list" data-rental-leases></div></section>
+    <section><h3>租金账单</h3><div class="list" data-rental-bills></div></section>
+    <section><h3>维修与保洁</h3><div class="list" data-rental-work-orders></div></section>
+  `;
+  let properties: any[] = [];
+  let leases: any[] = [];
+  const upload = async (
+    parentType: string,
+    parentId: string,
+    category: string,
+    fallbackName: string
+  ) => {
+    if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传附件", "error");
+    const paths = (await desktopShell.chooseFiles()) as string[];
+    for (const localPath of paths) {
+      const result = await api("attachment.add", {
+        parent_type: parentType,
+        parent_id: parentId,
+        category,
+        name: localPath.split(/[\\/]/).pop() || fallbackName,
+        local_path: localPath,
+      });
+      if (!result.ok) return toast(result.message, "error");
+    }
+    toast(paths.length ? `已上传 ${paths.length} 个附件` : "未选择文件");
+    if (paths.length) drawAll();
+  };
+  const showEvents = async (entityType: string, entityId: string, title: string) => {
+    const result = await api("rental.events", {
+      entity_type: entityType,
+      entity_id: entityId,
+    });
+    if (!result.ok) return toast(result.message, "error");
+    openInfoDialog(
+      `${title}履历`,
+      (result.data as any[])
+        .map(
+          (event) =>
+            `<div class="row"><div><strong>${escapeHtml(event.event_type)}</strong><div class="meta">${escapeHtml(event.created_by_name)} · ${new Date(event.created_at).toLocaleString("zh-CN")} · ${escapeHtml(event.details)}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无履历</div>`
+    );
+  };
+  const drawProperties = async () => {
+    const result = await api("rental.properties.list");
+    const list = main.querySelector("[data-rental-properties]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    properties = result.data as any[];
+    list.innerHTML =
+      properties
+        .map((property) => {
+          const canManage =
+            isAdmin ||
+            (state.user.role === "store_manager" &&
+              property.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${property.status === "active" ? "ok" : property.status === "draft" ? "warn" : "danger"}">${statusLabels[property.status]}</span><span class="tag">${managementLabels[property.management_type]}</span><strong>${escapeHtml(property.house_title)}</strong></div>
+            <div class="meta">${escapeHtml(property.store_name)} · ${escapeHtml(property.community)} ${escapeHtml(property.address)} · 负责人 ${escapeHtml(property.manager_name)} · ${property.start_date} 至 ${property.end_date} · 业主月付款 ¥${money(property.owner_payment)} · 生效租约 ${property.active_lease_count} · 合同 ${property.contract_attachment_count}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="property:${property.id}:托管物业">履历</button>
+            ${canManage && ["draft", "active"].includes(property.status) ? `<button class="btn ghost" data-rental-upload="rental_property:${property.id}:management_contract:托管合同">上传合同</button>` : ""}
+            ${canManage && property.status === "draft" ? `<button class="btn" data-activate-rental-property="${property.id}">启用</button>` : ""}
+            ${canManage && ["active", "expired"].includes(property.status) ? `<button class="btn danger" data-terminate-rental-property="${property.id}">终止</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无托管物业</div>`;
+    list.querySelectorAll("[data-activate-rental-property]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("rental.properties.activate", {
+          id: (button as HTMLElement).dataset.activateRentalProperty,
+        });
+        toast(result.ok ? "托管物业已启用" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+    list.querySelectorAll("[data-terminate-rental-property]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("终止托管原因");
+        if (!reason) return;
+        const result = await api("rental.properties.terminate", {
+          id: (button as HTMLElement).dataset.terminateRentalProperty,
+          reason,
+        });
+        toast(result.ok ? "托管已终止" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const drawLeases = async () => {
+    const result = await api("rental.leases.list");
+    const list = main.querySelector("[data-rental-leases]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    leases = result.data as any[];
+    list.innerHTML =
+      leases
+        .map((lease) => {
+          const canManage =
+            isAdmin ||
+            (state.user.role === "store_manager" && lease.store_id === state.user.store_id);
+          return `<div class="row"><div>
+            <div><span class="tag ${lease.status === "active" ? "ok" : lease.status === "draft" ? "warn" : "danger"}">${statusLabels[lease.status]}</span><strong>${escapeHtml(lease.tenant_name)}</strong> · ${escapeHtml(lease.house_title)}</div>
+            <div class="meta">${lease.start_date} 至 ${lease.end_date} · 月租 ¥${money(lease.monthly_rent)} · 押金 ¥${money(lease.deposit_amount)} · ${lease.payment_cycle_months} 月一付 · 首期 ${lease.first_due_date} · 账单 ${lease.bill_count} · 租约附件 ${lease.lease_attachment_count}${lease.termination_reason ? ` · 终止：${escapeHtml(lease.termination_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="lease:${lease.id}:租约">履历</button>
+            ${canManage && lease.status === "draft" ? `<button class="btn ghost" data-rental-upload="rental_lease:${lease.id}:signed_lease:已签租约">上传租约</button><button class="btn" data-activate-rental-lease="${lease.id}">启用</button>` : ""}
+            ${canManage && ["active", "expired"].includes(lease.status) ? `<button class="btn danger" data-terminate-rental-lease="${lease.id}">终止</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无租约</div>`;
+    list.querySelectorAll("[data-activate-rental-lease]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("rental.leases.activate", {
+          id: (button as HTMLElement).dataset.activateRentalLease,
+        });
+        toast(result.ok ? "租约已启用并生成账单" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+    list.querySelectorAll("[data-terminate-rental-lease]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("租约终止原因");
+        if (!reason) return;
+        const result = await api("rental.leases.terminate", {
+          id: (button as HTMLElement).dataset.terminateRentalLease,
+          reason,
+        });
+        toast(result.ok ? "租约已终止，未收账单已作废" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const drawBills = async () => {
+    const result = await api("rental.bills.list");
+    const list = main.querySelector("[data-rental-bills]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (bill) => `<div class="row"><div>
+            <div><span class="tag ${bill.status === "paid" ? "ok" : bill.status === "overdue" ? "danger" : "warn"}">${statusLabels[bill.status]}</span><strong>${escapeHtml(bill.tenant_name)}</strong> · ${escapeHtml(bill.house_title)} · ¥${money(bill.amount)}</div>
+            <div class="meta">账期 ${bill.period_start} 至 ${bill.period_end} · 应收 ${bill.due_date}${bill.paid_at ? ` · 收款 ${new Date(bill.paid_at).toLocaleString("zh-CN")} · ${escapeHtml(bill.payment_method)} ${escapeHtml(bill.payment_reference)}` : ""}${bill.void_reason ? ` · 作废：${escapeHtml(bill.void_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="bill:${bill.id}:租金账单">履历</button>
+            ${(isAdmin || isFinance) && ["pending", "overdue"].includes(bill.status) ? `<button class="btn" data-pay-rental-bill="${bill.id}" data-bill-amount="${bill.amount}">确认收租</button>` : ""}
+            ${isAdmin && ["pending", "overdue"].includes(bill.status) ? `<button class="btn danger" data-void-rental-bill="${bill.id}">作废</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无租金账单</div>`;
+    list.querySelectorAll("[data-pay-rental-bill]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const element = button as HTMLElement;
+        openDialog(
+          "确认租金收款",
+          `<label>收款金额<input name="paid_amount" type="number" value="${element.dataset.billAmount}" readonly /></label><label>收款方式<select name="payment_method"><option value="bank">银行</option><option value="cash">现金</option><option value="other">其他</option></select></label><label class="full">流水号<input name="payment_reference" /></label>`,
+          async (fd) => {
+            const result = await api("rental.bills.pay", {
+              id: element.dataset.payRentalBill,
+              paid_amount: Number(fd.get("paid_amount")),
+              payment_method: fd.get("payment_method"),
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "租金收款已确认" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawAll();
+          }
+        );
+      })
+    );
+    list.querySelectorAll("[data-void-rental-bill]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("账单作废原因");
+        if (!reason) return;
+        const result = await api("rental.bills.void", {
+          id: (button as HTMLElement).dataset.voidRentalBill,
+          reason,
+        });
+        toast(result.ok ? "账单已作废" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const drawWorkOrders = async () => {
+    const result = await api("rental.workOrders.list");
+    const list = main.querySelector("[data-rental-work-orders]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((work) => {
+          const canManage =
+            isAdmin ||
+            (state.user.role === "store_manager" && work.store_id === state.user.store_id);
+          const canOperate = canManage || work.assignee_user_id === state.user.id;
+          return `<div class="row"><div>
+            <div><span class="tag ${work.status === "completed" ? "ok" : work.status === "cancelled" ? "danger" : "warn"}">${statusLabels[work.status]}</span><span class="tag">${work.work_type === "maintenance" ? "维修" : "保洁"}</span><strong>${escapeHtml(work.house_title)}</strong></div>
+            <div>${escapeHtml(work.description)}</div><div class="meta">负责人 ${escapeHtml(work.assignee_name)} · 预计 ¥${money(work.expected_cost)}${work.actual_cost != null ? ` · 实际 ¥${money(work.actual_cost)}` : ""} · 完工凭证 ${work.evidence_count}${work.completion_note ? ` · ${escapeHtml(work.completion_note)}` : ""}${work.cancel_reason ? ` · 取消：${escapeHtml(work.cancel_reason)}` : ""}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-rental-events="work_order:${work.id}:工单">履历</button>
+            ${canOperate && ["pending", "in_progress"].includes(work.status) ? `<button class="btn ghost" data-rental-upload="rental_work_order:${work.id}:work_order_evidence:完工凭证">上传凭证</button>` : ""}
+            ${canOperate && work.status === "pending" ? `<button class="btn" data-start-rental-work="${work.id}">开始</button>` : ""}
+            ${canOperate && ["pending", "in_progress"].includes(work.status) ? `<button class="btn" data-complete-rental-work="${work.id}">完成</button>` : ""}
+            ${canManage && ["pending", "in_progress"].includes(work.status) ? `<button class="btn danger" data-cancel-rental-work="${work.id}">取消</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无维修或保洁工单</div>`;
+    list.querySelectorAll("[data-start-rental-work]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("rental.workOrders.status", {
+          id: (button as HTMLElement).dataset.startRentalWork,
+          status: "in_progress",
+        });
+        toast(result.ok ? "工单已开始" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+    list.querySelectorAll("[data-complete-rental-work]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "完成租赁工单",
+          `<label>实际费用<input name="actual_cost" type="number" min="0" step="0.01" value="0" /></label><label class="full">完成说明<input name="completion_note" required /></label>`,
+          async (fd) => {
+            const result = await api("rental.workOrders.status", {
+              id: (button as HTMLElement).dataset.completeRentalWork,
+              status: "completed",
+              actual_cost: Number(fd.get("actual_cost")),
+              completion_note: fd.get("completion_note"),
+            });
+            toast(result.ok ? "工单已完成" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawAll();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-cancel-rental-work]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("工单取消原因");
+        if (!reason) return;
+        const result = await api("rental.workOrders.cancel", {
+          id: (button as HTMLElement).dataset.cancelRentalWork,
+          reason,
+        });
+        toast(result.ok ? "工单已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      })
+    );
+  };
+  const bindCommonActions = () => {
+    main.querySelectorAll("[data-rental-upload]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [parentType, parentId, category, name] = String(
+          (button as HTMLElement).dataset.rentalUpload
+        ).split(":");
+        upload(parentType, parentId, category, name);
+      })
+    );
+    main.querySelectorAll("[data-rental-events]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const [entityType, entityId, title] = String(
+          (button as HTMLElement).dataset.rentalEvents
+        ).split(":");
+        showEvents(entityType, entityId, title);
+      })
+    );
+  };
+  const drawAll = async () => {
+    await Promise.all([drawProperties(), drawLeases(), drawBills(), drawWorkOrders()]);
+    bindCommonActions();
+  };
+  main.querySelector("[data-new-rental-property]")?.addEventListener("click", () =>
+    openDialog(
+      "登记托管物业",
+      `<label>租赁房源<select name="house_id">${options.houses.map((house: any) => `<option value="${house.id}">${escapeHtml(house.title)} · ${escapeHtml(house.community)}</option>`).join("")}</select></label><label>托管类型<select name="management_type">${Object.entries(managementLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label><label>托管负责人<select name="manager_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</option>`).join("")}</select></label><label>业主月付款<input name="owner_payment" type="number" min="0" step="0.01" value="0" /></label><label>开始日期<input name="start_date" type="date" required /></label><label>结束日期<input name="end_date" type="date" required /></label>`,
+      async (fd) => {
+        const result = await api("rental.properties.create", {
+          house_id: fd.get("house_id"),
+          management_type: fd.get("management_type"),
+          manager_user_id: fd.get("manager_user_id"),
+          owner_payment: Number(fd.get("owner_payment")),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+        });
+        toast(result.ok ? "托管物业草稿已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      }
+    )
+  );
+  main.querySelector("[data-new-rental-lease]")?.addEventListener("click", () => {
+    const activeProperties = properties.filter((property) => property.status === "active");
+    openDialog(
+      "登记租约",
+      `<label>托管物业<select name="property_id">${activeProperties.map((property) => `<option value="${property.id}">${escapeHtml(property.house_title)}</option>`).join("")}</select></label><label>租客姓名<input name="tenant_name" required /></label><label>租客手机<input name="tenant_phone" required /></label><label>月租<input name="monthly_rent" type="number" min="0.01" step="0.01" required /></label><label>押金<input name="deposit_amount" type="number" min="0" step="0.01" value="0" /></label><label>付款周期<select name="payment_cycle_months"><option value="1">月付</option><option value="2">两月付</option><option value="3">季付</option><option value="6">半年付</option><option value="12">年付</option></select></label><label>开始日期<input name="start_date" type="date" required /></label><label>结束日期<input name="end_date" type="date" required /></label><label>首期应收日期<input name="first_due_date" type="date" required /></label>`,
+      async (fd) => {
+        const result = await api("rental.leases.create", {
+          property_id: fd.get("property_id"),
+          tenant_name: fd.get("tenant_name"),
+          tenant_phone: fd.get("tenant_phone"),
+          monthly_rent: Number(fd.get("monthly_rent")),
+          deposit_amount: Number(fd.get("deposit_amount")),
+          payment_cycle_months: Number(fd.get("payment_cycle_months")),
+          start_date: fd.get("start_date"),
+          end_date: fd.get("end_date"),
+          first_due_date: fd.get("first_due_date"),
+        });
+        toast(result.ok ? "租约草稿已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      }
+    );
+  });
+  main.querySelector("[data-new-rental-work]")?.addEventListener("click", () => {
+    const activeProperties = properties.filter((property) => property.status === "active");
+    openDialog(
+      "新建维修/保洁工单",
+      `<label>托管物业<select name="property_id">${activeProperties.map((property) => `<option value="${property.id}">${escapeHtml(property.house_title)}</option>`).join("")}</select></label><label>关联租约<select name="lease_id"><option value="">不关联</option>${leases.filter((lease) => ["draft", "active"].includes(lease.status)).map((lease) => `<option value="${lease.id}">${escapeHtml(lease.tenant_name)} · ${escapeHtml(lease.house_title)}</option>`).join("")}</select></label><label>类型<select name="work_type"><option value="maintenance">维修</option><option value="cleaning">保洁</option></select></label>${isManagerial ? `<label>负责人<select name="assignee_user_id">${options.users.map((user: any) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>` : `<label>负责人<input value="${escapeHtml(state.user.display_name)}（本人）" disabled /></label>`}<label>预计费用<input name="expected_cost" type="number" min="0" step="0.01" value="0" /></label><label class="full">问题描述<textarea name="description" rows="4" required></textarea></label>`,
+      async (fd) => {
+        const result = await api("rental.workOrders.create", {
+          property_id: fd.get("property_id"),
+          lease_id: fd.get("lease_id") || null,
+          work_type: fd.get("work_type"),
+          assignee_user_id: fd.get("assignee_user_id"),
+          expected_cost: Number(fd.get("expected_cost")),
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "租赁工单已创建" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawAll();
+      }
+    );
+  });
+  await drawAll();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -3691,16 +4051,6 @@ const suiteMeta: Record<
       ["work_summary", "工作总结"],
       ["circle_post", "同事圈"],
       ["call_record", "来电记录"],
-    ],
-  },
-  rental: {
-    title: "租赁托管",
-    types: [
-      ["managed_property", "托管物业"],
-      ["lease", "租约"],
-      ["bill", "租金账单"],
-      ["maintenance", "维修工单"],
-      ["cleaning", "保洁工单"],
     ],
   },
   customer_care: {

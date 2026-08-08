@@ -29,7 +29,6 @@ const TYPES: Record<string, Set<string>> = {
     "call_record",
   ]),
   marketing: new Set(["website_page", "online_entrustment", "lead", "campaign"]),
-  rental: new Set(["managed_property", "lease", "bill", "maintenance", "cleaning"]),
   customer_care: new Set(["complaint", "lawsuit", "survey", "callback"]),
   performance: new Set(["points", "bonus", "dividend", "target"]),
 };
