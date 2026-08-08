@@ -314,25 +314,98 @@ export function exportFollowsCsv(db: Db, user: SessionUser, payload: any = {}): 
   );
 }
 
+function userNameMap(db: Db, companyId: string): Map<string, string> {
+  const rows = db
+    .prepare(`SELECT id, display_name FROM users WHERE company_id = ?`)
+    .all(companyId) as Array<{ id: string; display_name: string }>;
+  return new Map(rows.map((row) => [row.id, row.display_name]));
+}
+
+function presentViewExportRow(db: Db, companyId: string, row: any, names: Map<string, string>) {
+  const house = db
+    .prepare(`SELECT title FROM houses WHERE id = ? AND company_id = ?`)
+    .get(row.house_id, companyId) as { title?: string } | undefined;
+  const customer = db
+    .prepare(`SELECT name FROM customers WHERE id = ? AND company_id = ?`)
+    .get(row.customer_id, companyId) as { name?: string } | undefined;
+  const accompany = (row.accompany_ids || [])
+    .map((id: string) => names.get(id) || id)
+    .join("|");
+  return {
+    ...row,
+    house_title: house?.title || row.house_id,
+    customer_name: customer?.name || row.customer_id,
+    agent_name: names.get(row.agent_id) || row.agent_id,
+    accompany_names: accompany,
+  };
+}
+
 export function exportViewsCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
   const rows = dataRows(listViews(db, user, payload));
   if (!rows) return { ok: false, message: "无带看导出权限", code: 403 };
-  writeAudit(db, user, "view.export", "view", undefined, { rows: rows.length });
+  const names = userNameMap(db, user.company_id);
+  const presented = rows.map((row) => presentViewExportRow(db, user.company_id, row, names));
+  writeAudit(db, user, "view.export", "view", undefined, { rows: presented.length });
   return csvFile(
     `带看明细-${todayDate()}.csv`,
-    ["带看编号", "门店", "客户", "房源", "主看人", "陪看人", "时间", "状态", "反馈", "内容"],
-    rows.map((row) => [
+    [
+      "带看编号",
+      "门店",
+      "客户",
+      "客户编号",
+      "房源",
+      "房源编号",
+      "主看人",
+      "陪看人",
+      "时间",
+      "状态",
+      "反馈",
+      "内容",
+    ],
+    presented.map((row) => [
       row.id,
       row.store_id,
+      row.customer_name,
       row.customer_id,
+      row.house_title,
       row.house_id,
-      row.agent_id,
-      (row.accompany_ids || []).join("|"),
+      row.agent_name,
+      row.accompany_names,
       row.view_at,
       row.status,
       row.feedback,
       row.content,
     ])
+  );
+}
+
+export function exportViewSlip(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  if (!payload.id) return { ok: false, message: "带看编号必填" };
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const listed = dataRows(listViews(db, user, { }));
+  if (!listed) return { ok: false, message: "无带看导出权限", code: 403 };
+  const row = listed.find((item) => item.id === payload.id);
+  if (!row) return { ok: false, message: "带看不存在或无权限", code: 404 };
+  const names = userNameMap(db, user.company_id);
+  const presented = presentViewExportRow(db, user.company_id, row, names);
+  writeAudit(db, user, "view.export_slip", "view", presented.id);
+  return csvFile(
+    `带看单-${presented.id}.csv`,
+    ["字段", "内容"],
+    [
+      ["带看编号", presented.id],
+      ["门店", presented.store_id],
+      ["客户", presented.customer_name],
+      ["客户编号", presented.customer_id],
+      ["房源", presented.house_title],
+      ["房源编号", presented.house_id],
+      ["主看人", presented.agent_name],
+      ["陪看人", presented.accompany_names || "-"],
+      ["带看时间", presented.view_at],
+      ["状态", presented.status],
+      ["反馈", presented.feedback],
+      ["备注", presented.content || ""],
+    ]
   );
 }
 
