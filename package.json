@@ -21,7 +21,8 @@
     "smoke:specialized": "tsx scripts/specialized-smoke.ts",
     "smoke:operations": "tsx scripts/operations-smoke.ts",
     "smoke:deal-documents": "tsx scripts/deal-documents-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents"
+    "smoke:mortgage": "tsx scripts/mortgage-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

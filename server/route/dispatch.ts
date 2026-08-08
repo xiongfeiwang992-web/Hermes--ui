@@ -16,6 +16,7 @@ import * as attachment from "../domain/attachment";
 import * as config from "../domain/config";
 import * as contract from "../domain/contract";
 import * as dealDocuments from "../domain/dealDocuments";
+import * as mortgage from "../domain/mortgage";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -202,6 +203,12 @@ function route(
       return dealDocuments.initChecklist(db, user!, payload);
     case "deal.documents.list":
       return dealDocuments.listItems(db, user!, payload);
+    case "mortgage.get":
+      return mortgage.getMortgage(db, user!, payload);
+    case "mortgage.upsert":
+      return mortgage.upsertMortgage(db, user!, payload);
+    case "mortgage.status":
+      return mortgage.changeMortgageStatus(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

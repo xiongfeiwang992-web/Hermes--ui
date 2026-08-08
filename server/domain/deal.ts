@@ -9,6 +9,7 @@ import { writeAudit } from "./audit";
 import { createMessage } from "./message";
 import { initForDeal, readiness } from "./dealDocuments";
 import { seedNodesForDeal } from "./transfer";
+import { initializeMortgage } from "./mortgage";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -107,6 +108,7 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
     now
   );
   initForDeal(db, id);
+  initializeMortgage(db, id);
   writeAudit(db, user, "deal.create", "deal", id);
   return getDeal(db, user, id);
 }

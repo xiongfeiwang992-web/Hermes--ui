@@ -1127,6 +1127,10 @@ async function renderDeals(main: HTMLElement) {
       rows.map(async (deal) => [deal.id, await api("deal.documents.list", { deal_id: deal.id })])
     );
     const checklists = new Map(checklistEntries as Array<[string, ApiResult]>);
+    const mortgageEntries = await Promise.all(
+      rows.map(async (deal) => [deal.id, await api("mortgage.get", { deal_id: deal.id })])
+    );
+    const mortgages = new Map(mortgageEntries as Array<[string, ApiResult]>);
     list.innerHTML = rows
       .map(
         (d) => `<div class="row"><div>
@@ -1134,9 +1138,11 @@ async function renderDeals(main: HTMLElement) {
         <strong>${d.id}</strong> 佣金 ¥${money(d.commission_total)} · 未收 ¥${money(d.unpaid_amount)}</div>
         <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${d.reject_reason}` : ""}</div>
         ${checklists.get(d.id)?.ok ? `<div class="meta">必传资料 ${(checklists.get(d.id) as any).data.received_count}/${(checklists.get(d.id) as any).data.required_count} ${(checklists.get(d.id) as any).data.complete ? "✓" : ""}</div>` : ""}
+        ${mortgages.get(d.id)?.ok && (mortgages.get(d.id) as any).data ? `<div class="meta">按揭 ${(mortgages.get(d.id) as any).data.bank} · ${(mortgages.get(d.id) as any).data.amount} · ${(mortgages.get(d.id) as any).data.status}</div>` : ""}
       </div>
       <div class="ops">
         ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
+        <button class="btn ghost" data-mortgage="${d.id}">按揭</button>
         ${["pending_approval", "approved"].includes(d.status) ? `<button class="btn ghost" data-sign="${d.id}">签署确认</button>` : ""}
         ${["draft", "rejected"].includes(d.status) ? `<button class="btn" data-submit="${d.id}">提交审批</button>` : ""}
         ${d.status === "pending_approval" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${d.id}">通过</button><button class="btn danger" data-reject="${d.id}">驳回</button>` : ""}
@@ -1218,6 +1224,61 @@ async function renderDeals(main: HTMLElement) {
           statement,
         });
         toast(result.ok ? "本地签署确认已记录" : result.message, result.ok ? "ok" : "error");
+      })
+    );
+    list.querySelectorAll("[data-mortgage]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const dealId = (btn as HTMLElement).dataset.mortgage!;
+        const currentResult = await api("mortgage.get", { deal_id: dealId });
+        if (!currentResult.ok) return toast(currentResult.message, "error");
+        const current = currentResult.data as any;
+        const editable = !current || ["draft", "rejected"].includes(current.status);
+        const nextByStatus: Record<string, string[]> = {
+          draft: ["draft", "applied", "cancelled"],
+          applied: ["applied", "approved", "rejected", "cancelled"],
+          rejected: ["rejected", "applied", "cancelled"],
+          approved: ["approved", "disbursed", "cancelled"],
+          disbursed: ["disbursed"],
+          cancelled: ["cancelled"],
+        };
+        const currentStatus = current?.status || "draft";
+        openDialog(
+          "贷款按揭",
+          `
+          <label>贷款银行<input name="bank" value="${current?.bank || ""}" ${editable ? "" : "readonly"} required /></label>
+          <label>贷款金额<input name="amount" type="number" step="0.01" value="${current?.amount || ""}" ${editable ? "" : "readonly"} required /></label>
+          <label>状态<select name="status">${(nextByStatus[currentStatus] || [currentStatus])
+            .map(
+              (status) =>
+                `<option value="${status}" ${status === currentStatus ? "selected" : ""}>${status}</option>`
+            )
+            .join("")}</select></label>
+          <label class="full">备注<input name="remark" value="${current?.remark || ""}" /></label>
+          <label class="full">驳回/取消原因<input name="reason" /></label>
+          `,
+          async (fd) => {
+            if (editable) {
+              const saved = await api("mortgage.upsert", {
+                deal_id: dealId,
+                bank: fd.get("bank"),
+                amount: Number(fd.get("amount")),
+                remark: fd.get("remark"),
+              });
+              if (!saved.ok) return toast(saved.message, "error");
+            }
+            const status = String(fd.get("status"));
+            if (status !== currentStatus) {
+              const changed = await api("mortgage.status", {
+                deal_id: dealId,
+                status,
+                reason: fd.get("reason"),
+              });
+              if (!changed.ok) return toast(changed.message, "error");
+            }
+            toast("按揭信息已更新");
+            draw();
+          }
+        );
       })
     );
   };
@@ -1688,7 +1749,6 @@ const suiteMeta: Record<
   deal_ext: {
     title: "交易扩展",
     types: [
-      ["mortgage", "贷款按揭"],
       ["deal_complaint", "成交投诉"],
       ["rename", "成交更名"],
     ],

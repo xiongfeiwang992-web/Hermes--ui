@@ -2,6 +2,7 @@ import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
+import { canCompleteLoanNode, markMortgageDisbursed } from "./mortgage";
 import type { ApiResult, SessionUser } from "../utils/types";
 
 const TRANSITIONS: Record<string, string[]> = {
@@ -118,6 +119,13 @@ export function changeTransferStatus(db: Db, user: SessionUser, payload: any): A
   if (payload.status === "cancelled" && !String(payload.reason || "").trim()) {
     return { ok: false, message: "取消原因必填" };
   }
+  if (
+    node.node_type === "loan" &&
+    payload.status === "completed" &&
+    !canCompleteLoanNode(db, node.deal_id)
+  ) {
+    return { ok: false, message: "按揭须先审批通过，贷款节点才能完成" };
+  }
   const now = nowIso();
   db.prepare(
     `UPDATE transfer_nodes SET status = ?, completed_at = ?,
@@ -131,6 +139,9 @@ export function changeTransferStatus(db: Db, user: SessionUser, payload: any): A
     now,
     node.id
   );
+  if (node.node_type === "loan" && payload.status === "completed") {
+    markMortgageDisbursed(db, node.deal_id, user.id);
+  }
   writeAudit(db, user, "transfer_node.status", "transfer_node", node.id, {
     from: node.status,
     to: payload.status,
