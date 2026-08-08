@@ -26,7 +26,8 @@
     "smoke:entrustment": "tsx scripts/entrustment-smoke.ts",
     "smoke:newhome": "tsx scripts/newhome-smoke.ts",
     "smoke:offboarding": "tsx scripts/offboarding-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding"
+    "smoke:expense": "tsx scripts/expense-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

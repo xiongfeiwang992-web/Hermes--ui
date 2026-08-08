@@ -79,6 +79,7 @@ function canSee(tab: string) {
   if (!role) return false;
   if (tab === "org" || tab === "audit") return role === "admin" || (tab === "audit" && role === "store_manager");
   if (tab === "offboarding") return ["admin", "store_manager"].includes(role);
+  if (tab === "expenses") return true;
   if (
     [
       "houses",
@@ -183,6 +184,7 @@ function renderSide(side: HTMLElement) {
     ["suite-deal", "交易扩展"],
     ["suite-newhome", "新房分销"],
     ["suite-finance", "财务管理"],
+    ["expenses", "费用报销"],
     ["suite-office", "办公协同"],
     ["suite-hr", "人事管理"],
     ["offboarding", "离职交接"],
@@ -247,6 +249,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "reports") return renderReports(main);
   if (state.tab === "suite-newhome") return renderNewhome(main);
   if (state.tab === "offboarding") return renderOffboarding(main);
+  if (state.tab === "expenses") return renderExpenses(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -2142,6 +2145,172 @@ async function renderOffboarding(main: HTMLElement) {
   await draw();
 }
 
+const expenseCategories: Record<string, string> = {
+  transport: "市内交通",
+  travel: "差旅",
+  office: "办公用品",
+  marketing: "营销推广",
+  hospitality: "业务招待",
+  other: "其他",
+};
+
+async function renderExpenses(main: HTMLElement) {
+  const desktopShell = (window as any).weilaijia?.shell;
+  main.innerHTML = `
+    <div class="header"><h2>费用报销</h2><button class="btn" data-new>新建报销</button></div>
+    <div class="filters">
+      <select data-status><option value="">全部状态</option><option value="draft">草稿</option><option value="pending">待审批</option><option value="approved">待付款</option><option value="rejected">已驳回</option><option value="paid">已付款</option><option value="cancelled">已取消</option></select>
+      <select data-category><option value="">全部类别</option>${Object.entries(expenseCategories).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
+    </div>
+    <div class="list" data-list></div>
+  `;
+  const statusLabel: Record<string, string> = {
+    draft: "草稿",
+    pending: "待审批",
+    approved: "待付款",
+    rejected: "已驳回",
+    paid: "已付款",
+    cancelled: "已取消",
+  };
+  const draw = async () => {
+    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
+    const category = (main.querySelector("[data-category]") as HTMLSelectElement).value;
+    const result = await api("expense.list", {
+      ...(status ? { status } : {}),
+      ...(category ? { category } : {}),
+    });
+    const list = main.querySelector("[data-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map((expense) => {
+          const own = expense.applicant_user_id === state.user.id;
+          const canReview =
+            expense.status === "pending" &&
+            expense.applicant_user_id !== state.user.id &&
+            ["admin", "store_manager"].includes(state.user.role);
+          const canPay =
+            expense.status === "approved" &&
+            expense.applicant_user_id !== state.user.id &&
+            ["admin", "finance"].includes(state.user.role);
+          const canReceipt =
+            ["draft", "rejected"].includes(expense.status) &&
+            (own || state.user.role === "admin");
+          const canVoucher =
+            ["approved", "paid"].includes(expense.status) &&
+            ["admin", "finance"].includes(state.user.role);
+          return `<div class="row"><div>
+            <div><span class="tag ${expense.status === "paid" ? "ok" : expense.status === "rejected" || expense.status === "cancelled" ? "danger" : "warn"}">${statusLabel[expense.status] || expense.status}</span><span class="tag">${expenseCategories[expense.category] || expense.category}</span><strong>${expense.title}</strong> · ¥${money(expense.amount)}</div>
+            <div class="meta">${expense.applicant_name} · 费用日期 ${expense.expense_date} · 票据 ${expense.receipt_count} · 付款凭证 ${expense.voucher_count}${expense.description ? ` · ${expense.description}` : ""}${expense.reject_reason ? ` · 驳回：${expense.reject_reason}` : ""}${expense.payment_reference ? ` · 流水号：${expense.payment_reference}` : ""}</div>
+          </div><div class="ops">
+            ${canReceipt ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="expense_receipt">上传票据</button>` : ""}
+            ${canVoucher ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="payment_voucher">上传付款凭证</button>` : ""}
+            ${own && ["draft", "rejected"].includes(expense.status) ? `<button class="btn" data-submit-expense="${expense.id}">提交</button>` : ""}
+            ${canReview ? `<button class="btn" data-review-expense="${expense.id}" data-review-status="approved">通过</button><button class="btn danger" data-review-expense="${expense.id}" data-review-status="rejected">驳回</button>` : ""}
+            ${canPay ? `<button class="btn" data-pay-expense="${expense.id}">登记付款</button>` : ""}
+            ${own && ["draft", "rejected", "pending"].includes(expense.status) ? `<button class="btn danger" data-cancel-expense="${expense.id}">取消</button>` : ""}
+          </div></div>`;
+        })
+        .join("") || `<div class="empty">暂无费用报销单</div>`;
+    list.querySelectorAll("[data-expense-file]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!desktopShell?.chooseFiles) return toast("请在 Electron 桌面端上传附件", "error");
+        const element = button as HTMLElement;
+        const paths = (await desktopShell.chooseFiles()) as string[];
+        for (const localPath of paths) {
+          const added = await api("attachment.add", {
+            parent_type: "expense_request",
+            parent_id: element.dataset.expenseFile,
+            category: element.dataset.fileCategory,
+            name: localPath.split(/[\\/]/).pop() || "报销附件",
+            local_path: localPath,
+          });
+          if (!added.ok) return toast(added.message, "error");
+        }
+        toast(paths.length ? `已上传 ${paths.length} 个附件` : "未选择文件");
+        if (paths.length) draw();
+      })
+    );
+    list.querySelectorAll("[data-submit-expense]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("expense.submit", {
+          id: (button as HTMLElement).dataset.submitExpense,
+        });
+        toast(result.ok ? "报销单已提交审批" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-review-expense]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const element = button as HTMLElement;
+        const rejected = element.dataset.reviewStatus === "rejected";
+        const reason = rejected ? prompt("驳回原因") : "";
+        if (rejected && !reason) return;
+        const result = await api("expense.review", {
+          id: element.dataset.reviewExpense,
+          status: element.dataset.reviewStatus,
+          reason,
+        });
+        toast(result.ok ? (rejected ? "报销单已驳回" : "报销单已审批") : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-pay-expense]").forEach((button) =>
+      button.addEventListener("click", () =>
+        openDialog(
+          "登记报销付款",
+          `<label>付款方式<select name="payment_method"><option value="bank">银行转账</option><option value="cash">现金</option><option value="other">其他</option></select></label><label>付款流水号<input name="payment_reference" /></label>`,
+          async (fd) => {
+            const result = await api("expense.pay", {
+              id: (button as HTMLElement).dataset.payExpense,
+              payment_method: fd.get("payment_method"),
+              payment_reference: fd.get("payment_reference"),
+            });
+            toast(result.ok ? "报销付款已登记" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        )
+      )
+    );
+    list.querySelectorAll("[data-cancel-expense]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("确定取消此报销单？")) return;
+        const result = await api("expense.cancel", {
+          id: (button as HTMLElement).dataset.cancelExpense,
+        });
+        toast(result.ok ? "报销单已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", () =>
+    openDialog(
+      "新建费用报销",
+      `
+      <label>报销事由<input name="title" required /></label>
+      <label>费用类别<select name="category">${Object.entries(expenseCategories).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label>
+      <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>
+      <label>费用日期<input name="expense_date" type="date" required /></label>
+      <label class="full">说明<textarea name="description" rows="3"></textarea></label>
+      `,
+      async (fd) => {
+        const result = await api("expense.create", {
+          title: fd.get("title"),
+          category: fd.get("category"),
+          amount: Number(fd.get("amount")),
+          expense_date: fd.get("expense_date"),
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "报销草稿已创建，请上传票据后提交" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      }
+    )
+  );
+  main.querySelector("[data-status]")!.addEventListener("change", draw);
+  main.querySelector("[data-category]")!.addEventListener("change", draw);
+  await draw();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -2178,7 +2347,6 @@ const suiteMeta: Record<
     types: [
       ["income", "收入"],
       ["expense", "支出"],
-      ["reimbursement", "费用报销"],
       ["asset", "资产"],
       ["voucher", "会计凭证"],
       ["payroll", "薪酬发放"],

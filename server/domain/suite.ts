@@ -18,7 +18,7 @@ const TYPES: Record<string, Set<string>> = {
     "distribution_company",
     "sales_report",
   ]),
-  finance: new Set(["income", "expense", "reimbursement", "asset", "voucher", "payroll"]),
+  finance: new Set(["income", "expense", "asset", "voucher", "payroll"]),
   hr: new Set([
     "job_grade",
     "transfer",

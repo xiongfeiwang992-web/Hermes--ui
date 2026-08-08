@@ -20,6 +20,7 @@ import * as mortgage from "../domain/mortgage";
 import * as entrustment from "../domain/entrustment";
 import * as newhome from "../domain/newhome";
 import * as offboarding from "../domain/offboarding";
+import * as expense from "../domain/expense";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -250,6 +251,20 @@ function route(
       return offboarding.executeOffboarding(db, user!, payload);
     case "offboarding.cancel":
       return offboarding.cancelOffboarding(db, user!, payload);
+    case "expense.list":
+      return expense.listExpenses(db, user!, payload);
+    case "expense.create":
+      return expense.createExpense(db, user!, payload);
+    case "expense.update":
+      return expense.updateExpense(db, user!, payload);
+    case "expense.submit":
+      return expense.submitExpense(db, user!, payload);
+    case "expense.review":
+      return expense.reviewExpense(db, user!, payload);
+    case "expense.pay":
+      return expense.payExpense(db, user!, payload);
+    case "expense.cancel":
+      return expense.cancelExpense(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

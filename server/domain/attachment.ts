@@ -9,6 +9,21 @@ import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
 export function listAttachments(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (payload.parent_type === "expense_request") {
+    const expense = db
+      .prepare(`SELECT * FROM expense_requests WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (
+      !expense ||
+      !(
+        user.role === "admin" ||
+        user.role === "finance" ||
+        (user.role === "store_manager" && expense.store_id === user.store_id) ||
+        expense.applicant_user_id === user.id
+      )
+    )
+      return { ok: false, message: "报销单不存在或无附件权限", code: 403 };
+  }
   const rows = db
     .prepare(
       `SELECT * FROM file_attachments
@@ -36,6 +51,7 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
   if (!fs.existsSync(localPath) || !fs.statSync(localPath).isFile()) {
     return { ok: false, message: "本地文件不存在" };
   }
+  let attachmentStoreId = user.store_id;
   if (payload.parent_type === "deal") {
     const deal = db
       .prepare(`SELECT * FROM deals WHERE id=? AND company_id=?`)
@@ -68,6 +84,25 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     )
       return { ok: false, message: "房源不存在或无附件权限", code: 403 };
   }
+  if (payload.parent_type === "expense_request") {
+    const expense = db
+      .prepare(`SELECT * FROM expense_requests WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (!expense) return { ok: false, message: "报销单不存在", code: 403 };
+    if (!["expense_receipt", "payment_voucher"].includes(payload.category))
+      return { ok: false, message: "报销附件分类无效" };
+    const canAddReceipt =
+      payload.category === "expense_receipt" &&
+      ["draft", "rejected"].includes(expense.status) &&
+      (expense.applicant_user_id === user.id || user.role === "admin");
+    const canAddVoucher =
+      payload.category === "payment_voucher" &&
+      ["approved", "paid"].includes(expense.status) &&
+      (user.role === "finance" || user.role === "admin");
+    if (!canAddReceipt && !canAddVoucher)
+      return { ok: false, message: "当前状态无附件上传权限", code: 403 };
+    attachmentStoreId = expense.store_id;
+  }
   const stat = fs.statSync(localPath);
   const id = nextId("ATT");
   db.prepare(
@@ -78,7 +113,7 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
   ).run(
     id,
     user.company_id,
-    user.store_id,
+    attachmentStoreId,
     payload.parent_type,
     payload.parent_id,
     payload.category,
