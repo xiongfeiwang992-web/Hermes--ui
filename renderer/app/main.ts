@@ -578,7 +578,7 @@ async function renderHouses(main: HTMLElement) {
     });
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
-    const dialog = openDialog(
+    openDialog(
       "新建房源",
       `
       <label>标题<input name="title" required /></label>
@@ -2583,7 +2583,7 @@ async function renderCashbook(main: HTMLElement) {
     const dealOptions = options.deals
       .map((deal: any) => `<option value="${deal.id}">${deal.id} · ${deal.deal_date}</option>`)
       .join("");
-    openDialog(
+    const dialog = openDialog(
       "登记简易收支",
       `
       <label>方向<select name="direction"><option value="income">收入</option><option value="expense">支出</option></select></label>
