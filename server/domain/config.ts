@@ -114,6 +114,55 @@ export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerSources(db, user.company_id) };
 }
 
+export const DEFAULT_PAY_TYPES = [
+  { value: "commission", label: "佣金", sort_order: 1 },
+  { value: "deposit", label: "定金", sort_order: 2 },
+  { value: "earnest_apply", label: "意向金冲抵", sort_order: 3 },
+  { value: "refund", label: "退款", sort_order: 4 },
+  { value: "other", label: "其他", sort_order: 5 },
+];
+
+const PAY_TYPE_ALIASES: Record<string, string> = {
+  佣金: "commission",
+  定金: "deposit",
+  意向金冲抵: "earnest_apply",
+  earnest: "earnest_apply",
+  退款: "refund",
+  其他: "other",
+};
+
+export function resolvePayTypes(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'pay_type' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_PAY_TYPES.map((item) => ({ ...item }));
+}
+
+export function normalizePayType(payType: unknown, fallback = "commission"): string {
+  const raw = String(payType ?? "").trim();
+  if (!raw) return fallback;
+  return PAY_TYPE_ALIASES[raw] || raw;
+}
+
+export function isAllowedPayType(db: Db, companyId: string, payType: string): boolean {
+  return resolvePayTypes(db, companyId).some((item) => item.value === payType);
+}
+
+export function labelPayType(db: Db, companyId: string, payType: unknown): string {
+  const normalized = normalizePayType(payType, "");
+  if (!normalized) return "";
+  const hit = resolvePayTypes(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listPayTypes(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolvePayTypes(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,
