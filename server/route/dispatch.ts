@@ -23,6 +23,7 @@ import * as offboarding from "../domain/offboarding";
 import * as expense from "../domain/expense";
 import * as attendance from "../domain/attendance";
 import * as cashbook from "../domain/cashbook";
+import * as workforce from "../domain/workforce";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -297,6 +298,26 @@ function route(
       return cashbook.summarizeCashbook(db, user!, payload);
     case "cashbook.export":
       return cashbook.exportCashbook(db, user!, payload);
+    case "workforce.options":
+      return workforce.workforceOptions(db, user!);
+    case "workforce.grades.list":
+      return workforce.listJobGrades(db, user!);
+    case "workforce.grades.save":
+      return workforce.saveJobGrade(db, user!, payload);
+    case "workforce.grades.assign":
+      return workforce.assignJobGrade(db, user!, payload);
+    case "workforce.transfers.preview":
+      return workforce.previewTransfer(db, user!, payload);
+    case "workforce.transfers.list":
+      return workforce.listTransfers(db, user!, payload);
+    case "workforce.transfers.create":
+      return workforce.createTransfer(db, user!, payload);
+    case "workforce.transfers.review":
+      return workforce.reviewTransfer(db, user!, payload);
+    case "workforce.transfers.execute":
+      return workforce.executeTransfer(db, user!, payload);
+    case "workforce.transfers.cancel":
+      return workforce.cancelTransfer(db, user!, payload);
 
     case "report.dashboard":
       return report.dashboard(db, user!);

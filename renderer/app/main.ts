@@ -81,6 +81,7 @@ function canSee(tab: string) {
   if (tab === "offboarding") return ["admin", "store_manager"].includes(role);
   if (tab === "expenses") return true;
   if (tab === "cashbook") return ["admin", "finance", "store_manager"].includes(role);
+  if (tab === "workforce") return ["admin", "store_manager"].includes(role);
   if (
     [
       "houses",
@@ -189,6 +190,7 @@ function renderSide(side: HTMLElement) {
     ["expenses", "费用报销"],
     ["suite-office", "办公协同"],
     ["suite-hr", "人事管理"],
+    ["workforce", "岗位调动"],
     ["attendance-leave", "考勤请假"],
     ["offboarding", "离职交接"],
     ["suite-rental", "租赁托管"],
@@ -255,6 +257,7 @@ async function renderMain(main: HTMLElement) {
   if (state.tab === "expenses") return renderExpenses(main);
   if (state.tab === "attendance-leave") return renderAttendanceLeave(main);
   if (state.tab === "cashbook") return renderCashbook(main);
+  if (state.tab === "workforce") return renderWorkforce(main);
   if (state.tab.startsWith("suite-")) {
     const moduleMap: Record<string, string> = {
       "suite-property": "property_ext",
@@ -2645,6 +2648,192 @@ async function renderCashbook(main: HTMLElement) {
   await draw();
 }
 
+async function renderWorkforce(main: HTMLElement) {
+  const isAdmin = state.user.role === "admin";
+  const [optionsResult, gradesResult] = await Promise.all([
+    api("workforce.options", {}),
+    api("workforce.grades.list", {}),
+  ]);
+  const options = optionsResult.ok
+    ? (optionsResult.data as any)
+    : { users: [], stores: [], grades: [] };
+  const roleNames: Record<string, string> = {
+    store_manager: "店长",
+    agent: "经纪人",
+    finance: "财务",
+  };
+  main.innerHTML = `
+    <div class="header"><h2>岗位职级与员工调动</h2><div class="ops">
+      <button class="btn ghost" data-transfer-preview>资产预览</button>
+      <button class="btn" data-new-transfer>发起调动</button>
+      ${isAdmin ? `<button class="btn ghost" data-new-grade>新建职级</button><button class="btn ghost" data-assign-grade>员工定级</button>` : ""}
+    </div></div>
+    <section><h3>岗位职级</h3><div class="list" data-grade-list></div></section>
+    <section><h3>调动申请</h3><div class="filters"><select data-transfer-status><option value="">全部状态</option><option value="pending">待审批</option><option value="approved">待执行</option><option value="completed">已完成</option><option value="rejected">已驳回</option><option value="cancelled">已取消</option></select></div><div class="list" data-transfer-list></div></section>
+  `;
+  const gradeList = main.querySelector("[data-grade-list]")!;
+  gradeList.innerHTML = gradesResult.ok
+    ? (gradesResult.data as any[])
+        .map(
+          (grade) => `<div class="row"><div><div><span class="tag ${grade.status === "active" ? "ok" : "danger"}">${grade.status === "active" ? "启用" : "停用"}</span><strong>${grade.code} · ${grade.name}</strong></div><div class="meta">级序 ${grade.rank_level} · ${grade.applicable_role ? roleNames[grade.applicable_role] : "全部角色"} · 在岗 ${grade.employee_count} 人${grade.description ? ` · ${grade.description}` : ""}</div></div></div>`
+        )
+        .join("") || `<div class="empty">暂无岗位职级</div>`
+    : `<div class="error">${gradesResult.message}</div>`;
+  const employeeOptions = options.users
+    .filter((employee: any) => employee.role !== "admin" && employee.id !== state.user.id)
+    .map(
+      (employee: any) =>
+        `<option value="${employee.id}">${employee.display_name}（${roleNames[employee.role] || employee.role}${employee.grade_name ? ` · ${employee.grade_name}` : ""}）</option>`
+    )
+    .join("");
+  const handoverOptions = options.users
+    .filter(
+      (employee: any) =>
+        employee.status === "active" && ["agent", "store_manager"].includes(employee.role)
+    )
+    .map(
+      (employee: any) =>
+        `<option value="${employee.id}">${employee.display_name}（${roleNames[employee.role]}）</option>`
+    )
+    .join("");
+  const storeOptions = options.stores
+    .map((store: any) => `<option value="${store.id}">${store.name}</option>`)
+    .join("");
+  const drawTransfers = async () => {
+    const status = (main.querySelector("[data-transfer-status]") as HTMLSelectElement).value;
+    const result = await api(
+      "workforce.transfers.list",
+      status ? { status } : {}
+    );
+    const list = main.querySelector("[data-transfer-list]")!;
+    if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    list.innerHTML =
+      (result.data as any[])
+        .map(
+          (request) => `<div class="row"><div>
+            <div><span class="tag ${request.status === "completed" ? "ok" : request.status === "rejected" || request.status === "cancelled" ? "danger" : "warn"}">${request.status === "pending" ? "待审批" : request.status === "approved" ? "待执行" : request.status === "completed" ? "已完成" : request.status === "rejected" ? "已驳回" : "已取消"}</span><strong>${request.employee_name}</strong> · ${request.from_store_name} → ${request.to_store_name}</div>
+            <div class="meta">${roleNames[request.from_role] || request.from_role} → ${roleNames[request.to_role] || request.to_role} · 生效 ${request.effective_date} · 交接 ${request.handover_name} · 房 ${request.house_count}/客 ${request.customer_count}/钥匙 ${request.key_count}/角色 ${request.role_count} · ${request.reason}${request.reject_reason ? ` · 驳回：${request.reject_reason}` : ""}</div>
+          </div><div class="ops">
+            ${isAdmin && request.status === "pending" ? `<button class="btn" data-transfer-review="${request.id}" data-transfer-to="approved">通过</button><button class="btn danger" data-transfer-review="${request.id}" data-transfer-to="rejected">驳回</button>` : ""}
+            ${isAdmin && request.status === "approved" ? `<button class="btn" data-transfer-execute="${request.id}">执行调动</button>` : ""}
+            ${request.status === "pending" && (isAdmin || request.created_by === state.user.id) ? `<button class="btn danger" data-transfer-cancel="${request.id}">取消</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无员工调动申请</div>`;
+    list.querySelectorAll("[data-transfer-review]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const element = button as HTMLElement;
+        const rejected = element.dataset.transferTo === "rejected";
+        const reason = rejected ? prompt("驳回原因") : "";
+        if (rejected && !reason) return;
+        const result = await api("workforce.transfers.review", {
+          id: element.dataset.transferReview,
+          status: element.dataset.transferTo,
+          reason,
+        });
+        toast(result.ok ? (rejected ? "调动已驳回" : "调动已审批") : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawTransfers();
+      })
+    );
+    list.querySelectorAll("[data-transfer-execute]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        if (!confirm("执行后将交接原店资产、切换门店并注销员工现有会话，是否继续？")) return;
+        const result = await api("workforce.transfers.execute", {
+          id: (button as HTMLElement).dataset.transferExecute,
+        });
+        toast(result.ok ? "员工调动已生效" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawTransfers();
+      })
+    );
+    list.querySelectorAll("[data-transfer-cancel]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const result = await api("workforce.transfers.cancel", {
+          id: (button as HTMLElement).dataset.transferCancel,
+        });
+        toast(result.ok ? "调动申请已取消" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawTransfers();
+      })
+    );
+  };
+  main.querySelector("[data-transfer-preview]")!.addEventListener("click", () =>
+    openDialog(
+      "预览调动资产",
+      `<label class="full">员工<select name="user_id">${employeeOptions}</select></label>`,
+      async (fd) => {
+        const result = await api("workforce.transfers.preview", {
+          user_id: fd.get("user_id"),
+        });
+        if (!result.ok) return toast(result.message, "error");
+        const value = result.data as any;
+        toast(
+          `待交接：房源 ${value.houses.length}、客源 ${value.customers.length}、钥匙 ${value.keys.length}、角色 ${value.roles.length}`,
+          "warn"
+        );
+      }
+    )
+  );
+  main.querySelector("[data-new-transfer]")!.addEventListener("click", () =>
+    openDialog(
+      "发起员工调动",
+      `
+      <label>调动员工<select name="user_id">${employeeOptions}</select></label>
+      <label>目标门店<select name="to_store_id">${storeOptions}</select></label>
+      <label>原店交接人<select name="handover_user_id">${handoverOptions}</select></label>
+      ${isAdmin ? `<label>目标角色<select name="to_role"><option value="agent">经纪人</option><option value="store_manager">店长</option><option value="finance">财务</option></select></label>` : ""}
+      <label>生效日期<input name="effective_date" type="date" value="${new Date().toISOString().slice(0, 10)}" required /></label>
+      <label class="full">调动原因<textarea name="reason" rows="3" required></textarea></label>
+      `,
+      async (fd) => {
+        const selected = options.users.find(
+          (employee: any) => employee.id === fd.get("user_id")
+        );
+        const result = await api("workforce.transfers.create", {
+          user_id: fd.get("user_id"),
+          to_store_id: fd.get("to_store_id"),
+          handover_user_id: fd.get("handover_user_id"),
+          to_role: isAdmin ? fd.get("to_role") : selected?.role,
+          effective_date: fd.get("effective_date"),
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "员工调动已发起" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) drawTransfers();
+      }
+    )
+  );
+  main.querySelector("[data-new-grade]")?.addEventListener("click", () =>
+    openDialog(
+      "新建岗位职级",
+      `<label>职级代码<input name="code" required /></label><label>职级名称<input name="name" required /></label><label>级序<input name="rank_level" type="number" min="1" max="99" required /></label><label>适用角色<select name="applicable_role"><option value="">全部</option><option value="agent">经纪人</option><option value="store_manager">店长</option><option value="finance">财务</option></select></label><label class="full">说明<textarea name="description" rows="3"></textarea></label>`,
+      async (fd) => {
+        const result = await api("workforce.grades.save", {
+          code: fd.get("code"),
+          name: fd.get("name"),
+          rank_level: Number(fd.get("rank_level")),
+          applicable_role: fd.get("applicable_role") || null,
+          description: fd.get("description"),
+        });
+        toast(result.ok ? "岗位职级已创建" : result.message, result.ok ? "ok" : "error");
+      }
+    )
+  );
+  main.querySelector("[data-assign-grade]")?.addEventListener("click", () =>
+    openDialog(
+      "员工定级",
+      `<label>员工<select name="user_id">${employeeOptions}</select></label><label>岗位职级<select name="job_grade_id">${options.grades.map((grade: any) => `<option value="${grade.id}">${grade.code} · ${grade.name}</option>`).join("")}</select></label><label class="full">定级原因<input name="reason" required /></label>`,
+      async (fd) => {
+        const result = await api("workforce.grades.assign", {
+          user_id: fd.get("user_id"),
+          job_grade_id: fd.get("job_grade_id"),
+          reason: fd.get("reason"),
+        });
+        toast(result.ok ? "员工定级已保存" : result.message, result.ok ? "ok" : "error");
+      }
+    )
+  );
+  main.querySelector("[data-transfer-status]")!.addEventListener("change", drawTransfers);
+  await drawTransfers();
+}
+
 const suiteMeta: Record<
   string,
   { title: string; types: Array<[string, string]> }
@@ -2701,8 +2890,6 @@ const suiteMeta: Record<
   hr: {
     title: "人事管理",
     types: [
-      ["job_grade", "岗位职级"],
-      ["transfer", "员工调动"],
       ["job", "招聘岗位"],
       ["applicant", "应聘记录"],
       ["employee_contract", "人事合同"],

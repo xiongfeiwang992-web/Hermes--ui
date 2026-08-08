@@ -29,7 +29,8 @@
     "smoke:expense": "tsx scripts/expense-smoke.ts",
     "smoke:attendance": "tsx scripts/attendance-smoke.ts",
     "smoke:cashbook": "tsx scripts/cashbook-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense && npm run smoke:attendance && npm run smoke:cashbook"
+    "smoke:workforce": "tsx scripts/workforce-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized && npm run smoke:operations && npm run smoke:deal-documents && npm run smoke:mortgage && npm run smoke:house-roles && npm run smoke:entrustment && npm run smoke:newhome && npm run smoke:offboarding && npm run smoke:expense && npm run smoke:attendance && npm run smoke:cashbook && npm run smoke:workforce"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
