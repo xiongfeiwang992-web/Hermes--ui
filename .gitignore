@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-server/
+dist-electron/
+dist-renderer/
+data/
+*.log
+.DS_Store
+.env
+.vscode/
