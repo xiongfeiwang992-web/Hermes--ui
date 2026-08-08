@@ -260,6 +260,13 @@ export function invalidateRegistration(
     return { ok: false, message: "报备不存在或无权限", code: 403 };
   if (!["registered", "arrived"].includes(row.status))
     return { ok: false, message: "当前报备不可作废" };
+  const linkedSale = db
+    .prepare(
+      `SELECT id FROM newhome_sales_reports
+       WHERE registration_id=? AND status IN ('submitted','approved','settled')`
+    )
+    .get(row.id) as any;
+  if (linkedSale) return { ok: false, message: "已关联有效销售报告，不可作废" };
   const now = nowIso();
   db.prepare(
     `UPDATE newhome_registrations SET status='invalid', invalidated_at=?,
@@ -291,4 +298,648 @@ export function expireRegistrations(db: Db, user: SessionUser): ApiResult {
     expired,
   });
   return { ok: true, data: { expired } };
+}
+
+function canManagePartners(user: SessionUser): boolean {
+  return user.role === "admin" || user.role === "store_manager";
+}
+
+function addEvent(
+  db: Db,
+  user: SessionUser,
+  entityType: string,
+  entityId: string,
+  eventType: string,
+  details: unknown = {}
+) {
+  db.prepare(
+    `INSERT INTO newhome_events(
+      id, company_id, entity_type, entity_id, event_type, details, created_by, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    nextId("NHE"),
+    user.company_id,
+    entityType,
+    entityId,
+    eventType,
+    JSON.stringify(details),
+    user.id,
+    nowIso()
+  );
+}
+
+function distributionVisible(user: SessionUser, row: any): boolean {
+  if (user.role === "admin" || user.role === "finance") return true;
+  if (!row.store_id || row.store_id === user.store_id) return true;
+  return false;
+}
+
+function salesVisible(user: SessionUser, row: any): boolean {
+  if (user.role === "admin" || user.role === "finance") return true;
+  if (row.store_id !== user.store_id) return false;
+  if (user.role === "store_manager") return true;
+  return row.agent_id === user.id || row.created_by === user.id;
+}
+
+function canSeeSettlement(user: SessionUser): boolean {
+  return user.role === "admin" || user.role === "finance";
+}
+
+function presentSalesReport(user: SessionUser, row: any) {
+  const base = {
+    ...row,
+    customer_phone:
+      user.role === "admin" ||
+      user.role === "store_manager" ||
+      row.agent_id === user.id
+        ? row.customer_phone
+        : maskPhone(row.customer_phone),
+  };
+  if (canSeeSettlement(user)) return base;
+  return {
+    ...base,
+    settlement_amount: null,
+    settlement_note: null,
+  };
+}
+
+export function newhomeOptions(db: Db, user: SessionUser): ApiResult {
+  if (user.role === "finance") {
+    return {
+      ok: true,
+      data: { projects: [], registrations: [], distribution_companies: [] },
+    };
+  }
+  refreshExpired(db, user.company_id);
+  let projects = db
+    .prepare(
+      `SELECT id, name, status FROM newhome_projects
+       WHERE company_id=? AND status='active' ORDER BY name`
+    )
+    .all(user.company_id) as any[];
+  let registrations = db
+    .prepare(
+      `SELECT r.id, r.project_id, r.customer_id, r.agent_id, r.store_id, r.status,
+              p.name AS project_name, c.name AS customer_name
+       FROM newhome_registrations r
+       JOIN newhome_projects p ON p.id=r.project_id
+       JOIN customers c ON c.id=r.customer_id
+       WHERE r.company_id=? AND r.status='arrived'
+       ORDER BY r.arrived_at DESC`
+    )
+    .all(user.company_id) as any[];
+  let companies = db
+    .prepare(
+      `SELECT id, store_id, name, status FROM newhome_distribution_companies
+       WHERE company_id=? AND status='active' ORDER BY name`
+    )
+    .all(user.company_id) as any[];
+  registrations = registrations.filter((row) => registrationVisible(user, row));
+  companies = companies.filter((row) => distributionVisible(user, row));
+  return {
+    ok: true,
+    data: {
+      projects,
+      registrations,
+      distribution_companies: companies,
+    },
+  };
+}
+
+export function listDistributionCompanies(
+  db: Db,
+  user: SessionUser,
+  payload: any = {}
+): ApiResult {
+  let rows = db
+    .prepare(
+      `SELECT d.*, u.display_name AS created_by_name
+       FROM newhome_distribution_companies d
+       JOIN users u ON u.id=d.created_by
+       WHERE d.company_id=?
+       ORDER BY d.updated_at DESC`
+    )
+    .all(user.company_id) as any[];
+  rows = rows.filter((row) => distributionVisible(user, row));
+  if (payload.status) rows = rows.filter((row) => row.status === payload.status);
+  if (payload.keyword) {
+    const keyword = String(payload.keyword).trim();
+    rows = rows.filter(
+      (row) =>
+        row.name.includes(keyword) ||
+        (row.contact_name || "").includes(keyword) ||
+        (row.address || "").includes(keyword)
+    );
+  }
+  return { ok: true, data: rows };
+}
+
+export function upsertDistributionCompany(
+  db: Db,
+  user: SessionUser,
+  payload: any
+): ApiResult {
+  if (!canManagePartners(user))
+    return { ok: false, message: "无权限", code: 403 };
+  const name = String(payload.name || "").trim();
+  if (!name) return { ok: false, message: "分销公司名称必填" };
+  const contactPhone = String(payload.contact_phone || "").trim();
+  if (contactPhone && !/^1\d{10}$/.test(contactPhone))
+    return { ok: false, message: "联系电话格式无效" };
+  const now = nowIso();
+  const storeId =
+    user.role === "admin" ? payload.store_id || user.store_id || null : user.store_id;
+  if (payload.id) {
+    const row = db
+      .prepare(
+        `SELECT * FROM newhome_distribution_companies WHERE id=? AND company_id=?`
+      )
+      .get(payload.id, user.company_id) as any;
+    if (!row || !distributionVisible(user, row))
+      return { ok: false, message: "分销公司不存在或无权限", code: 403 };
+    if (user.role === "store_manager" && row.store_id !== user.store_id)
+      return { ok: false, message: "只能维护本店分销公司", code: 403 };
+    try {
+      db.prepare(
+        `UPDATE newhome_distribution_companies
+         SET name=?, contact_name=?, contact_phone=?, address=?, remark=?,
+             store_id=?, updated_at=?
+         WHERE id=?`
+      ).run(
+        name,
+        String(payload.contact_name || "").trim() || null,
+        contactPhone || null,
+        String(payload.address || "").trim() || null,
+        String(payload.remark || "").trim() || null,
+        storeId,
+        now,
+        row.id
+      );
+    } catch {
+      return { ok: false, message: "同名分销公司已存在", code: 409 };
+    }
+    addEvent(db, user, "distribution_company", row.id, "updated", { name });
+    writeAudit(db, user, "newhome.distribution.update", "newhome_distribution_company", row.id);
+    return { ok: true, data: { id: row.id } };
+  }
+  const id = nextId("NDC");
+  try {
+    db.prepare(
+      `INSERT INTO newhome_distribution_companies(
+         id, company_id, store_id, name, contact_name, contact_phone, address,
+         remark, status, created_by, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+    ).run(
+      id,
+      user.company_id,
+      storeId,
+      name,
+      String(payload.contact_name || "").trim() || null,
+      contactPhone || null,
+      String(payload.address || "").trim() || null,
+      String(payload.remark || "").trim() || null,
+      user.id,
+      now,
+      now
+    );
+  } catch {
+    return { ok: false, message: "同名分销公司已存在", code: 409 };
+  }
+  addEvent(db, user, "distribution_company", id, "created", { name });
+  writeAudit(db, user, "newhome.distribution.create", "newhome_distribution_company", id);
+  return { ok: true, data: { id } };
+}
+
+export function setDistributionStatus(
+  db: Db,
+  user: SessionUser,
+  payload: any
+): ApiResult {
+  if (!canManagePartners(user))
+    return { ok: false, message: "无权限", code: 403 };
+  if (!["active", "inactive"].includes(payload.status))
+    return { ok: false, message: "分销公司状态无效" };
+  const row = db
+    .prepare(
+      `SELECT * FROM newhome_distribution_companies WHERE id=? AND company_id=?`
+    )
+    .get(payload.id, user.company_id) as any;
+  if (!row || !distributionVisible(user, row))
+    return { ok: false, message: "分销公司不存在或无权限", code: 403 };
+  if (user.role === "store_manager" && row.store_id !== user.store_id)
+    return { ok: false, message: "只能维护本店分销公司", code: 403 };
+  if (row.status === payload.status)
+    return { ok: true, data: { id: row.id, status: row.status } };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE newhome_distribution_companies SET status=?, updated_at=? WHERE id=?`
+  ).run(payload.status, now, row.id);
+  addEvent(db, user, "distribution_company", row.id, "status", {
+    from: row.status,
+    to: payload.status,
+  });
+  writeAudit(
+    db,
+    user,
+    "newhome.distribution.status",
+    "newhome_distribution_company",
+    row.id,
+    { status: payload.status }
+  );
+  return { ok: true, data: { id: row.id, status: payload.status } };
+}
+
+export function exportDistributionCompanies(
+  db: Db,
+  user: SessionUser,
+  payload: any = {}
+): ApiResult {
+  if (!canManagePartners(user))
+    return { ok: false, message: "无权限", code: 403 };
+  const listed = listDistributionCompanies(db, user, payload);
+  if (!listed.ok) return listed;
+  const rows = listed.data as any[];
+  const header = ["名称", "状态", "联系人", "电话", "地址", "备注", "更新时间"];
+  const lines = [
+    header.join(","),
+    ...rows.map((row) =>
+      [
+        row.name,
+        row.status === "active" ? "启用" : "停用",
+        row.contact_name || "",
+        row.contact_phone || "",
+        row.address || "",
+        row.remark || "",
+        row.updated_at,
+      ]
+        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .join(",")
+    ),
+  ];
+  const csv = `\uFEFF${lines.join("\n")}`;
+  writeAudit(db, user, "newhome.distribution.export", "newhome_distribution_company", undefined, {
+    count: rows.length,
+  });
+  return { ok: true, data: { csv, count: rows.length } };
+}
+
+export function listSalesReports(
+  db: Db,
+  user: SessionUser,
+  payload: any = {}
+): ApiResult {
+  refreshExpired(db, user.company_id);
+  let rows = db
+    .prepare(
+      `SELECT s.*, p.name AS project_name, c.name AS customer_name, c.phone AS customer_phone,
+              u.display_name AS agent_name, d.name AS distribution_company_name,
+              (SELECT COUNT(*) FROM file_attachments a
+               WHERE a.parent_type='newhome_sales_report' AND a.parent_id=s.id) AS attachment_count
+       FROM newhome_sales_reports s
+       JOIN newhome_projects p ON p.id=s.project_id
+       JOIN customers c ON c.id=s.customer_id
+       JOIN users u ON u.id=s.agent_id
+       LEFT JOIN newhome_distribution_companies d ON d.id=s.distribution_company_id
+       WHERE s.company_id=?
+       ORDER BY s.updated_at DESC`
+    )
+    .all(user.company_id) as any[];
+  rows = rows.filter((row) => salesVisible(user, row));
+  if (payload.status) rows = rows.filter((row) => row.status === payload.status);
+  if (payload.project_id)
+    rows = rows.filter((row) => row.project_id === payload.project_id);
+  return { ok: true, data: rows.map((row) => presentSalesReport(user, row)) };
+}
+
+export function createSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const registration = db
+    .prepare(
+      `SELECT r.*, p.name AS project_name, c.name AS customer_name
+       FROM newhome_registrations r
+       JOIN newhome_projects p ON p.id=r.project_id
+       JOIN customers c ON c.id=r.customer_id
+       WHERE r.id=? AND r.company_id=?`
+    )
+    .get(payload.registration_id, user.company_id) as any;
+  if (!registration || !registrationVisible(user, registration))
+    return { ok: false, message: "报备不存在或无权限", code: 403 };
+  if (registration.status !== "arrived")
+    return { ok: false, message: "仅已到场报备可创建销售报告" };
+  const existing = db
+    .prepare(
+      `SELECT id, status FROM newhome_sales_reports
+       WHERE registration_id=? AND status != 'cancelled'`
+    )
+    .get(registration.id) as any;
+  if (existing)
+    return { ok: false, message: "该报备已有销售报告", code: 409 };
+  const unitNo = String(payload.unit_no || "").trim();
+  const contractPrice = Number(payload.contract_price);
+  const signedAt = String(payload.signed_at || "").trim();
+  if (!unitNo) return { ok: false, message: "房号必填" };
+  if (!Number.isFinite(contractPrice) || contractPrice <= 0)
+    return { ok: false, message: "网签总价须大于 0" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(signedAt))
+    return { ok: false, message: "签约日期格式应为 YYYY-MM-DD" };
+  let distributionCompanyId = payload.distribution_company_id || null;
+  if (distributionCompanyId) {
+    const partner = db
+      .prepare(
+        `SELECT * FROM newhome_distribution_companies WHERE id=? AND company_id=?`
+      )
+      .get(distributionCompanyId, user.company_id) as any;
+    if (!partner || partner.status !== "active" || !distributionVisible(user, partner))
+      return { ok: false, message: "分销公司不可用" };
+  }
+  const areaSize =
+    payload.area_size === undefined || payload.area_size === null || payload.area_size === ""
+      ? null
+      : Number(payload.area_size);
+  if (areaSize !== null && (!Number.isFinite(areaSize) || areaSize <= 0))
+    return { ok: false, message: "面积须大于 0" };
+  const now = nowIso();
+  const id = nextId("NSR");
+  db.prepare(
+    `INSERT INTO newhome_sales_reports(
+       id, company_id, store_id, project_id, registration_id, customer_id, agent_id,
+       distribution_company_id, building, unit_no, area_size, contract_price, signed_at,
+       status, remark, created_by, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`
+  ).run(
+    id,
+    user.company_id,
+    registration.store_id,
+    registration.project_id,
+    registration.id,
+    registration.customer_id,
+    registration.agent_id,
+    distributionCompanyId,
+    String(payload.building || "").trim() || null,
+    unitNo,
+    areaSize,
+    contractPrice,
+    signedAt,
+    String(payload.remark || "").trim() || null,
+    user.id,
+    now,
+    now
+  );
+  addEvent(db, user, "sales_report", id, "created", {
+    registration_id: registration.id,
+    contract_price: contractPrice,
+  });
+  writeAudit(db, user, "newhome.sales.create", "newhome_sales_report", id);
+  return { ok: true, data: { id } };
+}
+
+export function updateSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  const row = db
+    .prepare(`SELECT * FROM newhome_sales_reports WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row || !salesVisible(user, row))
+    return { ok: false, message: "销售报告不存在或无权限", code: 403 };
+  if (!["draft", "rejected"].includes(row.status))
+    return { ok: false, message: "当前状态不可修改" };
+  if (user.role === "agent" && row.agent_id !== user.id && row.created_by !== user.id)
+    return { ok: false, message: "只能修改本人销售报告", code: 403 };
+  const unitNo = String(payload.unit_no || "").trim();
+  const contractPrice = Number(payload.contract_price);
+  const signedAt = String(payload.signed_at || "").trim();
+  if (!unitNo) return { ok: false, message: "房号必填" };
+  if (!Number.isFinite(contractPrice) || contractPrice <= 0)
+    return { ok: false, message: "网签总价须大于 0" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(signedAt))
+    return { ok: false, message: "签约日期格式应为 YYYY-MM-DD" };
+  let distributionCompanyId = payload.distribution_company_id || null;
+  if (distributionCompanyId) {
+    const partner = db
+      .prepare(
+        `SELECT * FROM newhome_distribution_companies WHERE id=? AND company_id=?`
+      )
+      .get(distributionCompanyId, user.company_id) as any;
+    if (!partner || partner.status !== "active" || !distributionVisible(user, partner))
+      return { ok: false, message: "分销公司不可用" };
+  }
+  const areaSize =
+    payload.area_size === undefined || payload.area_size === null || payload.area_size === ""
+      ? null
+      : Number(payload.area_size);
+  if (areaSize !== null && (!Number.isFinite(areaSize) || areaSize <= 0))
+    return { ok: false, message: "面积须大于 0" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE newhome_sales_reports
+     SET distribution_company_id=?, building=?, unit_no=?, area_size=?,
+         contract_price=?, signed_at=?, remark=?, status='draft',
+         reject_reason=NULL, updated_at=?
+     WHERE id=?`
+  ).run(
+    distributionCompanyId,
+    String(payload.building || "").trim() || null,
+    unitNo,
+    areaSize,
+    contractPrice,
+    signedAt,
+    String(payload.remark || "").trim() || null,
+    now,
+    row.id
+  );
+  addEvent(db, user, "sales_report", row.id, "updated", { contract_price: contractPrice });
+  writeAudit(db, user, "newhome.sales.update", "newhome_sales_report", row.id);
+  return { ok: true, data: { id: row.id } };
+}
+
+export function submitSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  const row = db
+    .prepare(`SELECT * FROM newhome_sales_reports WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row || !salesVisible(user, row))
+    return { ok: false, message: "销售报告不存在或无权限", code: 403 };
+  if (!["draft", "rejected"].includes(row.status))
+    return { ok: false, message: "当前状态不可提交" };
+  if (user.role === "agent" && row.agent_id !== user.id && row.created_by !== user.id)
+    return { ok: false, message: "只能提交本人销售报告", code: 403 };
+  const materials = db
+    .prepare(
+      `SELECT id FROM file_attachments
+       WHERE parent_type='newhome_sales_report' AND parent_id=? AND category='contract_scan'`
+    )
+    .all(row.id) as any[];
+  if (!materials.length)
+    return { ok: false, message: "提交前须上传网签合同扫描件" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE newhome_sales_reports
+     SET status='submitted', reject_reason=NULL, updated_at=? WHERE id=?`
+  ).run(now, row.id);
+  const managers = db
+    .prepare(
+      `SELECT id FROM users
+       WHERE company_id=? AND status='active'
+         AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, row.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: manager.id,
+      title: "新房销售报告待审批",
+      body: `房号 ${row.unit_no}，网签总价 ${row.contract_price}`,
+      kind: "newhome_sales_report",
+      ref_type: "newhome_sales_report",
+      ref_id: row.id,
+    });
+  }
+  addEvent(db, user, "sales_report", row.id, "submitted");
+  writeAudit(db, user, "newhome.sales.submit", "newhome_sales_report", row.id);
+  return { ok: true, data: { id: row.id, status: "submitted" } };
+}
+
+export function approveSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  const row = db
+    .prepare(`SELECT * FROM newhome_sales_reports WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row || !salesVisible(user, row))
+    return { ok: false, message: "销售报告不存在或无权限", code: 403 };
+  if (row.status !== "submitted")
+    return { ok: false, message: "仅待审批报告可批准" };
+  if (user.role === "store_manager" && row.store_id !== user.store_id)
+    return { ok: false, message: "只能审批本店销售报告", code: 403 };
+  const now = nowIso();
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE newhome_sales_reports SET status='approved', updated_at=? WHERE id=?`
+    ).run(now, row.id);
+    db.prepare(
+      `UPDATE newhome_registrations SET status='sold', updated_at=? WHERE id=? AND status='arrived'`
+    ).run(now, row.registration_id);
+  });
+  tx();
+  if (row.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.agent_id,
+      title: "新房销售报告已审批",
+      body: `房号 ${row.unit_no} 销售报告已通过`,
+      kind: "newhome_sales_report",
+      ref_type: "newhome_sales_report",
+      ref_id: row.id,
+    });
+  }
+  addEvent(db, user, "sales_report", row.id, "approved");
+  writeAudit(db, user, "newhome.sales.approve", "newhome_sales_report", row.id);
+  return { ok: true, data: { id: row.id, status: "approved" } };
+}
+
+export function rejectSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager"))
+    return { ok: false, message: "无权限", code: 403 };
+  const reason = String(payload.reason || "").trim();
+  if (reason.length < 2) return { ok: false, message: "驳回原因至少 2 个字" };
+  const row = db
+    .prepare(`SELECT * FROM newhome_sales_reports WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row || !salesVisible(user, row))
+    return { ok: false, message: "销售报告不存在或无权限", code: 403 };
+  if (row.status !== "submitted")
+    return { ok: false, message: "仅待审批报告可驳回" };
+  if (user.role === "store_manager" && row.store_id !== user.store_id)
+    return { ok: false, message: "只能驳回本店销售报告", code: 403 };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE newhome_sales_reports
+     SET status='rejected', reject_reason=?, updated_at=? WHERE id=?`
+  ).run(reason, now, row.id);
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: row.store_id,
+    user_id: row.agent_id,
+    title: "新房销售报告已驳回",
+    body: reason,
+    kind: "newhome_sales_report",
+    ref_type: "newhome_sales_report",
+    ref_id: row.id,
+  });
+  addEvent(db, user, "sales_report", row.id, "rejected", { reason });
+  writeAudit(db, user, "newhome.sales.reject", "newhome_sales_report", row.id, {
+    reason,
+  });
+  return { ok: true, data: { id: row.id, status: "rejected" } };
+}
+
+export function settleSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!(user.role === "admin" || user.role === "finance"))
+    return { ok: false, message: "无权限", code: 403 };
+  const amount = Number(payload.settlement_amount);
+  if (!Number.isFinite(amount) || amount < 0)
+    return { ok: false, message: "结算金额无效" };
+  const note = String(payload.settlement_note || "").trim();
+  if (note.length < 2) return { ok: false, message: "结算说明至少 2 个字" };
+  const row = db
+    .prepare(`SELECT * FROM newhome_sales_reports WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row) return { ok: false, message: "销售报告不存在或无权限", code: 403 };
+  if (row.status !== "approved")
+    return { ok: false, message: "仅已审批报告可登记结算" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE newhome_sales_reports
+     SET status='settled', settlement_amount=?, settlement_note=?, settled_at=?, updated_at=?
+     WHERE id=?`
+  ).run(amount, note, now, now, row.id);
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: row.store_id,
+    user_id: row.agent_id,
+    title: "新房销售报告已结算",
+    body: `房号 ${row.unit_no} 已登记结算`,
+    kind: "newhome_sales_report",
+    ref_type: "newhome_sales_report",
+    ref_id: row.id,
+  });
+  addEvent(db, user, "sales_report", row.id, "settled", {
+    settlement_amount: amount,
+  });
+  writeAudit(db, user, "newhome.sales.settle", "newhome_sales_report", row.id, {
+    settlement_amount: amount,
+  });
+  return { ok: true, data: { id: row.id, status: "settled" } };
+}
+
+export function cancelSalesReport(db: Db, user: SessionUser, payload: any): ApiResult {
+  const reason = String(payload.reason || "").trim();
+  if (reason.length < 2) return { ok: false, message: "取消原因至少 2 个字" };
+  const row = db
+    .prepare(`SELECT * FROM newhome_sales_reports WHERE id=? AND company_id=?`)
+    .get(payload.id, user.company_id) as any;
+  if (!row || !salesVisible(user, row))
+    return { ok: false, message: "销售报告不存在或无权限", code: 403 };
+  if (!["draft", "rejected", "submitted"].includes(row.status))
+    return { ok: false, message: "当前状态不可取消" };
+  if (
+    user.role === "agent" &&
+    row.agent_id !== user.id &&
+    row.created_by !== user.id
+  )
+    return { ok: false, message: "只能取消本人销售报告", code: 403 };
+  if (user.role === "finance")
+    return { ok: false, message: "无权限", code: 403 };
+  if (row.status === "submitted" && user.role === "agent")
+    return { ok: false, message: "待审批报告请联系店长取消", code: 403 };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE newhome_sales_reports
+     SET status='cancelled', reject_reason=?, updated_at=? WHERE id=?`
+  ).run(reason, now, row.id);
+  addEvent(db, user, "sales_report", row.id, "cancelled", { reason });
+  writeAudit(db, user, "newhome.sales.cancel", "newhome_sales_report", row.id, {
+    reason,
+  });
+  return { ok: true, data: { id: row.id, status: "cancelled" } };
 }

@@ -14,10 +14,6 @@ const TYPES: Record<string, Set<string>> = {
     "exclusive_agency",
   ]),
   deal_ext: new Set(["deal_complaint", "rename"]),
-  newhome: new Set([
-    "distribution_company",
-    "sales_report",
-  ]),
   finance: new Set(["asset", "voucher"]),
   office: new Set([
     "exam",

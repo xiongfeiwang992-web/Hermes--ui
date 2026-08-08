@@ -252,6 +252,32 @@ function route(
       return newhome.invalidateRegistration(db, user!, payload);
     case "newhome.registrations.expire":
       return newhome.expireRegistrations(db, user!);
+    case "newhome.options":
+      return newhome.newhomeOptions(db, user!);
+    case "newhome.distribution.list":
+      return newhome.listDistributionCompanies(db, user!, payload);
+    case "newhome.distribution.save":
+      return newhome.upsertDistributionCompany(db, user!, payload);
+    case "newhome.distribution.status":
+      return newhome.setDistributionStatus(db, user!, payload);
+    case "newhome.distribution.export":
+      return newhome.exportDistributionCompanies(db, user!, payload);
+    case "newhome.sales.list":
+      return newhome.listSalesReports(db, user!, payload);
+    case "newhome.sales.create":
+      return newhome.createSalesReport(db, user!, payload);
+    case "newhome.sales.update":
+      return newhome.updateSalesReport(db, user!, payload);
+    case "newhome.sales.submit":
+      return newhome.submitSalesReport(db, user!, payload);
+    case "newhome.sales.approve":
+      return newhome.approveSalesReport(db, user!, payload);
+    case "newhome.sales.reject":
+      return newhome.rejectSalesReport(db, user!, payload);
+    case "newhome.sales.settle":
+      return newhome.settleSalesReport(db, user!, payload);
+    case "newhome.sales.cancel":
+      return newhome.cancelSalesReport(db, user!, payload);
     case "offboarding.list":
       return offboarding.listOffboarding(db, user!, payload);
     case "offboarding.preview":
