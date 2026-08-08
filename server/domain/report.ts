@@ -49,7 +49,7 @@ export function dashboard(db: Db, user: SessionUser): ApiResult {
   for (const d of approved) {
     const paid = db
       .prepare(
-        `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+        `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
       )
       .get(d.id) as { s: number };
     paidSum += paid.s;
@@ -148,7 +148,10 @@ export function businessSummary(
     (sum, row) => sum + Number(row.commission_total),
     0
   );
-  const paidTotal = payments.reduce((sum, row) => sum + Number(row.amount), 0);
+  const paidTotal = payments.reduce(
+    (sum, row) => sum + Number(row.amount) * (row.direction === "out" ? -1 : 1),
+    0
+  );
 
   const rankings = new Map<
     string,
@@ -205,7 +208,7 @@ export function exportDealsCsv(
     .prepare(
       `SELECT d.*, h.title AS house_title, c.name AS customer_name,
        COALESCE((
-         SELECT SUM(p.amount) FROM payments p
+         SELECT SUM(CASE WHEN p.direction='out' THEN -p.amount ELSE p.amount END) FROM payments p
          WHERE p.deal_id = d.id AND p.status = 'confirmed'
        ), 0) AS paid_amount
        FROM deals d

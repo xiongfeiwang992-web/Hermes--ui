@@ -13,6 +13,8 @@ import * as transfer from "../domain/transfer";
 import * as suite from "../domain/suite";
 import * as system from "../domain/system";
 import * as attachment from "../domain/attachment";
+import * as config from "../domain/config";
+import * as contract from "../domain/contract";
 import { listAudit } from "../domain/audit";
 
 const PUBLIC = new Set(["auth.login"]);
@@ -77,6 +79,8 @@ function route(
       return house.changeHouseStatus(db, user!, payload);
     case "house.agent":
       return house.changeHouseAgent(db, user!, payload);
+    case "house.lock":
+      return house.setHouseLock(db, user!, payload);
 
     case "customer.list":
       return customer.listCustomers(db, user!, payload);
@@ -136,6 +140,8 @@ function route(
       return deal.createPayment(db, user!, payload);
     case "payment.list":
       return deal.listPayments(db, user!, payload);
+    case "payment.refund":
+      return deal.createRefund(db, user!, payload);
     case "commission.list":
       return deal.listCommissions(db, user!);
     case "commission.paid":
@@ -219,6 +225,26 @@ function route(
       return attachment.listAttachments(db, user!, payload);
     case "attachment.add":
       return attachment.addAttachment(db, user!, payload);
+    case "config.preferences.get":
+      return config.getPreferences(db, user!);
+    case "config.preferences.save":
+      return config.savePreferences(db, user!, payload);
+    case "config.dictionary.list":
+      return config.listDictionary(db, user!, payload);
+    case "config.dictionary.upsert":
+      return config.upsertDictionary(db, user!, payload);
+    case "config.settings.get":
+      return config.getSettings(db, user!);
+    case "config.settings.save":
+      return config.saveSettings(db, user!, payload);
+    case "contract.templates":
+      return contract.templates(db, user!);
+    case "contract.template.save":
+      return contract.saveTemplate(db, user!, payload);
+    case "contract.sign":
+      return contract.sign(db, user!, payload);
+    case "contract.signoffs":
+      return contract.signoffs(db, user!, payload);
     case "message.list":
       return { ok: true, data: message.listMessages(db, user!) };
     case "message.unread":

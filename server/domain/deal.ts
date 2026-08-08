@@ -65,6 +65,12 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
   }
   const sum = Object.values(split).reduce((a, b) => a + Number(b), 0);
   if (Math.abs(sum - 100) > 0.01) return { ok: false, message: "分成比例合计须为 100%" };
+  const settings = db.prepare(`SELECT * FROM settings WHERE company_id = ?`).get(user.company_id) as any;
+  const required = parseJson<string[]>(settings?.deal_required_fields || "[]", []);
+  for (const field of required) {
+    if (payload[field] == null || payload[field] === "")
+      return { ok: false, message: `成交必录字段缺失：${field}` };
+  }
 
   const id = nextId("D");
   const now = nowIso();
@@ -72,8 +78,9 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
     `INSERT INTO deals(
       id, company_id, store_id, deal_type, house_id, customer_id, view_id,
       contract_price, commission_total, commission_owner, commission_customer, deal_date,
-      status, agent_ids, split_ratios, remark, contract_attachment, created_by, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`
+      status, agent_ids, split_ratios, remark, contract_attachment, loan_amount, loan_bank,
+      created_by, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     user.company_id,
@@ -91,6 +98,8 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
     JSON.stringify(split),
     payload.remark || null,
     payload.contract_attachment || null,
+    payload.loan_amount == null ? null : Number(payload.loan_amount),
+    payload.loan_bank || null,
     user.id,
     now,
     now
@@ -115,7 +124,7 @@ export function getDeal(db: Db, user: SessionUser, id: string): ApiResult {
   }
   const paid = db
     .prepare(
-      `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+      `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
     )
     .get(id) as { s: number };
   return {
@@ -145,7 +154,7 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
     data: rows.map((r) => {
       const paid = db
         .prepare(
-          `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+          `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
         )
         .get(r.id) as { s: number };
       return {
@@ -232,7 +241,14 @@ export function approveDeal(db: Db, user: SessionUser, payload: { id: string }):
       current.customer_id
     );
 
-    const rate = getAgentPoolRate(db, user.company_id);
+    const tier = db
+      .prepare(
+        `SELECT pool_rate FROM commission_tiers WHERE company_id = ? AND status = 'active'
+         AND min_amount <= ? AND (max_amount IS NULL OR max_amount >= ?)
+         ORDER BY min_amount DESC LIMIT 1`
+      )
+      .get(user.company_id, current.commission_total, current.commission_total) as any;
+    const rate = tier?.pool_rate ?? getAgentPoolRate(db, user.company_id);
     const pool = current.commission_total * rate;
     const ratios = parseJson<Record<string, number>>(current.split_ratios, {});
     for (const [uid, ratio] of Object.entries(ratios)) {
@@ -261,6 +277,34 @@ export function approveDeal(db: Db, user: SessionUser, payload: { id: string }):
         ref_type: "deal",
         ref_id: payload.id,
       });
+    }
+    const settings = db.prepare(`SELECT manager_award_rate FROM settings WHERE company_id = ?`).get(
+      user.company_id
+    ) as any;
+    const awardRate = Number(settings?.manager_award_rate || 0);
+    if (awardRate > 0) {
+      const manager = db
+        .prepare(
+          `SELECT id FROM users WHERE company_id = ? AND store_id = ?
+           AND role = 'store_manager' AND status = 'active' LIMIT 1`
+        )
+        .get(user.company_id, current.store_id) as any;
+      if (manager) {
+        db.prepare(
+          `INSERT INTO commissions(id, company_id, store_id, deal_id, user_id, ratio, amount, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'accrued', ?, ?)`
+        ).run(
+          nextId("CM"),
+          user.company_id,
+          current.store_id,
+          payload.id,
+          manager.id,
+          awardRate * 100,
+          Math.round(current.commission_total * awardRate * 100) / 100,
+          now,
+          now
+        );
+      }
     }
   });
   tx();
@@ -324,7 +368,7 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
   if (!(amount > 0)) return { ok: false, message: "收款金额须大于 0" };
   const paid = db
     .prepare(
-      `SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+      `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
     )
     .get(deal.id) as { s: number };
   const warning = paid.s + amount > deal.commission_total;
@@ -386,6 +430,43 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
   }
   if (q.deal_id) rows = rows.filter((p) => p.deal_id === q.deal_id);
   return { ok: true, data: rows };
+}
+
+export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
+  const deal = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.deal_id, user.company_id) as any;
+  const amount = Number(payload.amount);
+  if (!deal || !(amount > 0) || !String(payload.reason || "").trim())
+    return { ok: false, message: "退款须指定成交、正金额和原因" };
+  const paid = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s
+       FROM payments WHERE deal_id=? AND status='confirmed'`
+    )
+    .get(deal.id) as any;
+  if (amount > Number(paid.s)) return { ok: false, message: "退款不得超过净已收" };
+  const id = nextId("PAY");
+  db.prepare(
+    `INSERT INTO payments(id, company_id, store_id, deal_id, amount, pay_type, method,
+     paid_at, payer_side, status, remark, created_by, created_at, direction, confirmation_status)
+     VALUES (?, ?, ?, ?, ?, 'refund', ?, ?, ?, 'confirmed', ?, ?, ?, 'out', 'confirmed')`
+  ).run(
+    id,
+    user.company_id,
+    deal.store_id,
+    deal.id,
+    amount,
+    payload.method || "transfer",
+    payload.paid_at || nowIso(),
+    payload.payer_side || "customer",
+    payload.reason,
+    user.id,
+    nowIso()
+  );
+  writeAudit(db, user, "payment.refund", "payment", id, { deal_id: deal.id, amount });
+  return { ok: true, data: { id } };
 }
 
 export function listCommissions(db: Db, user: SessionUser): ApiResult {

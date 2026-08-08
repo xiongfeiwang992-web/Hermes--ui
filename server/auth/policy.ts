@@ -54,12 +54,13 @@ export function houseVisibleTo(
 
 export function customerVisibleTo(
   user: SessionUser,
-  customer: { store_id: string; agent_id: string; visibility: string }
+  customer: { store_id: string; agent_id: string; visibility: string; is_confidential?: number | boolean }
 ): boolean {
   if (user.role === "finance") return false;
   if (user.role === "admin") return true;
   if (user.store_id !== customer.store_id) return false;
   if (user.role === "store_manager") return true;
+  if (customer.is_confidential) return user.id === customer.agent_id;
   if (customer.visibility === "public") return true;
   return user.id === customer.agent_id;
 }

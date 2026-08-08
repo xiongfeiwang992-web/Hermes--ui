@@ -18,7 +18,8 @@
     "smoke:p2": "tsx scripts/p2-smoke.ts",
     "smoke:p2b": "tsx scripts/p2b-smoke.ts",
     "smoke:full": "tsx scripts/full-suite-smoke.ts",
-    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full"
+    "smoke:specialized": "tsx scripts/specialized-smoke.ts",
+    "health": "npm run smoke && npm run smoke:p2 && npm run smoke:p2b && npm run smoke:full && npm run smoke:specialized"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

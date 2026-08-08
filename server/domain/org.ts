@@ -148,6 +148,15 @@ export function upsertUser(
   if (!payload.account || !payload.display_name || !payload.role || !payload.store_id) {
     return { ok: false, message: "员工信息不完整" };
   }
+  const policy = db
+    .prepare(`SELECT password_min_length FROM settings WHERE company_id = ?`)
+    .get(user.company_id) as any;
+  if (payload.password && payload.password.length < Number(policy?.password_min_length || 8)) {
+    return {
+      ok: false,
+      message: `密码至少 ${Number(policy?.password_min_length || 8)} 位`,
+    };
+  }
   const store = db
     .prepare(`SELECT * FROM stores WHERE id = ? AND company_id = ?`)
     .get(payload.store_id, user.company_id) as any;

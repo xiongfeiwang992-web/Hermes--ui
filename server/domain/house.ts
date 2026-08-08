@@ -82,6 +82,20 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (!["sale", "rent"].includes(payload.deal_type)) {
     return { ok: false, message: "deal_type 无效" };
   }
+  if (user.role === "agent") {
+    const setting = db
+      .prepare(`SELECT house_hold_limit FROM settings WHERE company_id = ?`)
+      .get(user.company_id) as any;
+    const held = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM houses WHERE company_id = ? AND agent_id = ?
+         AND status NOT IN ('closed','withdrawn')`
+      )
+      .get(user.company_id, user.id) as any;
+    if (Number(held?.c || 0) >= Number(setting?.house_hold_limit || 20)) {
+      return { ok: false, message: "已达到个人持盘上限" };
+    }
+  }
   const duplicate = db
     .prepare(
       `SELECT id, title FROM houses
@@ -270,4 +284,35 @@ export function changeHouseAgent(
     to: payload.agent_id,
   });
   return getHouse(db, user, payload.id);
+}
+
+export function setHouseLock(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string; locked: boolean }
+): ApiResult {
+  const house = db
+    .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!house || !houseVisibleTo(user, house))
+    return { ok: false, message: "房源不存在或无权限", code: 403 };
+  if (
+    !(
+      user.role === "admin" ||
+      (user.role === "store_manager" && house.store_id === user.store_id) ||
+      house.agent_id === user.id
+    )
+  )
+    return { ok: false, message: "无权限", code: 403 };
+  db.prepare(
+    `UPDATE houses SET is_locked=?, locked_by=?, locked_at=?, updated_at=? WHERE id=?`
+  ).run(
+    payload.locked ? 1 : 0,
+    payload.locked ? user.id : null,
+    payload.locked ? nowIso() : null,
+    nowIso(),
+    house.id
+  );
+  writeAudit(db, user, payload.locked ? "house.lock" : "house.unlock", "house", house.id);
+  return getHouse(db, user, house.id);
 }

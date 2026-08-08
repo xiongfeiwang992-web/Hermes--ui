@@ -62,8 +62,8 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   db.prepare(
     `INSERT INTO customers(
       id, company_id, store_id, name, phone, intent, budget_min, budget_max, budget_note,
-      need, level, visibility, status, agent_id, source, remark, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', 'new', ?, ?, ?, ?, ?)`
+      need, level, visibility, status, agent_id, source, remark, is_confidential, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', 'new', ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     user.company_id,
@@ -79,6 +79,7 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     user.id,
     payload.source || null,
     payload.remark || null,
+    payload.is_confidential ? 1 : 0,
     now,
     now
   );
@@ -119,6 +120,7 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
       level = COALESCE(?, level),
       source = COALESCE(?, source),
       remark = COALESCE(?, remark),
+      is_confidential = COALESCE(?, is_confidential),
       updated_at = ?
      WHERE id = ?`
   ).run(
@@ -132,6 +134,7 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.level ?? null,
     payload.source ?? null,
     payload.remark ?? null,
+    payload.is_confidential == null ? null : payload.is_confidential ? 1 : 0,
     nowIso(),
     payload.id
   );

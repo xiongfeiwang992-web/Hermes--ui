@@ -861,6 +861,7 @@ async function renderCustomers(main: HTMLElement) {
       <label>等级<select name="level"><option>A</option><option selected>B</option><option>C</option></select></label>
       <label>预算下限<input name="budget_min" type="number" step="0.01" /></label>
       <label>预算上限<input name="budget_max" type="number" step="0.01" /></label>
+      <label><span><input name="is_confidential" type="checkbox" /> 保密客</span></label>
       <label class="full">需求<textarea name="need" rows="3"></textarea></label>
       `,
       async (fd) => {
@@ -871,6 +872,7 @@ async function renderCustomers(main: HTMLElement) {
           level: fd.get("level"),
           budget_min: fd.get("budget_min") ? Number(fd.get("budget_min")) : null,
           budget_max: fd.get("budget_max") ? Number(fd.get("budget_max")) : null,
+          is_confidential: fd.get("is_confidential") === "on",
           need: fd.get("need"),
         });
         if (res.ok && (res.data as any).duplicate_hint) {
@@ -1105,6 +1107,7 @@ async function renderDeals(main: HTMLElement) {
       </div>
       <div class="ops">
         ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
+        ${["pending_approval", "approved"].includes(d.status) ? `<button class="btn ghost" data-sign="${d.id}">签署确认</button>` : ""}
         ${["draft", "rejected"].includes(d.status) ? `<button class="btn" data-submit="${d.id}">提交审批</button>` : ""}
         ${d.status === "pending_approval" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${d.id}">通过</button><button class="btn danger" data-reject="${d.id}">驳回</button>` : ""}
       </div></div>`
@@ -1164,6 +1167,17 @@ async function renderDeals(main: HTMLElement) {
         toast(paths.length ? `已添加 ${paths.length} 个附件，当前共 ${files.length} 个` : `当前共 ${files.length} 个附件`);
       })
     );
+    list.querySelectorAll("[data-sign]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const statement = prompt("本地签署确认声明（非 CA 电子签）", "本人确认已核对本成交单内容");
+        if (!statement) return;
+        const result = await api("contract.sign", {
+          deal_id: (btn as HTMLElement).dataset.sign,
+          statement,
+        });
+        toast(result.ok ? "本地签署确认已记录" : result.message, result.ok ? "ok" : "error");
+      })
+    );
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
     const houseOpts = ((houses.data as any[]) || [])
@@ -1187,6 +1201,8 @@ async function renderDeals(main: HTMLElement) {
       <label>业主佣(元)<input name="commission_owner" type="number" step="0.01" value="20000" /></label>
       <label>客户佣(元)<input name="commission_customer" type="number" step="0.01" value="15000" /></label>
       <label>成交日<input name="deal_date" type="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
+      <label>贷款金额<input name="loan_amount" type="number" step="0.01" /></label>
+      <label>贷款银行<input name="loan_bank" /></label>
       <label class="full">备注<input name="remark" /></label>
       `,
       async (fd) => {
@@ -1198,6 +1214,8 @@ async function renderDeals(main: HTMLElement) {
           commission_owner: Number(fd.get("commission_owner") || 0),
           commission_customer: Number(fd.get("commission_customer") || 0),
           deal_date: fd.get("deal_date"),
+          loan_amount: fd.get("loan_amount") ? Number(fd.get("loan_amount")) : null,
+          loan_bank: fd.get("loan_bank"),
           remark: fd.get("remark"),
           agent_ids: [state.user.id],
           split_ratios: { [state.user.id]: 100 },
@@ -1424,10 +1442,25 @@ async function renderPayments(main: HTMLElement) {
       .map(
         (p) => `<div class="row"><div>
         <div><strong>¥${money(p.amount)}</strong> · ${p.method} · ${p.payer_side}</div>
-        <div class="meta">成交单 ${p.deal_id} · ${p.paid_at}</div>
-      </div></div>`
+        <div class="meta">成交单 ${p.deal_id} · ${p.paid_at} · ${p.direction === "out" ? "退款" : "收款"}</div>
+      </div><div class="ops">${p.direction !== "out" && ["admin", "finance"].includes(state.user.role) ? `<button class="btn danger" data-refund-payment="${p.deal_id}">登记退款</button>` : ""}</div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-refund-payment]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const amount = prompt("退款金额");
+        const reason = prompt("退款原因");
+        if (!amount || !reason) return;
+        const result = await api("payment.refund", {
+          deal_id: (button as HTMLElement).dataset.refundPayment,
+          amount: Number(amount),
+          reason,
+          method: "transfer",
+        });
+        toast(result.ok ? "退款已登记" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) render();
+      })
+    );
   }
   const btn = main.querySelector("[data-new]");
   if (btn) {
@@ -1773,6 +1806,8 @@ async function renderSystemCenter(main: HTMLElement) {
     <div class="header"><h2>系统中心</h2><div class="ops">
       ${canManageSystem ? `<button class="btn ghost" data-blacklist>添加黑名单</button>` : ""}
       <button class="btn ghost" data-password>修改密码</button>
+      <button class="btn ghost" data-preferences>界面偏好</button>
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button>` : ""}
       ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
@@ -1929,6 +1964,56 @@ async function renderSystemCenter(main: HTMLElement) {
   if (clearCacheButton) {
     clearCacheButton.addEventListener("click", async () => {
       await desktopShell.clearCache();
+    });
+  }
+  main.querySelector("[data-preferences]")!.addEventListener("click", async () => {
+    const current = await api("config.preferences.get");
+    if (!current.ok) return toast(current.message, "error");
+    const pref = current.data as any;
+    openDialog(
+      "界面偏好",
+      `
+      <label>列表密度<select name="list_density"><option value="comfortable" ${pref.list_density === "comfortable" ? "selected" : ""}>舒适</option><option value="compact" ${pref.list_density === "compact" ? "selected" : ""}>紧凑</option></select></label>
+      <label>主题<select name="theme"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label>
+      <label><span><input name="watermark_enabled" type="checkbox" ${pref.watermark_enabled ? "checked" : ""} /> 开启水印</span></label>
+      `,
+      async (fd) => {
+        const result = await api("config.preferences.save", {
+          list_density: fd.get("list_density"),
+          theme: fd.get("theme"),
+          watermark_enabled: fd.get("watermark_enabled") === "on",
+        });
+        toast(result.ok ? "偏好已保存" : result.message, result.ok ? "ok" : "error");
+      }
+    );
+  });
+  const settingsButton = main.querySelector("[data-settings]");
+  if (settingsButton) {
+    settingsButton.addEventListener("click", async () => {
+      const current = await api("config.settings.get");
+      if (!current.ok) return toast(current.message, "error");
+      const value = current.data as any;
+      openDialog(
+        "业务参数",
+        `
+        <label>个人持盘上限<input name="house_hold_limit" type="number" value="${value.house_hold_limit}" /></label>
+        <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
+        <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
+        <label class="full">成交必录字段（逗号分隔）<input name="deal_required_fields" value="${value.deal_required_fields.join(",")}" placeholder="loan_bank,loan_amount" /></label>
+        `,
+        async (fd) => {
+          const result = await api("config.settings.save", {
+            house_hold_limit: Number(fd.get("house_hold_limit")),
+            manager_award_rate: Number(fd.get("manager_award_rate")),
+            password_min_length: Number(fd.get("password_min_length")),
+            deal_required_fields: String(fd.get("deal_required_fields") || "")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          });
+          toast(result.ok ? "业务参数已保存" : result.message, result.ok ? "ok" : "error");
+        }
+      );
     });
   }
 }
