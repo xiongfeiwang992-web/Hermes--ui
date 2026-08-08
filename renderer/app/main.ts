@@ -877,14 +877,94 @@ async function renderHouses(main: HTMLElement) {
 }
 
 async function renderCommunities(main: HTMLElement) {
+  const districts = await api("property.districts.list", {});
+  const districtOptions = ((districts.ok ? (districts.data as string[]) : []) || [])
+    .map((item) => `<option value="${item}">${item}</option>`)
+    .join("");
   main.innerHTML = `
     <div class="header"><h2>楼盘字典</h2><button class="btn" data-new>新建小区</button></div>
-    <div class="filters"><input data-keyword placeholder="搜索小区/片区/地址" /></div>
+    <div class="filters">
+      <select data-district><option value="">全部业务片区</option>${districtOptions}</select>
+      <input data-keyword placeholder="搜索小区/片区/地址" />
+    </div>
     <div class="list" data-list></div>
   `;
+  const fillUnitList = async (listNode: HTMLElement, communityId: string) => {
+    const result = await api("property.units.list", { community_id: communityId });
+    if (!result.ok) {
+      listNode.innerHTML = `<div class="error">${result.message}</div>`;
+      return;
+    }
+    const rows = result.data as any[];
+    listNode.innerHTML =
+      rows
+        .map(
+          (item) => `<div class="row"><div>
+            <strong>${item.label}</strong>
+            <div class="meta">${item.orientation || "未填朝向"} · 套内 ${item.area_size || "-"} · 建面 ${item.build_area || "-"}</div>
+          </div>
+          <div class="ops"><button type="button" class="btn danger" data-remove-unit="${item.id}">删除</button></div></div>`
+        )
+        .join("") || `<div class="empty">暂无房号，可在上方登记</div>`;
+    listNode.querySelectorAll("[data-remove-unit]").forEach((button) =>
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!confirm("确认删除该房号？")) return;
+        const removed = await api("property.units.remove", {
+          id: (button as HTMLElement).dataset.removeUnit,
+        });
+        toast(removed.ok ? "房号已删除" : removed.message, removed.ok ? "ok" : "error");
+        if (removed.ok) fillUnitList(listNode, communityId);
+      })
+    );
+  };
+  const openUnits = (community: { id: string; name: string }) => {
+    openDialog(
+      `${community.name} · 房号字典`,
+      `
+      <label>栋<input name="building" placeholder="如 3" /></label>
+      <label>单元<input name="unit_no" placeholder="如 2" /></label>
+      <label>房号<input name="room_no" required placeholder="如 1801" /></label>
+      <label>朝向<input name="orientation" placeholder="如 南北" /></label>
+      <label>套内面积<input name="area_size" type="number" min="0" step="0.01" /></label>
+      <label>建筑面积<input name="build_area" type="number" min="0" step="0.01" /></label>
+      <label class="full">备注<input name="remark" /></label>
+      <p class="meta full">保存后写入栋/单元/房号；同址重复将拦截。下方可查看已登记房号。</p>
+      <div class="full" data-unit-list style="max-height:220px;overflow:auto"></div>
+      `,
+      async (fd) => {
+        const conflict = await api("property.units.checkConflict", {
+          community_id: community.id,
+          building: fd.get("building"),
+          unit_no: fd.get("unit_no"),
+          room_no: fd.get("room_no"),
+        });
+        if (conflict.ok && (conflict.data as any).conflict) {
+          toast("同栋同单元同房号已存在，请勿重复登记", "error");
+          throw new Error("unit conflict");
+        }
+        const result = await api("property.units.upsert", {
+          community_id: community.id,
+          building: fd.get("building"),
+          unit_no: fd.get("unit_no"),
+          room_no: fd.get("room_no"),
+          orientation: fd.get("orientation"),
+          area_size: fd.get("area_size") ? Number(fd.get("area_size")) : null,
+          build_area: fd.get("build_area") ? Number(fd.get("build_area")) : null,
+          remark: fd.get("remark"),
+        });
+        toast(result.ok ? "房号已登记" : result.message, result.ok ? "ok" : "error");
+        if (!result.ok) throw new Error(result.message || "unit upsert failed");
+      }
+    );
+    const listNode = document.querySelector("[data-unit-list]") as HTMLElement | null;
+    if (listNode) fillUnitList(listNode, community.id);
+  };
   const draw = async () => {
     const keyword = (main.querySelector("[data-keyword]") as HTMLInputElement).value;
-    const result = await api("property.communities.list", { keyword });
+    const district = (main.querySelector("[data-district]") as HTMLSelectElement).value;
+    const result = await api("property.communities.list", { keyword, district });
     const list = main.querySelector("[data-list]")!;
     if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
     const rows = result.data as any[];
@@ -893,10 +973,18 @@ async function renderCommunities(main: HTMLElement) {
         .map(
           (item) => `<div class="row"><div>
             <strong>${item.name}</strong>
-            <div class="meta">${item.district || "未填片区"} · ${item.address || "未填地址"} · ${item.building_count || 0} 栋 · ${item.house_count} 套房源</div>
+            <div class="meta">${item.district || "未填片区"} · ${item.address || "未填地址"} · ${item.building_count || 0} 栋 · 房号 ${item.unit_count || 0} · 房源 ${item.house_count}</div>
+          </div><div class="ops">
+            <button class="btn ghost" data-unit-community="${item.id}" data-unit-name="${String(item.name).replace(/"/g, "&quot;")}">房号</button>
           </div></div>`
         )
         .join("") || `<div class="empty">暂无自建小区</div>`;
+    list.querySelectorAll("[data-unit-community]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const node = button as HTMLElement;
+        openUnits({ id: node.dataset.unitCommunity || "", name: node.dataset.unitName || "" });
+      })
+    );
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
     openDialog(
@@ -923,6 +1011,7 @@ async function renderCommunities(main: HTMLElement) {
     );
   });
   main.querySelector("[data-keyword]")!.addEventListener("input", draw);
+  main.querySelector("[data-district]")!.addEventListener("change", draw);
   await draw();
 }
 
