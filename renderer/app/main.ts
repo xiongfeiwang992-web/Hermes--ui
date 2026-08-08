@@ -108,6 +108,25 @@ async function customerSourceSelectHtml(selected = "", includeEmpty = true) {
     : options;
 }
 
+async function paymentMethodSelectHtml(selected = "transfer") {
+  const result = await api("config.paymentMethods", {});
+  const methods = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "transfer", label: "转账" },
+        { value: "cash", label: "现金" },
+        { value: "wechat", label: "微信" },
+        { value: "alipay", label: "支付宝" },
+        { value: "other", label: "其他" },
+      ];
+  return methods
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1830,7 +1849,7 @@ async function renderEarnest(main: HTMLElement) {
         .map(
           (record) => `<div class="row"><div>
             <div><span class="tag ${record.status === "held" ? "warn" : record.status === "applied" ? "ok" : "danger"}">${record.status === "held" ? "在管" : record.status === "applied" ? "已冲抵" : "已退款"}</span><strong>¥${money(record.amount)}</strong> · ${record.customer_name} × ${record.house_title}</div>
-            <div class="meta">${record.method} · ${record.paid_at}${record.refund_reason ? ` · 退款原因 ${record.refund_reason}` : ""}</div>
+            <div class="meta">${escapeHtml(record.method_label || record.method)} · ${record.paid_at}${record.refund_reason ? ` · 退款原因 ${record.refund_reason}` : ""}</div>
           </div><div class="ops">
             ${record.status === "held" && ["admin", "finance"].includes(state.user.role) ? `<button class="btn" data-apply="${record.id}">冲抵成交</button><button class="btn danger" data-refund="${record.id}">退款</button>` : ""}
           </div></div>`
@@ -1873,20 +1892,21 @@ async function renderEarnest(main: HTMLElement) {
   };
   const createButton = main.querySelector("[data-new]");
   if (createButton) {
-    createButton.addEventListener("click", () => {
+    createButton.addEventListener("click", async () => {
       const houseOptions = ((houses.data as any[]) || [])
         .map((house) => `<option value="${house.id}">${house.title}</option>`)
         .join("");
       const customerOptions = ((customers.data as any[]) || [])
         .map((customer) => `<option value="${customer.id}">${customer.name}</option>`)
         .join("");
+      const methodOptions = await paymentMethodSelectHtml("transfer");
       openDialog(
         "登记意向金",
         `
         <label>客户<select name="customer_id">${customerOptions}</select></label>
         <label>房源<select name="house_id">${houseOptions}</select></label>
         <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>
-        <label>方式<select name="method"><option value="transfer">转账</option><option value="cash">现金</option><option value="other">其他</option></select></label>
+        <label>方式<select name="method">${methodOptions}</select></label>
         <label class="full">备注<input name="remark" /></label>
         `,
         async (fd) => {
@@ -1898,6 +1918,7 @@ async function renderEarnest(main: HTMLElement) {
             remark: fd.get("remark"),
           });
           toast(result.ok ? "意向金已登记" : result.message, result.ok ? "ok" : "error");
+          if (result.ok) draw();
         }
       );
     });
@@ -2047,7 +2068,7 @@ async function renderPayments(main: HTMLElement) {
         (p) => `<div class="row"><div>
         <div>
           <span class="tag ${p.status === "confirmed" ? "ok" : p.status === "rejected" ? "danger" : "warn"}">${p.direction === "out" ? "退款" : statusLabel[p.status] || p.status}</span>
-          <strong>¥${money(p.amount)}</strong> · ${p.method} · ${p.payer_side}
+          <strong>¥${money(p.amount)}</strong> · ${escapeHtml(p.method_label || p.method)} · ${p.payer_side}
         </div>
         <div class="meta">成交单 ${p.deal_id} · ${p.paid_at}${p.reject_reason ? ` · 驳回：${escapeHtml(p.reject_reason)}` : ""}</div>
       </div><div class="ops">
@@ -2080,23 +2101,31 @@ async function renderPayments(main: HTMLElement) {
     );
     list.querySelectorAll("[data-refund-payment]").forEach((button) =>
       button.addEventListener("click", async () => {
-        const amount = prompt("退款金额");
-        const reason = prompt("退款原因");
-        if (!amount || !reason) return;
-        const result = await api("payment.refund", {
-          deal_id: (button as HTMLElement).dataset.refundPayment,
-          amount: Number(amount),
-          reason,
-          method: "transfer",
-        });
-        toast(result.ok ? "退款已登记" : result.message, result.ok ? "ok" : "error");
-        if (result.ok) render();
+        const methodOptions = await paymentMethodSelectHtml("transfer");
+        openDialog(
+          "登记退款",
+          `
+          <label>金额<input name="amount" type="number" step="0.01" required /></label>
+          <label>方式<select name="method">${methodOptions}</select></label>
+          <label class="full">原因<input name="reason" required /></label>
+          `,
+          async (fd) => {
+            const result = await api("payment.refund", {
+              deal_id: (button as HTMLElement).dataset.refundPayment,
+              amount: Number(fd.get("amount")),
+              reason: fd.get("reason"),
+              method: fd.get("method"),
+            });
+            toast(result.ok ? "退款已登记" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) render();
+          }
+        );
       })
     );
   }
   const btn = main.querySelector("[data-new]");
   if (btn) {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const opts = ((deals.data as any[]) || [])
         .filter((d) => d.status === "approved")
         .map(
@@ -2104,12 +2133,13 @@ async function renderPayments(main: HTMLElement) {
             `<option value="${d.id}">${d.id} 未收¥${money(d.unpaid_amount)}</option>`
         )
         .join("");
+      const methodOptions = await paymentMethodSelectHtml("transfer");
       openDialog(
         "登记收款（待出纳确认）",
         `
         <label class="full">成交单<select name="deal_id">${opts}</select></label>
         <label>金额<input name="amount" type="number" step="0.01" required /></label>
-        <label>方式<select name="method"><option value="transfer">转账</option><option value="cash">现金</option><option value="other">其他</option></select></label>
+        <label>方式<select name="method">${methodOptions}</select></label>
         <label>付款方<select name="payer_side"><option value="customer">客户</option><option value="owner">业主</option><option value="other">其他</option></select></label>
         `,
         async (fd) => {
@@ -2121,6 +2151,7 @@ async function renderPayments(main: HTMLElement) {
           });
           if (res.ok && (res.data as any).warning) toast((res.data as any).warning, "warn");
           else toast(res.ok ? "收款已登记，待出纳确认" : res.message, res.ok ? "ok" : "error");
+          if (res.ok) render();
         }
       );
     });
@@ -6955,7 +6986,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

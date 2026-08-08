@@ -114,6 +114,56 @@ export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerSources(db, user.company_id) };
 }
 
+export const DEFAULT_PAYMENT_METHODS = [
+  { value: "transfer", label: "转账", sort_order: 1 },
+  { value: "cash", label: "现金", sort_order: 2 },
+  { value: "wechat", label: "微信", sort_order: 3 },
+  { value: "alipay", label: "支付宝", sort_order: 4 },
+  { value: "other", label: "其他", sort_order: 5 },
+];
+
+const PAYMENT_METHOD_ALIASES: Record<string, string> = {
+  bank: "transfer",
+  转账: "transfer",
+  银行转账: "transfer",
+  现金: "cash",
+  微信: "wechat",
+  支付宝: "alipay",
+  其他: "other",
+};
+
+export function resolvePaymentMethods(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'payment_method' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_PAYMENT_METHODS.map((item) => ({ ...item }));
+}
+
+export function normalizePaymentMethod(method: unknown, fallback = "transfer"): string {
+  const raw = String(method ?? "").trim();
+  if (!raw) return fallback;
+  return PAYMENT_METHOD_ALIASES[raw] || raw;
+}
+
+export function isAllowedPaymentMethod(db: Db, companyId: string, method: string): boolean {
+  return resolvePaymentMethods(db, companyId).some((item) => item.value === method);
+}
+
+export function labelPaymentMethod(db: Db, companyId: string, method: unknown): string {
+  const normalized = normalizePaymentMethod(method, "");
+  if (!normalized) return "";
+  const hit = resolvePaymentMethods(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,

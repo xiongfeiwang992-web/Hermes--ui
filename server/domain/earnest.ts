@@ -1,6 +1,11 @@
 import type { Db } from "../db/database";
 import { canRegisterPayment, canWriteListing, customerVisibleTo, houseVisibleTo } from "../auth/policy";
 import { writeAudit } from "./audit";
+import {
+  isAllowedPaymentMethod,
+  labelPaymentMethod,
+  normalizePaymentMethod,
+} from "./config";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -28,13 +33,23 @@ export function listEarnest(db: Db, user: SessionUser, query: any = {}): ApiResu
   if (query.customer_id) rows = rows.filter((row) => row.customer_id === query.customer_id);
   if (query.house_id) rows = rows.filter((row) => row.house_id === query.house_id);
   if (query.deal_id) rows = rows.filter((row) => row.deal_id === query.deal_id);
-  return { ok: true, data: rows };
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      method_label: labelPaymentMethod(db, user.company_id, row.method),
+    })),
+  };
 }
 
 export function createEarnest(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const amount = Number(payload.amount);
   if (!(amount > 0)) return { ok: false, message: "意向金金额须大于 0" };
+  const method = normalizePaymentMethod(payload.method);
+  if (!isAllowedPaymentMethod(db, user.company_id, method)) {
+    return { ok: false, message: "收款方式不在当前字典中" };
+  }
   const customer = db
     .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
     .get(payload.customer_id, user.company_id) as any;
@@ -65,7 +80,7 @@ export function createEarnest(db: Db, user: SessionUser, payload: any): ApiResul
     house.id,
     amount,
     payload.paid_at || now,
-    payload.method || "transfer",
+    method,
     payload.remark || null,
     user.id,
     now,

@@ -6,6 +6,11 @@ import {
   canWriteListing,
 } from "../auth/policy";
 import { writeAudit } from "./audit";
+import {
+  isAllowedPaymentMethod,
+  labelPaymentMethod,
+  normalizePaymentMethod,
+} from "./config";
 import { createMessage } from "./message";
 import { initForDeal, readiness } from "./dealDocuments";
 import { seedNodesForDeal } from "./transfer";
@@ -386,6 +391,10 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
   if (deal.status !== "approved") return { ok: false, message: "仅已审批成交可收款" };
   const amount = Number(payload.amount);
   if (!(amount > 0)) return { ok: false, message: "收款金额须大于 0" };
+  const method = normalizePaymentMethod(payload.method);
+  if (!isAllowedPaymentMethod(db, user.company_id, method)) {
+    return { ok: false, message: "收款方式不在当前字典中" };
+  }
   const paid = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
@@ -411,7 +420,7 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
     deal.id,
     amount,
     payload.pay_type || "commission",
-    payload.method || "transfer",
+    method,
     payload.paid_at || nowIso(),
     payload.payer_side || "customer",
     payload.remark || null,
@@ -540,7 +549,17 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
   }
   if (q.deal_id) rows = rows.filter((p) => p.deal_id === q.deal_id);
   if (q.status) rows = rows.filter((p) => p.status === q.status);
-  return { ok: true, data: rows };
+  if (q.method) {
+    const method = normalizePaymentMethod(q.method);
+    rows = rows.filter((p) => normalizePaymentMethod(p.method) === method);
+  }
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      method_label: labelPaymentMethod(db, user.company_id, row.method),
+    })),
+  };
 }
 
 export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -551,6 +570,10 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
   const amount = Number(payload.amount);
   if (!deal || !(amount > 0) || !String(payload.reason || "").trim())
     return { ok: false, message: "退款须指定成交、正金额和原因" };
+  const method = normalizePaymentMethod(payload.method);
+  if (!isAllowedPaymentMethod(db, user.company_id, method)) {
+    return { ok: false, message: "收款方式不在当前字典中" };
+  }
   const paid = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s
@@ -569,7 +592,7 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
     deal.store_id,
     deal.id,
     amount,
-    payload.method || "transfer",
+    method,
     payload.paid_at || nowIso(),
     payload.payer_side || "customer",
     payload.reason,
