@@ -1691,7 +1691,6 @@ const suiteMeta: Record<
       ["mortgage", "贷款按揭"],
       ["deal_complaint", "成交投诉"],
       ["rename", "成交更名"],
-      ["document_checklist", "交易资料清单"],
     ],
   },
   newhome: {

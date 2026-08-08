@@ -14,7 +14,7 @@ const TYPES: Record<string, Set<string>> = {
     "auction",
     "exclusive_agency",
   ]),
-  deal_ext: new Set(["mortgage", "deal_complaint", "rename", "document_checklist"]),
+  deal_ext: new Set(["mortgage", "deal_complaint", "rename"]),
   newhome: new Set([
     "project",
     "registration",
