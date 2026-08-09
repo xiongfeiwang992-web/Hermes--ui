@@ -73,9 +73,29 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
         (h.address || "").includes(k)
     );
   }
-  if (q.price_min != null) rows = rows.filter((h) => h.price >= Number(q.price_min));
-  if (q.price_max != null) rows = rows.filter((h) => h.price <= Number(q.price_max));
-  return { ok: true, data: rows.map((r) => presentHouse(db, user, r)) };
+  if (q.price_min != null && q.price_min !== "") {
+    rows = rows.filter((h) => h.price >= Number(q.price_min));
+  }
+  if (q.price_max != null && q.price_max !== "") {
+    rows = rows.filter((h) => h.price <= Number(q.price_max));
+  }
+  const presented = rows.map((r) => presentHouse(db, user, r));
+  if (q.page != null && q.page !== "") {
+    const pageSize = Math.min(Math.max(Number(q.page_size) || 20, 1), 100);
+    const page = Math.max(Number(q.page) || 1, 1);
+    const total = presented.length;
+    const start = (page - 1) * pageSize;
+    return {
+      ok: true,
+      data: {
+        items: presented.slice(start, start + pageSize),
+        total,
+        page,
+        page_size: pageSize,
+      },
+    };
+  }
+  return { ok: true, data: presented };
 }
 
 export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {

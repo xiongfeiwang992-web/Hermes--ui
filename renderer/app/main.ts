@@ -439,6 +439,9 @@ async function renderHouses(main: HTMLElement) {
   );
   const agentName = (id: string) =>
     allStoreUsers.find((user) => user.id === id)?.display_name || id;
+  const agentFilterOpts = storeUsers
+    .map((user) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`)
+    .join("");
   main.innerHTML = `
     <div class="header">
       <h2>房源</h2>
@@ -447,14 +450,22 @@ async function renderHouses(main: HTMLElement) {
     <div class="filters">
       <select data-f="deal_type"><option value="">全部类型</option><option value="sale">出售</option><option value="rent">出租</option></select>
       <select data-f="property_type"><option value="">全部物业</option><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select>
-      <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="closed">已成交</option></select>
+      <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="deal_pending">成交中</option><option value="closed">已成交</option><option value="withdrawn">已撤盘</option></select>
+      <select data-f="agent_id"><option value="">全部接盘人</option>${agentFilterOpts}</select>
+      <input data-f="community" placeholder="小区" />
+      <input data-f="price_min" type="number" step="0.01" placeholder="最低价" />
+      <input data-f="price_max" type="number" step="0.01" placeholder="最高价" />
       <input data-f="keyword" placeholder="搜索小区/标题" />
     </div>
+    <div class="meta" data-pager></div>
     <div class="list" data-list></div>
   `;
   const list = main.querySelector("[data-list]")!;
+  const pager = main.querySelector("[data-pager]") as HTMLElement;
+  let page = 1;
+  const pageSize = 20;
   const draw = async () => {
-    const q: any = {};
+    const q: any = { page, page_size: pageSize };
     main.querySelectorAll("[data-f]").forEach((input) => {
       const el = input as HTMLInputElement;
       if (el.value) q[el.dataset.f!] = el.value;
@@ -462,9 +473,32 @@ async function renderHouses(main: HTMLElement) {
     const r = await api("house.list", q);
     if (!r.ok) {
       list.innerHTML = `<div class="error">${r.message}</div>`;
+      pager.textContent = "";
       return;
     }
-    const rows = r.data as any[];
+    const payload = r.data as { items: any[]; total: number; page: number; page_size: number };
+    const rows = payload.items || [];
+    const total = Number(payload.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (page > totalPages) {
+      page = totalPages;
+      return draw();
+    }
+    pager.innerHTML = `共 ${total} 套 · 第 ${page}/${totalPages} 页
+      <button class="btn ghost" data-page-prev ${page <= 1 ? "disabled" : ""}>上一页</button>
+      <button class="btn ghost" data-page-next ${page >= totalPages ? "disabled" : ""}>下一页</button>`;
+    pager.querySelector("[data-page-prev]")?.addEventListener("click", () => {
+      if (page > 1) {
+        page -= 1;
+        draw();
+      }
+    });
+    pager.querySelector("[data-page-next]")?.addEventListener("click", () => {
+      if (page < totalPages) {
+        page += 1;
+        draw();
+      }
+    });
     if (!rows.length) {
       list.innerHTML = `<div class="empty">暂无房源，点击右上角新建</div>`;
       return;
@@ -888,10 +922,17 @@ async function renderHouses(main: HTMLElement) {
       }
     );
   });
+  const resetAndDraw = () => {
+    page = 1;
+    draw();
+  };
   main.querySelectorAll("[data-f]").forEach((input) =>
-    input.addEventListener("change", draw)
+    input.addEventListener("change", resetAndDraw)
   );
-  main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
+  main.querySelector("[data-f=keyword]")!.addEventListener("input", resetAndDraw);
+  main.querySelector("[data-f=community]")!.addEventListener("input", resetAndDraw);
+  main.querySelector("[data-f=price_min]")!.addEventListener("input", resetAndDraw);
+  main.querySelector("[data-f=price_max]")!.addEventListener("input", resetAndDraw);
   await draw();
 }
 
