@@ -2,6 +2,7 @@ import type { Db } from "../db/database";
 import { listFollows, listViews } from "./activity";
 import { listHouses } from "./house";
 import { listCustomers } from "./customer";
+import { listDeals } from "./deal";
 import { labelCustomerSource, normalizeCustomerSource } from "./config";
 import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -613,6 +614,45 @@ export function exportCustomerSourcesCsv(db: Db, user: SessionUser): ApiResult {
     `客户来源分析-${todayDate()}.csv`,
     ["来源", "客户数"],
     data.by_source.map((row: any) => [row.source_label || row.source, row.count])
+  );
+}
+
+export function exportDealsListCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const rows = dataRows(listDeals(db, user, payload));
+  if (!rows) return { ok: false, message: "无成交导出权限", code: 403 };
+  writeAudit(db, user, "deal.list.export", "deal", undefined, {
+    rows: rows.length,
+    status: payload.status || null,
+    keyword: payload.keyword || null,
+  });
+  return csvFile(
+    `成交列表-${todayDate()}.csv`,
+    [
+      "成交单号",
+      "门店",
+      "状态",
+      "房源",
+      "客户",
+      "成交日期",
+      "成交价",
+      "应收佣金",
+      "已收佣金",
+      "未收佣金",
+      "备注",
+    ],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.status,
+      row.house_title,
+      row.customer_name,
+      row.deal_date,
+      row.contract_price,
+      row.commission_total,
+      row.paid_amount,
+      row.unpaid_amount,
+      row.remark || "",
+    ])
   );
 }
 

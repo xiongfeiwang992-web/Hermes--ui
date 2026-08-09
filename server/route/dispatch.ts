@@ -704,6 +704,8 @@ function route(
       return report.businessSummary(db, user!, payload);
     case "report.dealsCsv":
       return report.exportDealsCsv(db, user!, payload);
+    case "report.dealsListCsv":
+      return report.exportDealsListCsv(db, user!, payload);
     case "report.housesCsv":
       return report.exportHousesCsv(db, user!, payload);
     case "report.customersCsv":
