@@ -8,7 +8,11 @@ import {
 import { writeAudit } from "./audit";
 import {
   isAllowedFollowMethod,
+  isAllowedViewFeedback,
+  isDealShortcutFeedback,
+  labelViewFeedback,
   normalizeFollowMethod,
+  normalizeViewFeedback,
   resolveFollowMethods,
 } from "./config";
 import { getContactGateSettings } from "./contactGate";
@@ -359,6 +363,8 @@ export function getView(db: Db, user: SessionUser, id: string): ApiResult {
     data: {
       ...row,
       accompany_ids: JSON.parse(row.accompany_ids || "[]"),
+      feedback_label: labelViewFeedback(db, user.company_id, row.feedback),
+      deal_shortcut: isDealShortcutFeedback(row.feedback),
     },
   };
 }
@@ -372,12 +378,20 @@ export function listViews(db: Db, user: SessionUser, q: any = {}): ApiResult {
   if (user.role === "store_manager") rows = rows.filter((v) => v.store_id === user.store_id);
   if (q.agent_id) rows = rows.filter((v) => v.agent_id === q.agent_id);
   if (q.status) rows = rows.filter((v) => v.status === q.status);
-  if (q.feedback) rows = rows.filter((v) => v.feedback === q.feedback);
+  if (q.feedback) {
+    const feedback = normalizeViewFeedback(q.feedback);
+    rows = rows.filter((v) => normalizeViewFeedback(v.feedback) === feedback);
+  }
   if (q.customer_id) rows = rows.filter((v) => v.customer_id === q.customer_id);
   if (q.house_id) rows = rows.filter((v) => v.house_id === q.house_id);
   return {
     ok: true,
-    data: rows.map((r) => ({ ...r, accompany_ids: JSON.parse(r.accompany_ids || "[]") })),
+    data: rows.map((r) => ({
+      ...r,
+      accompany_ids: JSON.parse(r.accompany_ids || "[]"),
+      feedback_label: labelViewFeedback(db, user.company_id, r.feedback),
+      deal_shortcut: isDealShortcutFeedback(r.feedback),
+    })),
   };
 }
 
@@ -391,14 +405,27 @@ export function completeView(db: Db, user: SessionUser, payload: any): ApiResult
   if (user.role === "agent" && current.agent_id !== user.id) {
     return { ok: false, message: "只能完成本人主看带看", code: 403 };
   }
-  if (!payload.feedback || payload.feedback === "pending") {
+  const feedback = normalizeViewFeedback(payload.feedback);
+  if (!feedback || feedback === "pending") {
     return { ok: false, message: "完成前须选择反馈结果" };
+  }
+  if (!isAllowedViewFeedback(db, user.company_id, feedback)) {
+    return { ok: false, message: "带看结果不在当前字典中" };
   }
   db.prepare(
     `UPDATE views SET feedback = ?, content = COALESCE(?, content), status = 'done', updated_at = ? WHERE id = ?`
-  ).run(payload.feedback, payload.content || null, nowIso(), payload.id);
-  writeAudit(db, user, "view.complete", "view", payload.id, { feedback: payload.feedback });
-  return getView(db, user, payload.id);
+  ).run(feedback, payload.content || null, nowIso(), payload.id);
+  writeAudit(db, user, "view.complete", "view", payload.id, { feedback });
+  const view = getView(db, user, payload.id);
+  if (!view.ok) return view;
+  return {
+    ok: true,
+    data: {
+      ...(view.data as object),
+      feedback_label: labelViewFeedback(db, user.company_id, feedback),
+      deal_shortcut: isDealShortcutFeedback(feedback),
+    },
+  };
 }
 
 export function cancelView(db: Db, user: SessionUser, payload: any): ApiResult {

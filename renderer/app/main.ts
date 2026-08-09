@@ -127,6 +127,24 @@ async function paymentMethodSelectHtml(selected = "transfer") {
     .join("");
 }
 
+async function viewFeedbackSelectHtml(selected = "interested") {
+  const result = await api("config.viewFeedbacks", {});
+  const feedbacks = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "interested", label: "有意向" },
+        { value: "considering", label: "考虑中" },
+        { value: "rejected", label: "无意向" },
+        { value: "deal", label: "可成交" },
+      ];
+  return feedbacks
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1520,28 +1538,34 @@ async function renderViews(main: HTMLElement) {
     list.innerHTML = rows
       .map(
         (v) => `<div class="row"><div>
-        <div><span class="tag ${v.status === "done" ? "ok" : ""}">${v.status}</span>
-        <span class="tag">${v.feedback}</span>
+        <div><span class="tag ${v.status === "done" ? "ok" : ""}">${v.status === "done" ? "已完成" : v.status === "cancelled" ? "已取消" : "计划中"}</span>
+        <span class="tag">${escapeHtml(v.feedback_label || v.feedback)}</span>
         <strong>${cusMap[v.customer_id] || v.customer_id} × ${houseMap[v.house_id] || v.house_id}</strong></div>
         <div class="meta">${v.view_at}</div>
       </div>
       <div class="ops">
         ${v.status === "planned" ? `<button class="btn" data-done="${v.id}">完成</button><button class="btn ghost" data-cancel="${v.id}">取消</button>` : ""}
-        ${v.status === "done" && ["interested", "deal"].includes(v.feedback) ? `<button class="btn" data-deal="${v.id}" data-h="${v.house_id}" data-c="${v.customer_id}">发起成交</button>` : ""}
+        ${v.status === "done" && (v.deal_shortcut || ["interested", "deal"].includes(v.feedback)) ? `<button class="btn" data-deal="${v.id}" data-h="${v.house_id}" data-c="${v.customer_id}">发起成交</button>` : ""}
       </div></div>`
       )
       .join("");
     list.querySelectorAll("[data-done]").forEach((btn) =>
       btn.addEventListener("click", async () => {
-        const feedback = prompt("反馈：interested / considering / rejected / deal", "interested");
-        if (!feedback) return;
-        const r = await api("view.complete", {
-          id: (btn as HTMLElement).dataset.done,
-          feedback,
-          content: "带看完成",
-        });
-        toast(r.ok ? "已完成" : r.message, r.ok ? "ok" : "error");
-        if (r.ok) draw();
+        const feedbackOptions = await viewFeedbackSelectHtml("interested");
+        openDialog(
+          "完成带看",
+          `<label class="full">带看结果<select name="feedback">${feedbackOptions}</select></label>
+           <label class="full">备注<input name="content" value="带看完成" /></label>`,
+          async (fd) => {
+            const r = await api("view.complete", {
+              id: (btn as HTMLElement).dataset.done,
+              feedback: fd.get("feedback"),
+              content: fd.get("content") || "带看完成",
+            });
+            toast(r.ok ? "已完成" : r.message, r.ok ? "ok" : "error");
+            if (r.ok) draw();
+          }
+        );
       })
     );
     list.querySelectorAll("[data-cancel]").forEach((btn) =>
@@ -6986,7 +7010,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method / view_feedback" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

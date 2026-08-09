@@ -164,6 +164,69 @@ export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
 }
 
+export const DEFAULT_VIEW_FEEDBACKS = [
+  { value: "interested", label: "有意向", sort_order: 1 },
+  { value: "considering", label: "考虑中", sort_order: 2 },
+  { value: "rejected", label: "无意向", sort_order: 3 },
+  { value: "deal", label: "可成交", sort_order: 4 },
+];
+
+const VIEW_FEEDBACK_ALIASES: Record<string, string> = {
+  有意向: "interested",
+  意向: "interested",
+  考虑中: "considering",
+  考虑: "considering",
+  无意向: "rejected",
+  拒绝: "rejected",
+  看完不要: "rejected",
+  可成交: "deal",
+  成交: "deal",
+};
+
+export function resolveViewFeedbacks(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'view_feedback' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_VIEW_FEEDBACKS.map((item) => ({ ...item }));
+}
+
+export function normalizeViewFeedback(feedback: unknown, fallback = ""): string {
+  const raw = String(feedback ?? "").trim();
+  if (!raw) return fallback;
+  return VIEW_FEEDBACK_ALIASES[raw] || raw;
+}
+
+export function isAllowedViewFeedback(db: Db, companyId: string, feedback: string): boolean {
+  if (!feedback || feedback === "pending") return false;
+  return resolveViewFeedbacks(db, companyId).some((item) => item.value === feedback);
+}
+
+export function labelViewFeedback(db: Db, companyId: string, feedback: unknown): string {
+  const normalized = normalizeViewFeedback(feedback);
+  if (!normalized) return "";
+  if (normalized === "pending") return "待反馈";
+  const hit = resolveViewFeedbacks(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function isEffectiveViewFeedback(feedback: unknown): boolean {
+  const normalized = normalizeViewFeedback(feedback);
+  return ["interested", "considering", "deal"].includes(normalized);
+}
+
+export function isDealShortcutFeedback(feedback: unknown): boolean {
+  const normalized = normalizeViewFeedback(feedback);
+  return ["interested", "deal"].includes(normalized);
+}
+
+export function listViewFeedbacks(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveViewFeedbacks(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,
