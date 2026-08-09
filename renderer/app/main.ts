@@ -127,6 +127,19 @@ async function paymentMethodSelectHtml(selected = "transfer") {
     .join("");
 }
 
+async function expenseCategorySelectHtml(selected = "transport") {
+  const result = await api("config.expenseCategories", {});
+  const categories = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : Object.entries(expenseCategories).map(([value, label]) => ({ value, label }));
+  return categories
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2846,11 +2859,12 @@ const expenseCategories: Record<string, string> = {
 
 async function renderExpenses(main: HTMLElement) {
   const desktopShell = (window as any).weilaijia?.shell;
+  const categoryFilterOptions = await expenseCategorySelectHtml("");
   main.innerHTML = `
     <div class="header"><h2>费用报销</h2><button class="btn" data-new>新建报销</button></div>
     <div class="filters">
       <select data-status><option value="">全部状态</option><option value="draft">草稿</option><option value="pending">待审批</option><option value="approved">待付款</option><option value="rejected">已驳回</option><option value="paid">已付款</option><option value="cancelled">已取消</option></select>
-      <select data-category><option value="">全部类别</option>${Object.entries(expenseCategories).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select>
+      <select data-category><option value="">全部类别</option>${categoryFilterOptions}</select>
     </div>
     <div class="list" data-list></div>
   `;
@@ -2890,7 +2904,7 @@ async function renderExpenses(main: HTMLElement) {
             ["approved", "paid"].includes(expense.status) &&
             ["admin", "finance"].includes(state.user.role);
           return `<div class="row"><div>
-            <div><span class="tag ${expense.status === "paid" ? "ok" : expense.status === "rejected" || expense.status === "cancelled" ? "danger" : "warn"}">${statusLabel[expense.status] || expense.status}</span><span class="tag">${expenseCategories[expense.category] || expense.category}</span><strong>${expense.title}</strong> · ¥${money(expense.amount)}</div>
+            <div><span class="tag ${expense.status === "paid" ? "ok" : expense.status === "rejected" || expense.status === "cancelled" ? "danger" : "warn"}">${statusLabel[expense.status] || expense.status}</span><span class="tag">${escapeHtml(expense.category_label || expenseCategories[expense.category] || expense.category)}</span><strong>${expense.title}</strong> · ¥${money(expense.amount)}</div>
             <div class="meta">${expense.applicant_name} · 费用日期 ${expense.expense_date} · 票据 ${expense.receipt_count} · 付款凭证 ${expense.voucher_count}${expense.description ? ` · ${expense.description}` : ""}${expense.reject_reason ? ` · 驳回：${expense.reject_reason}` : ""}${expense.payment_reference ? ` · 流水号：${expense.payment_reference}` : ""}</div>
           </div><div class="ops">
             ${canReceipt ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="expense_receipt">上传票据</button>` : ""}
@@ -2973,12 +2987,13 @@ async function renderExpenses(main: HTMLElement) {
       })
     );
   };
-  main.querySelector("[data-new]")!.addEventListener("click", () =>
+  main.querySelector("[data-new]")!.addEventListener("click", async () => {
+    const categoryOptions = await expenseCategorySelectHtml("transport");
     openDialog(
       "新建费用报销",
       `
       <label>报销事由<input name="title" required /></label>
-      <label>费用类别<select name="category">${Object.entries(expenseCategories).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label>
+      <label>费用类别<select name="category">${categoryOptions}</select></label>
       <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>
       <label>费用日期<input name="expense_date" type="date" required /></label>
       <label class="full">说明<textarea name="description" rows="3"></textarea></label>
@@ -2994,8 +3009,8 @@ async function renderExpenses(main: HTMLElement) {
         toast(result.ok ? "报销草稿已创建，请上传票据后提交" : result.message, result.ok ? "ok" : "error");
         if (result.ok) draw();
       }
-    )
-  );
+    );
+  });
   main.querySelector("[data-status]")!.addEventListener("change", draw);
   main.querySelector("[data-category]")!.addEventListener("change", draw);
   await draw();
@@ -6986,7 +7001,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method / expense_category" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>
