@@ -442,7 +442,10 @@ async function renderHouses(main: HTMLElement) {
   main.innerHTML = `
     <div class="header">
       <h2>房源</h2>
-      <button class="btn" data-new>新建房源</button>
+      <div class="ops">
+        <button class="btn ghost" data-export>导出 CSV</button>
+        <button class="btn" data-new>新建房源</button>
+      </div>
     </div>
     <div class="filters">
       <select data-f="deal_type"><option value="">全部类型</option><option value="sale">出售</option><option value="rent">出租</option></select>
@@ -887,6 +890,24 @@ async function renderHouses(main: HTMLElement) {
         }
       }
     );
+  });
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    const result = await api("report.housesCsv", q);
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "房源列表.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条房源`, "ok");
   });
   main.querySelectorAll("[data-f]").forEach((input) =>
     input.addEventListener("change", draw)
