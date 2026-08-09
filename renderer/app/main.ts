@@ -447,6 +447,8 @@ async function renderHouses(main: HTMLElement) {
     <div class="filters">
       <select data-f="deal_type"><option value="">全部类型</option><option value="sale">出售</option><option value="rent">出租</option></select>
       <select data-f="property_type"><option value="">全部物业</option><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select>
+      <select data-f="orientation"><option value="">全部朝向</option><option value="south">南</option><option value="north">北</option><option value="east">东</option><option value="west">西</option><option value="south_north">南北</option><option value="east_west">东西</option><option value="southeast">东南</option><option value="southwest">西南</option><option value="northeast">东北</option><option value="northwest">西北</option></select>
+      <select data-f="decoration"><option value="">全部装修</option><option value="blank">毛坯</option><option value="simple">简装</option><option value="medium">中装</option><option value="fine">精装</option><option value="luxury">豪装</option><option value="other">其他</option></select>
       <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="closed">已成交</option></select>
       <input data-f="keyword" placeholder="搜索小区/标题" />
     </div>
@@ -498,7 +500,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"}${h.orientation_label ? ` · ${escapeHtml(h.orientation_label)}` : ""}${h.decoration_label ? ` · ${escapeHtml(h.decoration_label)}` : ""} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -859,6 +861,8 @@ async function renderHouses(main: HTMLElement) {
       <label>业主电话<input name="owner_phone" required /></label>
       <label>面积㎡<input name="area_size" type="number" step="0.01" /></label>
       <label>户型<input name="rooms" placeholder="2室1厅" /></label>
+      <label>朝向<select name="orientation"><option value="">未填</option><option value="south">南</option><option value="north">北</option><option value="east">东</option><option value="west">西</option><option value="south_north">南北</option><option value="east_west">东西</option><option value="southeast">东南</option><option value="southwest">西南</option><option value="northeast">东北</option><option value="northwest">西北</option></select></label>
+      <label>装修<select name="decoration"><option value="">未填</option><option value="blank">毛坯</option><option value="simple">简装</option><option value="medium">中装</option><option value="fine">精装</option><option value="luxury">豪装</option><option value="other">其他</option></select></label>
       <label class="full">地址<input name="address" /></label>
       <label class="full">备注<input name="remark" /></label>
       <label><span><input name="is_private" type="checkbox" /> 保密盘</span></label>
@@ -875,6 +879,8 @@ async function renderHouses(main: HTMLElement) {
           owner_phone: fd.get("owner_phone"),
           area_size: fd.get("area_size") ? Number(fd.get("area_size")) : null,
           rooms: fd.get("rooms") || null,
+          orientation: fd.get("orientation") || null,
+          decoration: fd.get("decoration") || null,
           address: fd.get("address") || null,
           remark: fd.get("remark") || null,
           is_private: fd.get("is_private") === "on",
