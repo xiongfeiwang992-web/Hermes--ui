@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -232,6 +233,25 @@ export function disposeAsset(db: Db, user: SessionUser, payload: any): ApiResult
   ).run(now, reason, amount, now, row.id);
   addEvent(db, user, "asset", row.id, "disposed", { reason, dispose_amount: amount });
   writeAudit(db, user, "finance.asset.dispose", "finance_asset", row.id, { reason });
+  const recipients = new Set<string>();
+  if (row.custodian_user_id) recipients.add(row.custodian_user_id);
+  if (row.created_by) recipients.add(row.created_by);
+  recipients.delete(user.id);
+  const amountText =
+    amount > 0 ? ` · 处置金额 ${amount.toFixed(2)}` : "";
+  const body = `${row.code} ${row.name}${amountText}：${reason}`;
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: "固定资产已处置",
+      body,
+      kind: "business_record_status",
+      ref_type: "finance_asset",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "disposed" } };
 }
 
