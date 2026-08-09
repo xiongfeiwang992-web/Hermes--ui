@@ -684,6 +684,18 @@ export function cancelWorkOrder(db: Db, user: SessionUser, payload: any): ApiRes
   ).run(reason, nowIso(), row.id);
   addEvent(db, user, "work_order", row.id, "cancelled", { reason });
   writeAudit(db, user, "rental.work_order.cancel", "rental_work_order", row.id, { reason });
+  if (row.assignee_user_id && row.assignee_user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.assignee_user_id,
+      title: row.work_type === "maintenance" ? "维修工单已取消" : "保洁工单已取消",
+      body: `${row.description}：${reason}`,
+      kind: "rental",
+      ref_type: "rental_work_order",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "cancelled" } };
 }
 
