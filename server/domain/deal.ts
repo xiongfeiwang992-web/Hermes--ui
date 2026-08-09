@@ -137,12 +137,33 @@ export function getDeal(db: Db, user: SessionUser, id: string): ApiResult {
       `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
     )
     .get(id) as { s: number };
+  const pending = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount),0) AS s FROM payments
+       WHERE deal_id = ? AND status = 'pending' AND direction = 'in'`
+    )
+    .get(id) as { s: number };
+  const payments = db
+    .prepare(
+      `SELECT id, amount, pay_type, method, direction, status, payer_side, paid_at, remark
+       FROM payments WHERE deal_id = ? ORDER BY paid_at DESC, id DESC`
+    )
+    .all(id) as any[];
+  const receivable = Number(row.commission_total || 0);
+  const paidAmount = Number(paid.s || 0);
   return {
     ok: true,
     data: {
       ...presentDeal(row),
-      paid_amount: paid.s,
-      unpaid_amount: row.commission_total - paid.s,
+      receivable_amount: receivable,
+      paid_amount: paidAmount,
+      unpaid_amount: receivable - paidAmount,
+      pending_amount: Number(pending.s || 0),
+      overpaid: paidAmount > receivable,
+      payments: payments.map((payment) => ({
+        ...payment,
+        method_label: labelPaymentMethod(db, user.company_id, payment.method),
+      })),
     },
   };
 }
@@ -167,10 +188,14 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
           `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
         )
         .get(r.id) as { s: number };
+      const receivable = Number(r.commission_total || 0);
+      const paidAmount = Number(paid.s || 0);
       return {
         ...presentDeal(r),
-        paid_amount: paid.s,
-        unpaid_amount: r.commission_total - paid.s,
+        receivable_amount: receivable,
+        paid_amount: paidAmount,
+        unpaid_amount: receivable - paidAmount,
+        overpaid: paidAmount > receivable,
       };
     }),
   };
