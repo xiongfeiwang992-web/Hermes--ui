@@ -7216,10 +7216,22 @@ async function renderOrg(main: HTMLElement) {
     <h3>员工</h3>
     <div class="list" data-users></div>
   `;
+  const roleDist = (counts: Record<string, number> = {}) =>
+    [
+      counts.store_manager ? `店长 ${counts.store_manager}` : "",
+      counts.agent ? `经纪 ${counts.agent}` : "",
+      counts.finance ? `财务 ${counts.finance}` : "",
+      counts.admin ? `管理 ${counts.admin}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "无人";
   main.querySelector("[data-stores]")!.innerHTML = ((stores.data as any[]) || [])
     .map(
       (s) =>
-        `<div class="row"><div><strong>${s.name}</strong><div class="meta">${s.address || ""} · ${s.status}</div></div></div>`
+        `<div class="row"><div><strong>${escapeHtml(s.name)}</strong>
+        <div class="meta">${escapeHtml(s.address || "未填地址")} · ${s.status === "active" ? "营业中" : s.status}</div>
+        <div class="meta">在职 ${s.active_count ?? 0}/${s.employee_count ?? 0} · ${roleDist(s.role_counts)}</div>
+        </div></div>`
     )
     .join("") || `<div class="empty">无门店</div>`;
   main.querySelector("[data-users]")!.innerHTML = ((users.data as any[]) || [])

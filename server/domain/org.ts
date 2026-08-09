@@ -62,13 +62,59 @@ export function listStores(db: Db, user: SessionUser): ApiResult {
   }
   const rows =
     user.role === "admin"
-      ? db
+      ? (db
           .prepare(`SELECT * FROM stores WHERE company_id = ? ORDER BY created_at`)
-          .all(user.company_id)
-      : db
+          .all(user.company_id) as any[])
+      : (db
           .prepare(`SELECT * FROM stores WHERE company_id = ? AND id = ?`)
-          .all(user.company_id, user.store_id);
-  return { ok: true, data: rows };
+          .all(user.company_id, user.store_id) as any[]);
+  const userRows = db
+    .prepare(
+      `SELECT store_id, role, status FROM users WHERE company_id = ?`
+    )
+    .all(user.company_id) as Array<{ store_id: string; role: string; status: string }>;
+  const byStore = new Map<
+    string,
+    {
+      employee_count: number;
+      active_count: number;
+      inactive_count: number;
+      role_counts: Record<string, number>;
+    }
+  >();
+  for (const u of userRows) {
+    let bucket = byStore.get(u.store_id);
+    if (!bucket) {
+      bucket = {
+        employee_count: 0,
+        active_count: 0,
+        inactive_count: 0,
+        role_counts: { admin: 0, store_manager: 0, agent: 0, finance: 0 },
+      };
+      byStore.set(u.store_id, bucket);
+    }
+    bucket.employee_count += 1;
+    if (u.status === "active") bucket.active_count += 1;
+    else bucket.inactive_count += 1;
+    if (u.role in bucket.role_counts) bucket.role_counts[u.role] += 1;
+    else bucket.role_counts[u.role] = (bucket.role_counts[u.role] || 0) + 1;
+  }
+  const data = rows.map((store) => {
+    const stats = byStore.get(store.id) || {
+      employee_count: 0,
+      active_count: 0,
+      inactive_count: 0,
+      role_counts: { admin: 0, store_manager: 0, agent: 0, finance: 0 },
+    };
+    return {
+      ...store,
+      employee_count: stats.employee_count,
+      active_count: stats.active_count,
+      inactive_count: stats.inactive_count,
+      role_counts: stats.role_counts,
+    };
+  });
+  return { ok: true, data };
 }
 
 export function upsertStore(
