@@ -493,6 +493,26 @@ export function completeAuction(db: Db, user: SessionUser, payload: any): ApiRes
   ).run(now, house.id);
   addEvent(db, user, "auction", house.id, "completed");
   writeAudit(db, user, "propertyExt.auction.complete", "house_auction_profile", house.id);
+  const recipients = new Set<string>();
+  if (house.agent_id) recipients.add(house.agent_id);
+  if (profile.created_by) recipients.add(profile.created_by);
+  recipients.delete(user.id);
+  const caseNo = String(profile.case_no || "").trim();
+  const body = caseNo
+    ? `${house.title} · 案号 ${caseNo} 已完成拍卖`
+    : `${house.title} 已完成拍卖`;
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: userId,
+      title: "房源拍卖已完成",
+      body,
+      kind: "business_record_status",
+      ref_type: "house_auction_profile",
+      ref_id: house.id,
+    });
+  }
   return { ok: true, data: { house_id: house.id, status: "completed" } };
 }
 
