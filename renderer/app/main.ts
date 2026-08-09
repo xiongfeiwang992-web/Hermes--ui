@@ -1163,6 +1163,7 @@ async function renderCustomers(main: HTMLElement) {
     <div class="header"><h2>客源</h2><div class="ops">
       ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-run-pool>执行掉公</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-pool-settings>掉公设置</button>` : ""}
+      <button class="btn ghost" data-export>导出 CSV</button>
       <button class="btn" data-new>新建客源</button>
     </div></div>
     <div class="filters">
@@ -1365,6 +1366,24 @@ async function renderCustomers(main: HTMLElement) {
         if (res.ok) draw();
       }
     );
+  });
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    const result = await api("report.customersCsv", q);
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "客源列表.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条客源`, "ok");
   });
   main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
   main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
