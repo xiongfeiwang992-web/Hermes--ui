@@ -1159,6 +1159,29 @@ async function renderVerifications(main: HTMLElement) {
 }
 
 async function renderCustomers(main: HTMLElement) {
+  const storeUsersResult =
+    state.user.role === "finance"
+      ? { ok: false, data: [] as any[] }
+      : await api("org.users.store", {});
+  const allStoreUsers = storeUsersResult.ok ? ((storeUsersResult.data as any[]) || []) : [];
+  const agentUsers = allStoreUsers.filter((user) =>
+    ["agent", "store_manager"].includes(user.role)
+  );
+  const agentName = (id: string | null | undefined) =>
+    (id && allStoreUsers.find((user) => user.id === id)?.display_name) || id || "未指定";
+  const customerStatusLabel = (status: string) =>
+    ({
+      new: "待联系",
+      following: "跟进中",
+      viewing: "带看中",
+      deal_pending: "成交中",
+      closed: "已成交",
+      invalid: "无效",
+      public_pool: "公客池",
+    }[status] || status);
+  const agentFilterOpts = agentUsers
+    .map((user) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`)
+    .join("");
   main.innerHTML = `
     <div class="header"><h2>客源</h2><div class="ops">
       ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-run-pool>执行掉公</button>` : ""}
@@ -1168,6 +1191,9 @@ async function renderCustomers(main: HTMLElement) {
     <div class="filters">
       <select data-f="visibility"><option value="">全部可见性</option><option value="private">私客</option><option value="public">公客</option></select>
       <select data-f="intent"><option value="">全部意图</option><option value="buy">求购</option><option value="rent">求租</option></select>
+      <select data-f="level"><option value="">全部等级</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select>
+      <select data-f="status"><option value="">全部状态</option><option value="new">待联系</option><option value="following">跟进中</option><option value="viewing">带看中</option><option value="deal_pending">成交中</option><option value="closed">已成交</option><option value="invalid">无效</option><option value="public_pool">公客池</option></select>
+      <select data-f="agent_id"><option value="">全部维护人</option>${agentFilterOpts}</select>
       <select data-f="source"><option value="">全部来源</option></select>
       <input data-f="keyword" placeholder="搜索姓名/电话" />
     </div>
@@ -1194,7 +1220,7 @@ async function renderCustomers(main: HTMLElement) {
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag">${c.level}级</span>
         <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
-        <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
+        <div class="meta">${c.need || "无需求备注"} · 状态 ${customerStatusLabel(c.status)} · 维护 ${escapeHtml(agentName(c.agent_id))}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
       <div class="ops">
         ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
