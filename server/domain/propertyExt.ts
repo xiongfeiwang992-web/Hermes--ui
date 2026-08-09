@@ -639,5 +639,21 @@ export function endExclusive(db: Db, user: SessionUser, payload: any): ApiResult
   writeAudit(db, user, "propertyExt.exclusive.end", "house_exclusive_profile", house.id, {
     reason,
   });
+  const recipients = new Set<string>();
+  if (house.agent_id) recipients.add(house.agent_id);
+  if (profile.created_by) recipients.add(profile.created_by);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: userId,
+      title: profile.agency_type === "package" ? "包销已结束" : "独家代理已结束",
+      body: `${house.title}：${reason}`,
+      kind: "business_record_status",
+      ref_type: "house_exclusive_profile",
+      ref_id: house.id,
+    });
+  }
   return { ok: true, data: { house_id: house.id, status: "ended" } };
 }
