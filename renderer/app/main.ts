@@ -498,11 +498,12 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community}${h.district ? ` · ${escapeHtml(h.district)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"}${h.rooms ? ` · ${escapeHtml(h.rooms)}` : ""}${h.area_size != null ? ` · ${h.area_size}㎡` : ""}${h.floor ? ` · ${escapeHtml(h.floor)}层` : ""} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
         <div class="ops">
+          ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-edit="${h.id}">编辑</button>` : ""}
           ${h.force_follow_required ? `<button class="btn" data-reveal-house="${h.id}">写跟进看电话</button>` : ""}
           ${h.status === "draft" ? `<button class="btn ghost" data-status="${h.id}" data-to="available">上架</button>` : ""}
           ${h.status === "available" ? `<button class="btn ghost" data-status="${h.id}" data-to="suspended">暂缓</button>` : ""}
@@ -664,6 +665,44 @@ async function renderHouses(main: HTMLElement) {
           toast(result.ok ? "已恢复上架" : result.message, result.ok ? "ok" : "error");
           if (result.ok) draw();
         });
+      });
+    });
+    list.querySelectorAll("[data-edit]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const houseId = (btn as HTMLElement).dataset.edit!;
+        const got = await api("house.get", { id: houseId });
+        if (!got.ok) return toast(got.message, "error");
+        const h = got.data as any;
+        openDialog(
+          "编辑房源",
+          `
+          <label>标题<input name="title" value="${escapeHtml(h.title || "")}" required /></label>
+          <label>小区<input name="community" value="${escapeHtml(h.community || "")}" required /></label>
+          <label>片区<input name="district" value="${escapeHtml(h.district || "")}" /></label>
+          <label>价格<input name="price" type="number" step="0.01" value="${h.price ?? ""}" required /></label>
+          <label>面积㎡<input name="area_size" type="number" step="0.01" value="${h.area_size ?? ""}" /></label>
+          <label>户型<input name="rooms" value="${escapeHtml(h.rooms || "")}" placeholder="2室1厅" /></label>
+          <label>楼层<input name="floor" value="${escapeHtml(h.floor || "")}" placeholder="8/18" /></label>
+          <label class="full">地址<input name="address" value="${escapeHtml(h.address || "")}" /></label>
+          <label class="full">备注<input name="remark" value="${escapeHtml(h.remark || "")}" /></label>
+          `,
+          async (fd) => {
+            const result = await api("house.update", {
+              id: houseId,
+              title: fd.get("title"),
+              community: fd.get("community"),
+              district: String(fd.get("district") || "") || null,
+              price: Number(fd.get("price")),
+              area_size: fd.get("area_size") ? Number(fd.get("area_size")) : null,
+              rooms: String(fd.get("rooms") || "") || null,
+              floor: String(fd.get("floor") || "") || null,
+              address: String(fd.get("address") || "") || null,
+              remark: String(fd.get("remark") || "") || null,
+            });
+            toast(result.ok ? "房源已更新" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
       });
     });
     list.querySelectorAll("[data-holder]").forEach((btn) => {
@@ -854,11 +893,13 @@ async function renderHouses(main: HTMLElement) {
       <label>物业<select name="property_type"><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select></label>
       <label>交易模式<select name="deal_mode"><option value="normal">普通</option><option value="auction">拍卖</option><option value="exclusive">包销/独家</option></select></label>
       <label>小区<input name="community" required /></label>
+      <label>片区<input name="district" placeholder="如 城南" /></label>
       <label>价格<input name="price" type="number" step="0.01" required /></label>
       <label>业主姓名<input name="owner_name" required /></label>
       <label>业主电话<input name="owner_phone" required /></label>
       <label>面积㎡<input name="area_size" type="number" step="0.01" /></label>
       <label>户型<input name="rooms" placeholder="2室1厅" /></label>
+      <label>楼层<input name="floor" placeholder="8/18" /></label>
       <label class="full">地址<input name="address" /></label>
       <label class="full">备注<input name="remark" /></label>
       <label><span><input name="is_private" type="checkbox" /> 保密盘</span></label>
@@ -870,11 +911,13 @@ async function renderHouses(main: HTMLElement) {
           property_type: fd.get("property_type"),
           deal_mode: fd.get("deal_mode"),
           community: fd.get("community"),
+          district: fd.get("district") || null,
           price: Number(fd.get("price")),
           owner_name: fd.get("owner_name"),
           owner_phone: fd.get("owner_phone"),
           area_size: fd.get("area_size") ? Number(fd.get("area_size")) : null,
           rooms: fd.get("rooms") || null,
+          floor: fd.get("floor") || null,
           address: fd.get("address") || null,
           remark: fd.get("remark") || null,
           is_private: fd.get("is_private") === "on",
@@ -885,6 +928,7 @@ async function renderHouses(main: HTMLElement) {
         } else {
           toast(res.ok ? "房源已创建" : res.message, res.ok ? "ok" : "error");
         }
+        if (res.ok) draw();
       }
     );
   });
