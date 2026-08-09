@@ -603,6 +603,19 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
   return { ok: true, data: { id } };
 }
 
+function presentCommission(db: Db, companyId: string, row: any) {
+  const member = db
+    .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+    .get(row.user_id, companyId) as { display_name?: string } | undefined;
+  const statusLabel =
+    row.status === "paid" ? "已发放" : row.status === "accrued" ? "应计" : row.status;
+  return {
+    ...row,
+    user_name: member?.display_name || row.user_id,
+    status_label: statusLabel,
+  };
+}
+
 export function listCommissions(db: Db, user: SessionUser): ApiResult {
   const scope = canSeeCommissions(user);
   if (scope === "none") return { ok: false, message: "无权限", code: 403 };
@@ -611,7 +624,10 @@ export function listCommissions(db: Db, user: SessionUser): ApiResult {
     .all(user.company_id) as any[];
   if (scope === "store") rows = rows.filter((c) => c.store_id === user.store_id);
   if (scope === "self") rows = rows.filter((c) => c.user_id === user.id);
-  return { ok: true, data: rows };
+  return {
+    ok: true,
+    data: rows.map((row) => presentCommission(db, user.company_id, row)),
+  };
 }
 
 export function markCommissionPaid(
@@ -622,9 +638,33 @@ export function markCommissionPaid(
   if (!(user.role === "admin" || user.role === "finance")) {
     return { ok: false, message: "无权限", code: 403 };
   }
+  const current = db
+    .prepare(`SELECT * FROM commissions WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "提成记录不存在" };
+  if (current.status !== "accrued") {
+    return { ok: false, message: current.status === "paid" ? "该提成已发放" : "当前状态不可发放" };
+  }
+  const now = nowIso();
   db.prepare(
     `UPDATE commissions SET status = 'paid', updated_at = ? WHERE id = ? AND company_id = ?`
-  ).run(nowIso(), payload.id, user.company_id);
-  writeAudit(db, user, "commission.paid", "commission", payload.id);
-  return { ok: true, data: { id: payload.id } };
+  ).run(now, payload.id, user.company_id);
+  writeAudit(db, user, "commission.paid", "commission", payload.id, {
+    deal_id: current.deal_id,
+    amount: current.amount,
+  });
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: current.store_id,
+    user_id: current.user_id,
+    title: "提成已发放",
+    body: `成交单 ${current.deal_id} 提成 ¥${current.amount} 已标记发放`,
+    kind: "commission_paid",
+    ref_type: "commission",
+    ref_id: current.id,
+  });
+  const updated = db
+    .prepare(`SELECT * FROM commissions WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  return { ok: true, data: presentCommission(db, user.company_id, updated) };
 }

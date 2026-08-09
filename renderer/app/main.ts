@@ -2165,25 +2165,32 @@ async function renderCommissions(main: HTMLElement) {
   if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
   const rows = r.data as any[];
   if (!rows.length) return (list.innerHTML = `<div class="empty">暂无提成</div>`);
-  list.innerHTML = rows
-    .map(
-      (c) => `<div class="row"><div>
-      <div><span class="tag ${c.status === "paid" ? "ok" : "warn"}">${c.status}</span>
+  const draw = () => {
+    list.innerHTML = rows
+      .map(
+        (c) => `<div class="row"><div>
+      <div><span class="tag ${c.status === "paid" ? "ok" : "warn"}">${escapeHtml(c.status_label || c.status)}</span>
       <strong>¥${money(c.amount)}</strong> · 占比 ${c.ratio}%</div>
-      <div class="meta">成交单 ${c.deal_id} · 用户 ${c.user_id}</div>
+      <div class="meta">成交单 ${escapeHtml(c.deal_id)} · ${escapeHtml(c.user_name || c.user_id)}</div>
     </div>
     <div class="ops">
       ${c.status === "accrued" && ["admin", "finance"].includes(state.user.role) ? `<button class="btn" data-paid="${c.id}">标记已发放</button>` : ""}
     </div></div>`
-    )
-    .join("");
-  list.querySelectorAll("[data-paid]").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      const r = await api("commission.paid", { id: (btn as HTMLElement).dataset.paid });
-      toast(r.ok ? "已标记发放" : r.message, r.ok ? "ok" : "error");
-      if (r.ok) render();
-    })
-  );
+      )
+      .join("");
+    list.querySelectorAll("[data-paid]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const result = await api("commission.paid", { id: (btn as HTMLElement).dataset.paid });
+        toast(result.ok ? "已标记发放" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) {
+          const idx = rows.findIndex((row) => row.id === (btn as HTMLElement).dataset.paid);
+          if (idx >= 0) rows[idx] = result.data;
+          draw();
+        }
+      })
+    );
+  };
+  draw();
 }
 
 async function renderReports(main: HTMLElement) {
