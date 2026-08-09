@@ -2,7 +2,11 @@ import type { Db } from "../db/database";
 import { listFollows, listViews } from "./activity";
 import { listHouses } from "./house";
 import { listCustomers } from "./customer";
-import { labelCustomerSource, normalizeCustomerSource } from "./config";
+import {
+  isEffectiveViewFeedback,
+  labelCustomerSource,
+  normalizeCustomerSource,
+} from "./config";
 import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
 import { todayDate } from "../utils/id";
@@ -371,7 +375,7 @@ export function activityStats(
   for (const row of viewRows) {
     const item = ensure(row.agent_id);
     item.view_count++;
-    if (["interested", "considering", "deal"].includes(row.feedback)) item.effective_view_count++;
+    if (isEffectiveViewFeedback(row.feedback)) item.effective_view_count++;
   }
   return {
     ok: true,
@@ -380,7 +384,7 @@ export function activityStats(
       follow_count: followRows.length,
       view_count: viewRows.length,
       effective_view_count: viewRows.filter((row) =>
-        ["interested", "considering", "deal"].includes(row.feedback)
+        isEffectiveViewFeedback(row.feedback)
       ).length,
       rankings: [...users.values()].sort(
         (a, b) => b.follow_count + b.view_count - a.follow_count - a.view_count
