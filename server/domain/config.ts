@@ -164,6 +164,53 @@ export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
 }
 
+export const DEFAULT_LEAVE_TYPES = [
+  { value: "annual", label: "年假", sort_order: 1 },
+  { value: "sick", label: "病假", sort_order: 2 },
+  { value: "personal", label: "事假", sort_order: 3 },
+  { value: "other", label: "其他", sort_order: 4 },
+];
+
+const LEAVE_TYPE_ALIASES: Record<string, string> = {
+  年假: "annual",
+  病假: "sick",
+  事假: "personal",
+  其他: "other",
+  其它: "other",
+};
+
+export function resolveLeaveTypes(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'leave_type' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_LEAVE_TYPES.map((item) => ({ ...item }));
+}
+
+export function normalizeLeaveType(leaveType: unknown, fallback = ""): string {
+  const raw = String(leaveType ?? "").trim();
+  if (!raw) return fallback;
+  return LEAVE_TYPE_ALIASES[raw] || raw;
+}
+
+export function isAllowedLeaveType(db: Db, companyId: string, leaveType: string): boolean {
+  return resolveLeaveTypes(db, companyId).some((item) => item.value === leaveType);
+}
+
+export function labelLeaveType(db: Db, companyId: string, leaveType: unknown): string {
+  const normalized = normalizeLeaveType(leaveType);
+  if (!normalized) return "";
+  const hit = resolveLeaveTypes(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listLeaveTypes(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveLeaveTypes(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,
