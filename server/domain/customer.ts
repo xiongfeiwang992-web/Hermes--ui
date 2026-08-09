@@ -3,8 +3,11 @@ import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
 import { buildModificationSummary, recordModificationFollow } from "./activity";
 import { writeAudit } from "./audit";
 import {
+  isAllowedCustomerLevel,
   isAllowedCustomerSource,
+  labelCustomerLevel,
   labelCustomerSource,
+  normalizeCustomerLevel,
   normalizeCustomerSource,
 } from "./config";
 import { resolvePhoneVisibility } from "./contactGate";
@@ -24,6 +27,7 @@ function presentCustomer(db: Db, user: SessionUser, row: any) {
     phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
     source_label: labelCustomerSource(db, user.company_id, row.source),
+    level_label: labelCustomerLevel(db, user.company_id, row.level),
   };
 }
 
@@ -35,7 +39,10 @@ export function listCustomers(db: Db, user: SessionUser, q: any = {}): ApiResult
   rows = rows.filter((c) => !c.merged_into_id);
   rows = rows.filter((c) => customerVisibleTo(user, c));
   if (q.intent) rows = rows.filter((c) => c.intent === q.intent);
-  if (q.level) rows = rows.filter((c) => c.level === q.level);
+  if (q.level) {
+    const level = normalizeCustomerLevel(q.level, "");
+    rows = rows.filter((c) => normalizeCustomerLevel(c.level, "") === level);
+  }
   if (q.visibility) rows = rows.filter((c) => c.visibility === q.visibility);
   if (q.status) rows = rows.filter((c) => c.status === q.status);
   if (q.agent_id) rows = rows.filter((c) => c.agent_id === q.agent_id);
@@ -72,6 +79,10 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (source && !isAllowedCustomerSource(db, user.company_id, source)) {
     return { ok: false, message: "客户来源不在当前字典中" };
   }
+  const level = normalizeCustomerLevel(payload.level);
+  if (!isAllowedCustomerLevel(db, user.company_id, level)) {
+    return { ok: false, message: "客户等级不在当前字典中" };
+  }
   const dup = db
     .prepare(`SELECT id, name FROM customers WHERE company_id = ? AND phone = ?`)
     .get(user.company_id, payload.phone) as any;
@@ -93,7 +104,7 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.budget_max ?? null,
     payload.budget_note || null,
     payload.need || null,
-    payload.level || "B",
+    level,
     user.id,
     source,
     payload.remark || null,
@@ -133,6 +144,11 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (sourceProvided && nextSource && !isAllowedCustomerSource(db, user.company_id, nextSource)) {
     return { ok: false, message: "客户来源不在当前字典中" };
   }
+  const levelProvided = Object.prototype.hasOwnProperty.call(payload, "level");
+  const nextLevel = levelProvided ? normalizeCustomerLevel(payload.level) : null;
+  if (levelProvided && nextLevel && !isAllowedCustomerLevel(db, user.company_id, nextLevel)) {
+    return { ok: false, message: "客户等级不在当前字典中" };
+  }
   const summary = buildModificationSummary([
     { label: "姓名", provided: payload.name != null, prev: current.name, next: payload.name },
     {
@@ -162,7 +178,12 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
       next: payload.budget_note,
     },
     { label: "需求", provided: payload.need != null, prev: current.need, next: payload.need },
-    { label: "等级", provided: payload.level != null, prev: current.level, next: payload.level },
+    {
+      label: "等级",
+      provided: levelProvided,
+      prev: current.level,
+      next: nextLevel,
+    },
     {
       label: "来源",
       provided: sourceProvided,
@@ -201,7 +222,7 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     payload.budget_max ?? null,
     payload.budget_note ?? null,
     payload.need ?? null,
-    payload.level ?? null,
+    levelProvided ? nextLevel : null,
     sourceProvided ? nextSource : null,
     payload.remark ?? null,
     nextConfidential,
