@@ -210,6 +210,8 @@ function route(
 
     case "earnest.list":
       return earnest.listEarnest(db, user!, payload);
+    case "earnest.export":
+      return earnest.exportEarnest(db, user!, payload);
     case "earnest.create":
       return earnest.createEarnest(db, user!, payload);
     case "earnest.apply":
