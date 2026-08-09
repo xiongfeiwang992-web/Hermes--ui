@@ -641,6 +641,32 @@ export function returnTicket(db: Db, user: SessionUser, payload: any): ApiResult
   ).run(user.id, now, now, row.id);
   addEvent(db, user, "ticket", row.id, "returned");
   writeAudit(db, user, "officeCollab.ticket.return", "office_ticket", row.id);
+  const recipients = new Set<string>();
+  if (row.applicant_user_id !== user.id) {
+    recipients.add(row.applicant_user_id);
+  } else {
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND status='active'
+         AND (role='admin' OR (role='store_manager' AND store_id=?))`
+      )
+      .all(user.company_id, row.store_id) as any[];
+    for (const manager of managers) {
+      if (manager.id !== user.id) recipients.add(manager.id);
+    }
+  }
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: "票据已回收",
+      body: `${row.title} · ${user.display_name}`,
+      kind: "office_ticket",
+      ref_type: "office_ticket",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "returned" } };
 }
 
