@@ -372,8 +372,9 @@ async function renderDashboard(main: HTMLElement) {
       <div class="stat"><div class="n">${d.available_houses}</div><div class="l">在售/待租</div></div>
       <div class="stat"><div class="n">${d.private_customers}</div><div class="l">私客</div></div>
       <div class="stat"><div class="n">${d.public_customers}</div><div class="l">公客</div></div>
-      <div class="stat"><div class="n">${d.follow_today}</div><div class="l">今日待跟进</div></div>
-      <div class="stat"><div class="n">${d.follow_overdue}</div><div class="l">逾期跟进</div></div>
+      <button class="stat" data-goto-follows="today" title="查看今日待跟进"><div class="n">${d.follow_today}</div><div class="l">今日待跟进</div></button>
+      <button class="stat" data-goto-follows="overdue" title="查看逾期跟进"><div class="n">${d.follow_overdue}</div><div class="l">逾期跟进</div></button>
+      <button class="stat" data-goto-follows="due" title="查看全部待跟进"><div class="n">${Number(d.follow_today || 0) + Number(d.follow_overdue || 0)}</div><div class="l">待跟进合计</div></button>
       <div class="stat"><div class="n">${d.today_views}</div><div class="l">今日带看</div></div>
       <div class="stat"><div class="n">${d.pending_deals}</div><div class="l">待审批成交</div></div>
       <div class="stat"><div class="n">${money(d.unpaid_total)}</div><div class="l">未收佣金</div></div>
@@ -383,6 +384,13 @@ async function renderDashboard(main: HTMLElement) {
       <div class="meta">录盘 → 录客 → 跟进 → 带看 → 提交成交 → 店长审批 → 财务收款 → 查看提成</div>
     </div></div>
   `;
+  main.querySelectorAll("[data-goto-follows]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.cache.prefillFollowDue = (btn as HTMLElement).dataset.gotoFollows;
+      state.tab = "follows";
+      render();
+    });
+  });
 }
 
 function openDialog(title: string, fieldsHtml: string, onSubmit: (fd: FormData) => Promise<void>) {
@@ -1410,13 +1418,21 @@ async function renderCustomers(main: HTMLElement) {
 async function renderFollows(main: HTMLElement) {
   const kindText = (kind: string) =>
     kind === "price_change" ? "改价" : kind === "modification" ? "修改" : "普通";
+  const prefillDue = String(state.cache.prefillFollowDue || "");
+  state.cache.prefillFollowDue = null;
   main.innerHTML = `
     <div class="header"><h2>跟进</h2><div class="ops">
       <button class="btn ghost" data-export>导出 CSV</button>
       <button class="btn" data-new>写跟进</button>
     </div></div>
     <div class="filters">
-      <select data-f="due"><option value="">全部待办</option><option value="today">今日待跟进</option><option value="overdue">逾期</option></select>
+      <select data-f="due">
+        <option value="">全部待办</option>
+        <option value="due" ${prefillDue === "due" ? "selected" : ""}>待跟进（含逾期）</option>
+        <option value="today" ${prefillDue === "today" ? "selected" : ""}>今日待跟进</option>
+        <option value="overdue" ${prefillDue === "overdue" ? "selected" : ""}>逾期</option>
+        <option value="upcoming" ${prefillDue === "upcoming" ? "selected" : ""}>即将到期（7天内）</option>
+      </select>
       <select data-f="target_type"><option value="">全部对象</option><option value="house">房源</option><option value="customer">客源</option></select>
       <select data-f="follow_kind"><option value="">全部类型</option><option value="normal">普通跟进</option><option value="price_change">改价跟进</option><option value="modification">资料修改</option></select>
     </div>
@@ -1440,11 +1456,41 @@ async function renderFollows(main: HTMLElement) {
         (f) => `<div class="row"><div>
         <div><span class="tag">${f.target_type === "house" ? "房" : "客"}</span>
         <span class="tag">${kindText(f.follow_kind || "normal")}</span>
-        <strong>${escapeHtml(f.content)}</strong></div>
-        <div class="meta">${escapeHtml(f.method_label || f.method || "")} · 下次 ${f.next_follow_at || "未设置"} · ${f.created_at}</div>
+        <strong>${escapeHtml(f.target_title || f.target_id)}</strong>
+        <span class="meta">${escapeHtml(f.content)}</span></div>
+        <div class="meta">${escapeHtml(f.method_label || f.method || "")}${f.target_subtitle ? ` · ${escapeHtml(f.target_subtitle)}` : ""} · 下次 ${f.next_follow_at || "未设置"} · ${f.created_at}</div>
+      </div>
+      <div class="ops">
+        <button class="btn ghost" data-open-target="${f.target_type}:${f.target_id}">查看对象</button>
       </div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-open-target]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const [targetType, targetId] = String((btn as HTMLElement).dataset.openTarget || "").split(":");
+        if (targetType === "house") {
+          const got = await api("house.get", { id: targetId });
+          if (!got.ok) return toast(got.message, "error");
+          const h = got.data as any;
+          openInfoDialog(
+            `房源 · ${escapeHtml(h.title || targetId)}`,
+            `<div class="meta">${escapeHtml(h.community || "")}${h.district ? ` · ${escapeHtml(h.district)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · ${houseStatusLabel(h.status, h.deal_type)}</div>
+             <div class="meta">业主 ${escapeHtml(h.owner_name || "")} ${escapeHtml(h.owner_phone || "")}</div>`
+          );
+          return;
+        }
+        if (targetType === "customer") {
+          const got = await api("customer.get", { id: targetId });
+          if (!got.ok) return toast(got.message, "error");
+          const c = got.data as any;
+          openInfoDialog(
+            `客源 · ${escapeHtml(c.name || targetId)}`,
+            `<div class="meta">${c.intent === "buy" ? "求购" : "求租"} · ${c.level || ""}级 · ${c.visibility === "private" ? "私客" : "公客"} · ${escapeHtml(c.status || "")}</div>
+             <div class="meta">${escapeHtml(c.phone || "")}${c.need ? ` · ${escapeHtml(c.need)}` : ""}</div>`
+          );
+        }
+      });
+    });
   };
   main.querySelector("[data-new]")!.addEventListener("click", async () => {
     const houseOpts = ((houses.data as any[]) || [])
