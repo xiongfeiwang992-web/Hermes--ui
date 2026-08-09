@@ -43,6 +43,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
       "verification_pending",
       "verification_review",
       "entrustment_terminated",
+      "entrustment_renewed",
       "transfer_node",
       "mortgage_status",
     ],
