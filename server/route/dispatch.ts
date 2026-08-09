@@ -773,6 +773,8 @@ function route(
       return config.listCustomerSources(db, user!);
     case "config.paymentMethods":
       return config.listPaymentMethods(db, user!);
+    case "config.expenseCategories":
+      return config.listExpenseCategories(db, user!);
     case "config.settings.get":
       return config.getSettings(db, user!);
     case "config.settings.save":

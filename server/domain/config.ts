@@ -164,6 +164,61 @@ export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
 }
 
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  { value: "transport", label: "交通", sort_order: 1 },
+  { value: "travel", label: "差旅", sort_order: 2 },
+  { value: "office", label: "办公用品", sort_order: 3 },
+  { value: "marketing", label: "营销推广", sort_order: 4 },
+  { value: "hospitality", label: "业务招待", sort_order: 5 },
+  { value: "other", label: "其他", sort_order: 6 },
+];
+
+const EXPENSE_CATEGORY_ALIASES: Record<string, string> = {
+  交通: "transport",
+  交通费: "transport",
+  差旅: "travel",
+  差旅费: "travel",
+  办公: "office",
+  办公用品: "office",
+  营销: "marketing",
+  营销推广: "marketing",
+  招待: "hospitality",
+  业务招待: "hospitality",
+  其他: "other",
+};
+
+export function resolveExpenseCategories(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'expense_category' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_EXPENSE_CATEGORIES.map((item) => ({ ...item }));
+}
+
+export function normalizeExpenseCategory(category: unknown, fallback = ""): string {
+  const raw = String(category ?? "").trim();
+  if (!raw) return fallback;
+  return EXPENSE_CATEGORY_ALIASES[raw] || raw;
+}
+
+export function isAllowedExpenseCategory(db: Db, companyId: string, category: string): boolean {
+  return resolveExpenseCategories(db, companyId).some((item) => item.value === category);
+}
+
+export function labelExpenseCategory(db: Db, companyId: string, category: unknown): string {
+  const normalized = normalizeExpenseCategory(category);
+  if (!normalized) return "";
+  const hit = resolveExpenseCategories(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listExpenseCategories(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveExpenseCategories(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,
