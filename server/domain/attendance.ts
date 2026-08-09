@@ -333,5 +333,23 @@ export function cancelLeave(db: Db, user: SessionUser, payload: any): ApiResult 
     `UPDATE leave_requests SET status='cancelled', cancelled_at=?, updated_at=? WHERE id=?`
   ).run(now, now, row.id);
   writeAudit(db, user, "leave.cancel", "leave_request", row.id);
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND store_id=? AND role='store_manager'
+       AND status='active' AND id<>?`
+    )
+    .all(user.company_id, row.store_id, user.id) as any[];
+  for (const manager of managers) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: manager.id,
+      title: "请假申请已取消",
+      body: `${user.display_name} · ${row.duration_hours} 小时`,
+      kind: "leave_review",
+      ref_type: "leave_request",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "cancelled" } };
 }
