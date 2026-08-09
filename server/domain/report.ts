@@ -2,6 +2,7 @@ import type { Db } from "../db/database";
 import { listFollows, listViews } from "./activity";
 import { listHouses } from "./house";
 import { listCustomers } from "./customer";
+import { listPayments } from "./deal";
 import { labelCustomerSource, normalizeCustomerSource } from "./config";
 import { writeAudit } from "./audit";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -240,6 +241,58 @@ function csvFile(filename: string, header: string[], rows: unknown[][]): ApiResu
 
 function dataRows(result: ApiResult): any[] | null {
   return result.ok ? (result.data as any[]) : null;
+}
+
+export function exportPaymentsCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const rows = dataRows(listPayments(db, user, payload));
+  if (!rows) return { ok: false, message: "无收款导出权限", code: 403 };
+  let confirmedIn = 0;
+  let confirmedOut = 0;
+  let pendingIn = 0;
+  for (const row of rows) {
+    const amount = Number(row.amount) || 0;
+    const direction = row.direction || "in";
+    if (row.status === "confirmed") {
+      if (direction === "out") confirmedOut += amount;
+      else confirmedIn += amount;
+    } else if (row.status === "pending" && direction !== "out") {
+      pendingIn += amount;
+    }
+  }
+  writeAudit(db, user, "payment.export", "payment", undefined, {
+    rows: rows.length,
+    confirmed_in: confirmedIn,
+    confirmed_out: confirmedOut,
+    pending_in: pendingIn,
+    net_confirmed: confirmedIn - confirmedOut,
+  });
+  return csvFile(
+    `收款列表-${todayDate()}.csv`,
+    [
+      "收款编号",
+      "门店",
+      "成交单号",
+      "方向",
+      "状态",
+      "金额",
+      "方式",
+      "付款方",
+      "收款时间",
+      "备注",
+    ],
+    rows.map((row) => [
+      row.id,
+      row.store_id,
+      row.deal_id,
+      (row.direction || "in") === "out" ? "退款" : "收款",
+      row.status,
+      row.amount,
+      row.method_label || row.method,
+      row.payer_side,
+      row.paid_at,
+      row.remark || row.reject_reason || "",
+    ])
+  );
 }
 
 export function exportHousesCsv(db: Db, user: SessionUser, payload: any = {}): ApiResult {
