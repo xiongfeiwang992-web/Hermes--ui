@@ -1624,12 +1624,20 @@ async function renderDeals(main: HTMLElement) {
       rows.map(async (deal) => [deal.id, await api("mortgage.get", { deal_id: deal.id })])
     );
     const mortgages = new Map(mortgageEntries as Array<[string, ApiResult]>);
+    const dealStatusLabel = (status: string) =>
+      ({
+        draft: "草稿",
+        pending_approval: "待审批",
+        approved: "已审批",
+        rejected: "已驳回",
+        void: "已作废",
+      } as Record<string, string>)[status] || status;
     list.innerHTML = rows
       .map(
         (d) => `<div class="row"><div>
-        <div><span class="tag ${d.status === "approved" ? "ok" : d.status === "rejected" ? "danger" : "warn"}">${d.status}</span>
+        <div><span class="tag ${d.status === "approved" ? "ok" : d.status === "rejected" || d.status === "void" ? "danger" : "warn"}">${dealStatusLabel(d.status)}</span>
         <strong>${d.id}</strong> 佣金 ¥${money(d.commission_total)} · 未收 ¥${money(d.unpaid_amount)}</div>
-        <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${d.reject_reason}` : ""}</div>
+        <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${escapeHtml(d.reject_reason)}` : ""}${d.void_reason ? ` · 作废：${escapeHtml(d.void_reason)}` : ""}</div>
         ${checklists.get(d.id)?.ok ? `<div class="meta">必传资料 ${(checklists.get(d.id) as any).data.received_count}/${(checklists.get(d.id) as any).data.required_count} ${(checklists.get(d.id) as any).data.complete ? "✓" : ""}</div>` : ""}
         ${mortgages.get(d.id)?.ok && (mortgages.get(d.id) as any).data ? `<div class="meta">按揭 ${(mortgages.get(d.id) as any).data.bank} · ${(mortgages.get(d.id) as any).data.amount} · ${(mortgages.get(d.id) as any).data.status}</div>` : ""}
       </div>
@@ -1639,6 +1647,7 @@ async function renderDeals(main: HTMLElement) {
         ${["pending_approval", "approved"].includes(d.status) ? `<button class="btn ghost" data-sign="${d.id}">签署确认</button>` : ""}
         ${["draft", "rejected"].includes(d.status) ? `<button class="btn" data-submit="${d.id}">提交审批</button>` : ""}
         ${d.status === "pending_approval" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${d.id}">通过</button><button class="btn danger" data-reject="${d.id}">驳回</button>` : ""}
+        ${d.status === "approved" && state.user.role === "admin" ? `<button class="btn danger" data-void="${d.id}">作废</button>` : ""}
       </div></div>`
       )
       .join("");
@@ -1665,6 +1674,18 @@ async function renderDeals(main: HTMLElement) {
           reason,
         });
         toast(r.ok ? "已驳回" : r.message, r.ok ? "ok" : "error");
+        if (r.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-void]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const reason = prompt("作废原因（必填；有已确认收款时不可作废）");
+        if (!reason) return;
+        const r = await api("deal.void", {
+          id: (btn as HTMLElement).dataset.void,
+          reason,
+        });
+        toast(r.ok ? "成交已作废" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
       })
     );
