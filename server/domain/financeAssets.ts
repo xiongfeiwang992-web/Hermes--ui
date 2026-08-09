@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -476,5 +477,21 @@ export function voidVoucher(db: Db, user: SessionUser, payload: any): ApiResult 
   ).run(reason, user.id, now, now, row.id);
   addEvent(db, user, "voucher", row.id, "voided", { reason });
   writeAudit(db, user, "finance.voucher.void", "finance_voucher", row.id, { reason });
+  const recipients = new Set<string>();
+  if (row.created_by) recipients.add(row.created_by);
+  if (row.posted_by) recipients.add(row.posted_by);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: "财务凭证已作废",
+      body: `${row.voucher_no} · ${row.summary}：${reason}`,
+      kind: "business_record_status",
+      ref_type: "finance_voucher",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "voided" } };
 }
