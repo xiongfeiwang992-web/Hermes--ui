@@ -1505,25 +1505,57 @@ async function renderViews(main: HTMLElement) {
   const houses = await api("house.list", { status: "available" });
   const customers = await api("customer.list", {});
   const storeUsers = await api("org.users.store", {});
+  const agentOpts = ((storeUsers.data as any[]) || [])
+    .map((u) => `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`)
+    .join("");
+  const statusLabel = (status: string) =>
+    ({ planned: "待看", done: "已完成", cancelled: "已取消" } as Record<string, string>)[status] ||
+    status;
+  const feedbackLabel = (feedback: string) =>
+    ({
+      pending: "待反馈",
+      interested: "有意向",
+      considering: "考虑中",
+      rejected: "无意向",
+      deal: "成交",
+    } as Record<string, string>)[feedback] || feedback;
   main.innerHTML = `
     <div class="header"><h2>带看</h2><button class="btn" data-new>新建带看</button></div>
+    <div class="filters">
+      <input data-f="view_from" type="date" title="开始日期" />
+      <input data-f="view_to" type="date" title="结束日期" />
+      <select data-f="agent_id"><option value="">全部主看人</option>${agentOpts}</select>
+      <select data-f="status"><option value="">全部状态</option><option value="planned">待看</option><option value="done">已完成</option><option value="cancelled">已取消</option></select>
+      <select data-f="feedback"><option value="">全部结果</option><option value="pending">待反馈</option><option value="interested">有意向</option><option value="considering">考虑中</option><option value="rejected">无意向</option><option value="deal">成交</option></select>
+    </div>
     <div class="list" data-list></div>
   `;
+  const collectQuery = () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement | HTMLSelectElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    return q;
+  };
   const draw = async () => {
-    const r = await api("view.list", {});
+    const r = await api("view.list", collectQuery());
     const list = main.querySelector("[data-list]")!;
     if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
     const rows = r.data as any[];
     if (!rows.length) return (list.innerHTML = `<div class="empty">暂无带看</div>`);
     const houseMap = Object.fromEntries(((houses.data as any[]) || []).map((h) => [h.id, h.title]));
     const cusMap = Object.fromEntries(((customers.data as any[]) || []).map((c) => [c.id, c.name]));
+    const agentMap = Object.fromEntries(
+      ((storeUsers.data as any[]) || []).map((u) => [u.id, u.display_name])
+    );
     list.innerHTML = rows
       .map(
         (v) => `<div class="row"><div>
-        <div><span class="tag ${v.status === "done" ? "ok" : ""}">${v.status}</span>
-        <span class="tag">${v.feedback}</span>
-        <strong>${cusMap[v.customer_id] || v.customer_id} × ${houseMap[v.house_id] || v.house_id}</strong></div>
-        <div class="meta">${v.view_at}</div>
+        <div><span class="tag ${v.status === "done" ? "ok" : v.status === "cancelled" ? "danger" : "warn"}">${statusLabel(v.status)}</span>
+        <span class="tag">${feedbackLabel(v.feedback)}</span>
+        <strong>${escapeHtml(cusMap[v.customer_id] || v.customer_id)} × ${escapeHtml(houseMap[v.house_id] || v.house_id)}</strong></div>
+        <div class="meta">${v.view_at} · 主看 ${escapeHtml(agentMap[v.agent_id] || v.agent_id)}</div>
       </div>
       <div class="ops">
         ${v.status === "planned" ? `<button class="btn" data-done="${v.id}">完成</button><button class="btn ghost" data-cancel="${v.id}">取消</button>` : ""}
@@ -1568,6 +1600,7 @@ async function renderViews(main: HTMLElement) {
       })
     );
   };
+  main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
   main.querySelector("[data-new]")!.addEventListener("click", () => {
     const houseOpts = ((houses.data as any[]) || [])
       .map((h) => `<option value="${h.id}">${h.title}</option>`)
@@ -1595,6 +1628,7 @@ async function renderViews(main: HTMLElement) {
           accompany_ids: fd.getAll("accompany_ids"),
         });
         toast(res.ok ? "带看已创建" : res.message, res.ok ? "ok" : "error");
+        if (res.ok) draw();
       }
     );
   });

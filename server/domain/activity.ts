@@ -375,6 +375,14 @@ export function listViews(db: Db, user: SessionUser, q: any = {}): ApiResult {
   if (q.feedback) rows = rows.filter((v) => v.feedback === q.feedback);
   if (q.customer_id) rows = rows.filter((v) => v.customer_id === q.customer_id);
   if (q.house_id) rows = rows.filter((v) => v.house_id === q.house_id);
+  const viewFrom = String(q.view_from || q.from || "").trim().slice(0, 10);
+  const viewTo = String(q.view_to || q.to || "").trim().slice(0, 10);
+  if (viewFrom) {
+    rows = rows.filter((v) => String(v.view_at || "").slice(0, 10) >= viewFrom);
+  }
+  if (viewTo) {
+    rows = rows.filter((v) => String(v.view_at || "").slice(0, 10) <= viewTo);
+  }
   return {
     ok: true,
     data: rows.map((r) => ({ ...r, accompany_ids: JSON.parse(r.accompany_ids || "[]") })),
