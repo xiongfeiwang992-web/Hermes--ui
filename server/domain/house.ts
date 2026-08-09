@@ -75,7 +75,88 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
   }
   if (q.price_min != null) rows = rows.filter((h) => h.price >= Number(q.price_min));
   if (q.price_max != null) rows = rows.filter((h) => h.price <= Number(q.price_max));
-  return { ok: true, data: rows.map((r) => presentHouse(db, user, r)) };
+  if (q.pool === "private") rows = rows.filter((h) => Boolean(h.is_private));
+  if (q.pool === "public") rows = rows.filter((h) => !Boolean(h.is_private));
+  if (q.is_locked === "1" || q.is_locked === 1 || q.is_locked === true)
+    rows = rows.filter((h) => Boolean(h.is_locked));
+  if (q.is_locked === "0" || q.is_locked === 0 || q.is_locked === false)
+    rows = rows.filter((h) => !Boolean(h.is_locked));
+
+  const coopMode = String(q.cooperation || "").trim();
+  if (coopMode) {
+    const activeCoops = db
+      .prepare(
+        `SELECT house_id, partner_user_id, created_by FROM house_cooperations
+         WHERE company_id = ? AND status = 'active'`
+      )
+      .all(user.company_id) as Array<{
+      house_id: string;
+      partner_user_id: string | null;
+      created_by: string;
+    }>;
+    const coopHouseIds = new Set(activeCoops.map((row) => row.house_id));
+    const partnerHouseIds = new Set(
+      activeCoops
+        .filter((row) => row.partner_user_id === user.id)
+        .map((row) => row.house_id)
+    );
+    const storePartnerHouseIds = new Set(
+      activeCoops
+        .filter((row) => {
+          if (!row.partner_user_id) return false;
+          if (user.role === "admin") return true;
+          const partner = db
+            .prepare(`SELECT store_id FROM users WHERE id = ?`)
+            .get(row.partner_user_id) as any;
+          return partner && partner.store_id === user.store_id;
+        })
+        .map((row) => row.house_id)
+    );
+    if (coopMode === "active") {
+      rows = rows.filter((h) => coopHouseIds.has(h.id));
+    } else if (coopMode === "owner") {
+      // 合作：我是接盘人（店长/管理员看本店有合作的盘）
+      rows = rows.filter((h) => {
+        if (!coopHouseIds.has(h.id)) return false;
+        if (user.role === "agent") return h.agent_id === user.id;
+        return true;
+      });
+    } else if (coopMode === "partner") {
+      // 被合作：我是合作方（店长/管理员看本店员工作为合作方的盘）
+      rows = rows.filter((h) =>
+        user.role === "agent" ? partnerHouseIds.has(h.id) : storePartnerHouseIds.has(h.id)
+      );
+    } else {
+      return { ok: false, message: "合作筛选无效" };
+    }
+  }
+
+  const presented = rows.map((r) => {
+    const house = presentHouse(db, user, r);
+    const coopCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM house_cooperations
+           WHERE house_id = ? AND status = 'active'`
+        )
+        .get(r.id) as { c: number }
+    ).c;
+    const asPartner = Boolean(
+      db
+        .prepare(
+          `SELECT id FROM house_cooperations
+           WHERE house_id = ? AND status = 'active' AND partner_user_id = ?`
+        )
+        .get(r.id, user.id)
+    );
+    return {
+      ...house,
+      active_cooperation_count: coopCount,
+      cooperation_as_owner: coopCount > 0 && r.agent_id === user.id,
+      cooperation_as_partner: asPartner,
+    };
+  });
+  return { ok: true, data: presented };
 }
 
 export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {

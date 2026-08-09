@@ -448,6 +448,9 @@ async function renderHouses(main: HTMLElement) {
       <select data-f="deal_type"><option value="">全部类型</option><option value="sale">出售</option><option value="rent">出租</option></select>
       <select data-f="property_type"><option value="">全部物业</option><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select>
       <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="closed">已成交</option></select>
+      <select data-f="pool"><option value="">全部盘池</option><option value="public">公盘</option><option value="private">私盘/保密</option></select>
+      <select data-f="cooperation"><option value="">合作筛选</option><option value="active">有合作</option><option value="owner">我发起的合作</option><option value="partner">我被合作</option></select>
+      <select data-f="is_locked"><option value="">锁定状态</option><option value="1">已锁定</option><option value="0">未锁定</option></select>
       <input data-f="keyword" placeholder="搜索小区/标题" />
     </div>
     <div class="list" data-list></div>
@@ -495,8 +498,10 @@ async function renderHouses(main: HTMLElement) {
         <div>
           <div><span class="tag">${h.deal_type === "sale" ? "售" : "租"}</span>
           <span class="tag ${h.status === "available" ? "ok" : ""}">${houseStatusLabel(h.status, h.deal_type)}</span>
-          ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
+          ${h.is_private ? `<span class="tag warn">私盘</span>` : `<span class="tag">公盘</span>`}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
+          ${h.active_cooperation_count ? `<span class="tag ok">合作 ${h.active_cooperation_count}</span>` : ""}
+          ${h.cooperation_as_partner ? `<span class="tag warn">被合作</span>` : ""}
           <strong>${h.title}</strong></div>
           <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
