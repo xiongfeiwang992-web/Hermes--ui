@@ -937,9 +937,24 @@ export function cancelSalesReport(db: Db, user: SessionUser, payload: any): ApiR
     `UPDATE newhome_sales_reports
      SET status='cancelled', reject_reason=?, updated_at=? WHERE id=?`
   ).run(reason, now, row.id);
+  if (row.agent_id && row.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.agent_id,
+      title: "新房销售报告已取消",
+      body: `房号 ${row.unit_no}：${reason}`,
+      kind: "newhome_sales_report",
+      ref_type: "newhome_sales_report",
+      ref_id: row.id,
+    });
+  }
   addEvent(db, user, "sales_report", row.id, "cancelled", { reason });
   writeAudit(db, user, "newhome.sales.cancel", "newhome_sales_report", row.id, {
     reason,
   });
-  return { ok: true, data: { id: row.id, status: "cancelled" } };
+  return {
+    ok: true,
+    data: { id: row.id, status: "cancelled", cancel_reason: reason },
+  };
 }
