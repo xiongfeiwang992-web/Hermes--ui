@@ -293,11 +293,40 @@ export function invalidateRegistration(
 export function expireRegistrations(db: Db, user: SessionUser): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager"))
     return { ok: false, message: "无权限", code: 403 };
-  const expired = refreshExpired(db, user.company_id);
-  writeAudit(db, user, "newhome.registration.expire", "newhome_registration", undefined, {
-    expired,
+  const now = nowIso();
+  const rows = db
+    .prepare(
+      `SELECT r.*, p.name AS project_name
+       FROM newhome_registrations r
+       JOIN newhome_projects p ON p.id=r.project_id
+       WHERE r.company_id=? AND r.status='registered' AND r.protect_until<?`
+    )
+    .all(user.company_id, now) as any[];
+  const transaction = db.transaction(() => {
+    for (const row of rows) {
+      db.prepare(
+        `UPDATE newhome_registrations SET status='expired', updated_at=? WHERE id=?`
+      ).run(now, row.id);
+    }
   });
-  return { ok: true, data: { expired } };
+  transaction();
+  for (const row of rows) {
+    if (row.agent_id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.agent_id,
+      title: "新房报备已过期",
+      body: `${row.project_name} · 保护期至 ${String(row.protect_until).slice(0, 10)}`,
+      kind: "newhome_registration",
+      ref_type: "newhome_registration",
+      ref_id: row.id,
+    });
+  }
+  writeAudit(db, user, "newhome.registration.expire", "newhome_registration", undefined, {
+    expired: rows.length,
+  });
+  return { ok: true, data: { expired: rows.length } };
 }
 
 function canManagePartners(user: SessionUser): boolean {
