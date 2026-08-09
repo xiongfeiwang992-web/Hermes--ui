@@ -947,10 +947,19 @@ async function renderCommunities(main: HTMLElement) {
 
 async function renderKeys(main: HTMLElement) {
   const houses = await api("house.list", {});
+  const keyStatusLabel = (status: string) =>
+    ({
+      stored: "在店",
+      borrowed: "借出",
+      invalid: "作废",
+      returned_owner: "归还业主",
+      external: "外界",
+    } as Record<string, string>)[status] || status;
+  const canClose = ["admin", "store_manager"].includes(state.user.role);
   main.innerHTML = `
     <div class="header"><h2>钥匙管理</h2><button class="btn" data-new>登记钥匙</button></div>
     <div class="filters">
-      <select data-status><option value="">全部状态</option><option value="stored">在店</option><option value="borrowed">借出</option><option value="invalid">作废</option></select>
+      <select data-status><option value="">全部状态</option><option value="stored">在店</option><option value="borrowed">借出</option><option value="invalid">作废</option><option value="returned_owner">归还业主</option><option value="external">外界</option></select>
     </div>
     <div class="list" data-list></div>
   `;
@@ -964,12 +973,12 @@ async function renderKeys(main: HTMLElement) {
       rows
         .map(
           (key) => `<div class="row"><div>
-            <div><span class="tag ${key.status === "stored" ? "ok" : key.status === "borrowed" ? "warn" : "danger"}">${key.status === "stored" ? "在店" : key.status === "borrowed" ? "借出" : "作废"}</span><strong>${key.key_no}</strong> · ${key.house_title}</div>
-            <div class="meta">${key.borrower_name ? `借用人 ${key.borrower_name}` : "未借出"}${key.expected_return_at ? ` · 应还 ${key.expected_return_at}` : ""}</div>
+            <div><span class="tag ${key.status === "stored" ? "ok" : key.status === "borrowed" ? "warn" : "danger"}">${keyStatusLabel(key.status)}</span><strong>${key.key_no}</strong> · ${key.house_title}</div>
+            <div class="meta">${key.borrower_name ? `借用人 ${key.borrower_name}` : key.status === "stored" ? "未借出" : ""}${key.expected_return_at ? ` · 应还 ${key.expected_return_at}` : ""}${key.invalid_reason ? ` · ${escapeHtml(key.invalid_reason)}` : ""}</div>
           </div><div class="ops">
             ${key.status === "stored" ? `<button class="btn" data-borrow="${key.id}">借出</button>` : ""}
             ${key.status === "borrowed" ? `<button class="btn" data-return="${key.id}">归还</button>` : ""}
-            ${key.status === "stored" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn danger" data-invalid="${key.id}">作废</button>` : ""}
+            ${key.status === "stored" && canClose ? `<button class="btn ghost" data-return-owner="${key.id}">归还业主</button><button class="btn ghost" data-external="${key.id}">转外界</button><button class="btn danger" data-invalid="${key.id}">作废</button>` : ""}
           </div></div>`
         )
         .join("") || `<div class="empty">暂无钥匙记录</div>`;
@@ -990,6 +999,30 @@ async function renderKeys(main: HTMLElement) {
           id: (button as HTMLElement).dataset.return,
         });
         toast(result.ok ? "钥匙已归还" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-return-owner]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("归还业主说明（可留空）");
+        if (reason == null) return;
+        const result = await api("property.keys.returnOwner", {
+          id: (button as HTMLElement).dataset.returnOwner,
+          reason,
+        });
+        toast(result.ok ? "已归还业主" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-external]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("转外界原因（必填）");
+        if (!reason) return;
+        const result = await api("property.keys.external", {
+          id: (button as HTMLElement).dataset.external,
+          reason,
+        });
+        toast(result.ok ? "已转外界" : result.message, result.ok ? "ok" : "error");
         if (result.ok) draw();
       })
     );

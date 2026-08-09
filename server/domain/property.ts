@@ -221,24 +221,108 @@ export function returnKey(db: Db, user: SessionUser, payload: { id: string }): A
   return { ok: true, data: { id: key.id } };
 }
 
-export function invalidateKey(db: Db, user: SessionUser, payload: any): ApiResult {
+const KEY_TERMINAL = new Set(["invalid", "returned_owner", "external"]);
+
+function notifyKeyClose(
+  db: Db,
+  user: SessionUser,
+  key: any,
+  title: string,
+  body: string,
+  kind: string
+) {
+  const house = db
+    .prepare(`SELECT agent_id, title FROM houses WHERE id = ? AND company_id = ?`)
+    .get(key.house_id, user.company_id) as { agent_id?: string; title?: string } | undefined;
+  const recipients = new Set<string>();
+  if (key.keeper_user_id) recipients.add(key.keeper_user_id);
+  if (house?.agent_id) recipients.add(house.agent_id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: key.store_id,
+      user_id: userId,
+      title,
+      body,
+      kind,
+      ref_type: "house_key",
+      ref_id: key.id,
+    });
+  }
+}
+
+function closeStoredKey(
+  db: Db,
+  user: SessionUser,
+  payload: any,
+  status: "invalid" | "returned_owner" | "external",
+  options: { reasonRequired: boolean; audit: string; title: string; kind: string; defaultReason?: string }
+): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager")) {
     return { ok: false, message: "无权限", code: 403 };
   }
-  const reason = String(payload.reason || "").trim();
-  if (!reason) return { ok: false, message: "作废原因必填" };
+  const reason = String(payload.reason || options.defaultReason || "").trim();
+  if (options.reasonRequired && !reason) {
+    return { ok: false, message: status === "external" ? "外界原因必填" : "作废原因必填" };
+  }
   const key = db
     .prepare(`SELECT * FROM house_keys WHERE id = ? AND company_id = ?`)
     .get(payload.id, user.company_id) as any;
   if (!key || !canOperateStore(user, key.store_id)) {
     return { ok: false, message: "钥匙不存在或无权限", code: 403 };
   }
-  if (key.status === "borrowed") return { ok: false, message: "借出中的钥匙不可作废" };
+  if (key.status === "borrowed") {
+    return { ok: false, message: "借出中的钥匙须先归还再办理终态" };
+  }
+  if (KEY_TERMINAL.has(key.status)) {
+    return { ok: false, message: "钥匙已处于终态" };
+  }
+  if (key.status !== "stored") {
+    return { ok: false, message: "仅在店钥匙可办理该操作" };
+  }
+  const now = nowIso();
   db.prepare(
-    `UPDATE house_keys SET status = 'invalid', invalid_reason = ?, updated_at = ? WHERE id = ?`
-  ).run(reason, nowIso(), key.id);
-  writeAudit(db, user, "key.invalidate", "house_key", key.id, { reason });
-  return { ok: true, data: { id: key.id } };
+    `UPDATE house_keys SET status = ?, invalid_reason = ?, closed_at = ?, closed_by = ?,
+     updated_at = ? WHERE id = ?`
+  ).run(status, reason || null, now, user.id, now, key.id);
+  writeAudit(db, user, options.audit, "house_key", key.id, { reason: reason || null, status });
+  notifyKeyClose(
+    db,
+    user,
+    key,
+    options.title,
+    `钥匙 ${key.key_no} ${options.title}${reason ? `：${reason}` : ""}`,
+    options.kind
+  );
+  return { ok: true, data: { id: key.id, status } };
+}
+
+export function invalidateKey(db: Db, user: SessionUser, payload: any): ApiResult {
+  return closeStoredKey(db, user, payload, "invalid", {
+    reasonRequired: true,
+    audit: "key.invalidate",
+    title: "钥匙已作废",
+    kind: "key_invalidate",
+  });
+}
+
+export function returnKeyToOwner(db: Db, user: SessionUser, payload: any): ApiResult {
+  return closeStoredKey(db, user, payload, "returned_owner", {
+    reasonRequired: false,
+    audit: "key.return_owner",
+    title: "钥匙已归还业主",
+    kind: "key_return_owner",
+    defaultReason: "归还业主",
+  });
+}
+
+export function markKeyExternal(db: Db, user: SessionUser, payload: any): ApiResult {
+  return closeStoredKey(db, user, payload, "external", {
+    reasonRequired: true,
+    audit: "key.external",
+    title: "钥匙已转外界",
+    kind: "key_external",
+  });
 }
 
 export function createSurvey(db: Db, user: SessionUser, payload: any): ApiResult {
