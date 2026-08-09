@@ -21,6 +21,51 @@ function visible(user: SessionUser, row: any): boolean {
   return user.role === "admin" || row.store_id === user.store_id;
 }
 
+function notifyJobClosed(
+  db: Db,
+  actor: SessionUser,
+  job: {
+    id: string;
+    company_id: string;
+    store_id: string;
+    title: string;
+    created_by?: string | null;
+  },
+  reason?: string
+) {
+  const recipients = new Set<string>();
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND store_id=?
+       AND role='store_manager' AND status='active'`
+    )
+    .all(job.company_id, job.store_id) as any[];
+  for (const manager of managers) recipients.add(manager.id);
+  const admins = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND role='admin' AND status='active'`
+    )
+    .all(job.company_id) as any[];
+  for (const admin of admins) recipients.add(admin.id);
+  if (job.created_by) recipients.add(job.created_by);
+  recipients.delete(actor.id);
+  const body = reason
+    ? `${job.title} · ${reason} · ${actor.display_name}`
+    : `${job.title} · ${actor.display_name}`;
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: job.company_id,
+      store_id: job.store_id,
+      user_id: userId,
+      title: "招聘岗位已关闭",
+      body,
+      kind: "recruitment",
+      ref_type: "recruitment_job",
+      ref_id: job.id,
+    });
+  }
+}
+
 export function recruitmentOptions(db: Db, user: SessionUser): ApiResult {
   if (!canManage(user)) return { ok: false, message: "无权限", code: 403 };
   let stores = db
@@ -127,6 +172,7 @@ export function closeJob(db: Db, user: SessionUser, payload: any): ApiResult {
     row.id
   );
   writeAudit(db, user, "recruitment.job.close", "recruitment_job", row.id);
+  notifyJobClosed(db, user, row);
   return { ok: true, data: { id: row.id, status: "closed" } };
 }
 
@@ -278,6 +324,7 @@ export function onboardCandidate(db: Db, user: SessionUser, payload: any): ApiRe
     return { ok: false, message: `账号、姓名必填，密码至少 ${minLength} 位` };
   const id = nextId("USR");
   const now = nowIso();
+  let autoClosed = false;
   const transaction = db.transaction(() => {
     db.prepare(
       `INSERT INTO users(
@@ -310,6 +357,7 @@ export function onboardCandidate(db: Db, user: SessionUser, payload: any): ApiRe
         now,
         candidate.job_id
       );
+      autoClosed = true;
     }
   });
   try {
@@ -322,5 +370,11 @@ export function onboardCandidate(db: Db, user: SessionUser, payload: any): ApiRe
     role: candidate.target_role,
     store_id: candidate.store_id,
   });
+  if (autoClosed) {
+    const job = db
+      .prepare(`SELECT * FROM recruitment_jobs WHERE id=? AND company_id=?`)
+      .get(candidate.job_id, user.company_id) as any;
+    if (job) notifyJobClosed(db, user, job, "招聘人数已满");
+  }
   return { ok: true, data: { id: candidate.id, user_id: id, status: "hired" } };
 }
