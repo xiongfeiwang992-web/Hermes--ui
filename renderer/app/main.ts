@@ -4480,7 +4480,7 @@ async function renderRental(main: HTMLElement) {
         .map(
           (bill) => `<div class="row"><div>
             <div><span class="tag ${bill.status === "paid" ? "ok" : bill.status === "overdue" ? "danger" : "warn"}">${statusLabels[bill.status]}</span><strong>${escapeHtml(bill.tenant_name)}</strong> · ${escapeHtml(bill.house_title)} · ¥${money(bill.amount)}</div>
-            <div class="meta">账期 ${bill.period_start} 至 ${bill.period_end} · 应收 ${bill.due_date}${bill.paid_at ? ` · 收款 ${new Date(bill.paid_at).toLocaleString("zh-CN")} · ${escapeHtml(bill.payment_method)} ${escapeHtml(bill.payment_reference)}` : ""}${bill.void_reason ? ` · 作废：${escapeHtml(bill.void_reason)}` : ""}</div>
+            <div class="meta">账期 ${bill.period_start} 至 ${bill.period_end} · 应收 ${bill.due_date}${bill.paid_at ? ` · 收款 ${new Date(bill.paid_at).toLocaleString("zh-CN")} · ${escapeHtml(bill.payment_method_label || bill.payment_method)}${bill.payment_reference ? ` ${escapeHtml(bill.payment_reference)}` : ""}` : ""}${bill.void_reason ? ` · 作废：${escapeHtml(bill.void_reason)}` : ""}</div>
           </div><div class="ops">
             <button class="btn ghost" data-rental-events="bill:${bill.id}:租金账单">履历</button>
             ${(isAdmin || isFinance) && ["pending", "overdue"].includes(bill.status) ? `<button class="btn" data-pay-rental-bill="${bill.id}" data-bill-amount="${bill.amount}">确认收租</button>` : ""}
@@ -4489,11 +4489,12 @@ async function renderRental(main: HTMLElement) {
         )
         .join("") || `<div class="empty">暂无租金账单</div>`;
     list.querySelectorAll("[data-pay-rental-bill]").forEach((button) =>
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const element = button as HTMLElement;
+        const methodOptions = await paymentMethodSelectHtml("transfer");
         openDialog(
           "确认租金收款",
-          `<label>收款金额<input name="paid_amount" type="number" value="${element.dataset.billAmount}" readonly /></label><label>收款方式<select name="payment_method"><option value="bank">银行</option><option value="cash">现金</option><option value="other">其他</option></select></label><label class="full">流水号<input name="payment_reference" /></label>`,
+          `<label>收款金额<input name="paid_amount" type="number" value="${element.dataset.billAmount}" readonly /></label><label>收款方式<select name="payment_method">${methodOptions}</select></label><label class="full">流水号<input name="payment_reference" /></label>`,
           async (fd) => {
             const result = await api("rental.bills.pay", {
               id: element.dataset.payRentalBill,
