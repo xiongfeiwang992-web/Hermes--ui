@@ -1035,10 +1035,16 @@ async function renderSurveys(main: HTMLElement) {
   const houses = await api("house.list", {});
   main.innerHTML = `
     <div class="header"><h2>实勘 / 空看</h2><button class="btn" data-new>新增记录</button></div>
+    <div class="filters">
+      <select data-f="survey_type"><option value="">全部类型</option><option value="survey">实勘</option><option value="vacant_view">空看</option></select>
+    </div>
     <div class="list" data-list></div>
   `;
   const draw = async () => {
-    const result = await api("property.surveys.list", {});
+    const q: any = {};
+    const typeEl = main.querySelector("[data-f=survey_type]") as HTMLSelectElement;
+    if (typeEl?.value) q.survey_type = typeEl.value;
+    const result = await api("property.surveys.list", q);
     const list = main.querySelector("[data-list]")!;
     if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
     const rows = result.data as any[];
@@ -1073,9 +1079,11 @@ async function renderSurveys(main: HTMLElement) {
           summary: fd.get("summary"),
         });
         toast(result.ok ? "实勘记录已保存" : result.message, result.ok ? "ok" : "error");
+        if (result.ok) draw();
       }
     );
   });
+  main.querySelector("[data-f=survey_type]")!.addEventListener("change", draw);
   await draw();
 }
 
