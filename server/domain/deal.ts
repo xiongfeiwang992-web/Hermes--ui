@@ -54,6 +54,28 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
     .get(payload.customer_id, user.company_id) as any;
   if (!house || !customer) return { ok: false, message: "房源或客源不存在" };
 
+  if (payload.view_id) {
+    const view = db
+      .prepare(`SELECT * FROM views WHERE id = ? AND company_id = ?`)
+      .get(payload.view_id, user.company_id) as any;
+    if (!view) return { ok: false, message: "带看单不存在" };
+    if (view.status !== "done") {
+      return { ok: false, message: "仅已完成的带看可发起成交" };
+    }
+    if (!["interested", "deal"].includes(view.feedback)) {
+      return { ok: false, message: "仅有意向或当场意向成交的带看可发起成交" };
+    }
+    if (view.house_id !== payload.house_id || view.customer_id !== payload.customer_id) {
+      return { ok: false, message: "成交房客须与带看一致" };
+    }
+    if (user.role === "store_manager" && view.store_id !== user.store_id) {
+      return { ok: false, message: "无权限", code: 403 };
+    }
+    if (user.role === "agent" && view.agent_id !== user.id && view.created_by !== user.id) {
+      return { ok: false, message: "仅主看人或创建人可从该带看发起成交", code: 403 };
+    }
+  }
+
   const commissionOwner = Number(payload.commission_owner || 0);
   const commissionCustomer = Number(payload.commission_customer || 0);
   const commissionTotal =

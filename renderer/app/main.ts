@@ -1606,8 +1606,10 @@ async function renderDeals(main: HTMLElement) {
   const customers = await api("customer.list", {});
   const desktopShell = (window as any).weilaijia?.shell;
   const prefill = state.cache.prefillDeal || {};
+  const fromView = Boolean(prefill.view_id);
   main.innerHTML = `
     <div class="header"><h2>成交</h2><button class="btn" data-new>新建成交单</button></div>
+    ${fromView ? `<div class="meta" data-prefill-hint>已从有意向带看预填房客（${escapeHtml(String(prefill.view_id))}），可直接确认成交价提交</div>` : ""}
     <div class="list" data-list></div>
   `;
   const draw = async () => {
@@ -1775,25 +1777,34 @@ async function renderDeals(main: HTMLElement) {
       })
     );
   };
-  main.querySelector("[data-new]")!.addEventListener("click", () => {
-    const houseOpts = ((houses.data as any[]) || [])
+  const openNewDealDialog = () => {
+    const houseRows = (houses.data as any[]) || [];
+    const customerRows = (customers.data as any[]) || [];
+    const locked = Boolean(prefill.view_id);
+    const selectedHouse =
+      houseRows.find((h) => h.id === prefill.house_id) || houseRows[0] || null;
+    const priceHint =
+      selectedHouse && selectedHouse.price != null ? String(selectedHouse.price) : "";
+    const houseOpts = houseRows
       .map(
         (h) =>
           `<option value="${h.id}" ${prefill.house_id === h.id ? "selected" : ""}>${h.title}</option>`
       )
       .join("");
-    const cusOpts = ((customers.data as any[]) || [])
+    const cusOpts = customerRows
       .map(
         (c) =>
           `<option value="${c.id}" ${prefill.customer_id === c.id ? "selected" : ""}>${c.name}</option>`
       )
       .join("");
     openDialog(
-      "新建成交单",
+      locked ? "从带看发起成交" : "新建成交单",
       `
-      <label>房源<select name="house_id">${houseOpts}</select></label>
-      <label>客源<select name="customer_id">${cusOpts}</select></label>
-      <label>成交价<input name="contract_price" type="number" step="0.01" required /></label>
+      ${locked ? `<p class="meta full">带看 ${escapeHtml(String(prefill.view_id))} · 房客已锁定，不可改选</p>` : ""}
+      <label>房源<select name="house_id" ${locked ? "disabled" : ""}>${houseOpts}</select></label>
+      <label>客源<select name="customer_id" ${locked ? "disabled" : ""}>${cusOpts}</select></label>
+      ${locked ? `<input type="hidden" name="house_id" value="${escapeHtml(String(prefill.house_id || ""))}" /><input type="hidden" name="customer_id" value="${escapeHtml(String(prefill.customer_id || ""))}" />` : ""}
+      <label>成交价<input name="contract_price" type="number" step="0.01" value="${escapeHtml(priceHint)}" required /></label>
       <label>业主佣(元)<input name="commission_owner" type="number" step="0.01" value="20000" /></label>
       <label>客户佣(元)<input name="commission_customer" type="number" step="0.01" value="15000" /></label>
       <label>成交日<input name="deal_date" type="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
@@ -1818,10 +1829,13 @@ async function renderDeals(main: HTMLElement) {
         });
         state.cache.prefillDeal = null;
         toast(res.ok ? "成交单已创建" : res.message, res.ok ? "ok" : "error");
+        if (res.ok) draw();
       }
     );
-  });
+  };
+  main.querySelector("[data-new]")!.addEventListener("click", openNewDealDialog);
   await draw();
+  if (fromView) openNewDealDialog();
 }
 
 async function renderEarnest(main: HTMLElement) {
