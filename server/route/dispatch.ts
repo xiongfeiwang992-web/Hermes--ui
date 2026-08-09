@@ -122,6 +122,10 @@ function route(
       return customer.updateCustomer(db, user!, payload);
     case "customer.toPublic":
       return customer.toPublic(db, user!, payload);
+    case "customer.suspend":
+      return customer.suspendCustomer(db, user!, payload);
+    case "customer.resume":
+      return customer.resumeCustomer(db, user!, payload);
     case "customer.claim":
       return customer.claimCustomer(db, user!, payload);
     case "customer.matchHouses":
