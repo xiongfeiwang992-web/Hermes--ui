@@ -116,16 +116,33 @@ export function renewEntrustment(db: Db, user: SessionUser, payload: any): ApiRe
   if (Number.isNaN(end.getTime()) || end.toISOString() <= row.end_at)
     return { ok: false, message: "续期日期须晚于原到期日" };
   const now = nowIso();
+  const endAt = end.toISOString();
   db.prepare(
     `UPDATE house_entrustments SET status='active', end_at=?, updated_by=?, updated_at=?
      WHERE id=?`
-  ).run(end.toISOString(), user.id, now, row.id);
+  ).run(endAt, user.id, now, row.id);
   const house = db.prepare(`SELECT * FROM houses WHERE id=?`).get(row.house_id) as any;
-  ensureHouseRole(db, house, "entrustment", row.created_by, user.id, end.toISOString());
+  ensureHouseRole(db, house, "entrustment", row.created_by, user.id, endAt);
+  const recipients = new Set<string>();
+  if (row.created_by) recipients.add(row.created_by);
+  if (row.agent_id) recipients.add(row.agent_id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: "业主委托已续期",
+      body: `${row.title}：新到期日 ${endAt.slice(0, 10)}`,
+      kind: "entrustment_renewed",
+      ref_type: "house",
+      ref_id: row.house_id,
+    });
+  }
   writeAudit(db, user, "entrustment.renew", "house_entrustment", row.id, {
-    end_at: end.toISOString(),
+    end_at: endAt,
   });
-  return { ok: true, data: { id: row.id, end_at: end.toISOString() } };
+  return { ok: true, data: { id: row.id, end_at: endAt } };
 }
 
 export function terminateEntrustment(db: Db, user: SessionUser, payload: any): ApiResult {
