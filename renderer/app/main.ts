@@ -1169,6 +1169,8 @@ async function renderCustomers(main: HTMLElement) {
       <select data-f="visibility"><option value="">全部可见性</option><option value="private">私客</option><option value="public">公客</option></select>
       <select data-f="intent"><option value="">全部意图</option><option value="buy">求购</option><option value="rent">求租</option></select>
       <select data-f="source"><option value="">全部来源</option></select>
+      <input data-f="budget_min" type="number" step="0.01" placeholder="预算下限" />
+      <input data-f="budget_max" type="number" step="0.01" placeholder="预算上限" />
       <input data-f="keyword" placeholder="搜索姓名/电话" />
     </div>
     <div class="list" data-list></div>
@@ -1176,6 +1178,12 @@ async function renderCustomers(main: HTMLElement) {
   const sourceFilter = main.querySelector("[data-f=source]") as HTMLSelectElement;
   sourceFilter.innerHTML = `<option value="">全部来源</option>${await customerSourceSelectHtml("", false)}`;
   const list = main.querySelector("[data-list]")!;
+  const formatBudget = (c: any) => {
+    if (c.budget_min == null && c.budget_max == null) return "未填预算";
+    const lo = c.budget_min != null ? String(c.budget_min) : "不限";
+    const hi = c.budget_max != null ? String(c.budget_max) : "不限";
+    return `预算 ${lo}-${hi}`;
+  };
   const draw = async () => {
     const q: any = {};
     main.querySelectorAll("[data-f]").forEach((input) => {
@@ -1194,7 +1202,7 @@ async function renderCustomers(main: HTMLElement) {
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag">${c.level}级</span>
         <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
-        <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
+        <div class="meta">${c.need || "无需求备注"} · ${formatBudget(c)} · 状态 ${c.status}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
       <div class="ops">
         ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
