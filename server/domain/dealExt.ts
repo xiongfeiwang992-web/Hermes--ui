@@ -592,5 +592,17 @@ export function cancelRename(db: Db, user: SessionUser, payload: any): ApiResult
   ).run(reason, now, row.id);
   addEvent(db, user, "rename", row.id, "cancelled", { reason });
   writeAudit(db, user, "dealExt.rename.cancel", "deal_rename", row.id, { reason });
+  if (row.created_by && row.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title: "成交更名已取消",
+      body: `${row.reason} · ${reason}`,
+      kind: "deal_rename",
+      ref_type: "deal_rename",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "cancelled" } };
 }
