@@ -382,6 +382,87 @@ export function rejectDeal(
   return getDeal(db, user, payload.id);
 }
 
+
+export function voidDeal(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string; reason?: string }
+): ApiResult {
+  if (user.role !== "admin") return { ok: false, message: "仅管理员可作废成交", code: 403 };
+  const reason = String(payload.reason || "").trim();
+  if (!reason) return { ok: false, message: "作废原因必填" };
+  const current = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "成交单不存在" };
+  if (current.status !== "approved") {
+    return { ok: false, message: "仅已审批成交可作废" };
+  }
+  const confirmed = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s
+       FROM payments WHERE deal_id = ? AND status = 'confirmed'`
+    )
+    .get(current.id) as { s: number };
+  if (Number(confirmed.s) !== 0) {
+    return { ok: false, message: "存在已确认收付款，须先处理流水后再作废" };
+  }
+  const pending = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM payments WHERE deal_id = ? AND status = 'pending'`
+    )
+    .get(current.id) as { c: number };
+  if (Number(pending.c) > 0) {
+    return { ok: false, message: "存在待确认收款，须先确认或驳回后再作废" };
+  }
+  const paidCommission = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM commissions
+       WHERE deal_id = ? AND company_id = ? AND status = 'paid'`
+    )
+    .get(current.id, user.company_id) as { c: number };
+  if (Number(paidCommission.c) > 0) {
+    return { ok: false, message: "已有提成发放记录，不可作废" };
+  }
+  const now = nowIso();
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE deals SET status = 'void', void_reason = ?, voided_by = ?, voided_at = ?,
+       updated_at = ? WHERE id = ?`
+    ).run(reason, user.id, now, now, current.id);
+    db.prepare(`UPDATE houses SET status = 'available', updated_at = ? WHERE id = ?`).run(
+      now,
+      current.house_id
+    );
+    db.prepare(`UPDATE customers SET status = 'viewing', updated_at = ? WHERE id = ?`).run(
+      now,
+      current.customer_id
+    );
+    db.prepare(
+      `UPDATE commissions SET status = 'void', updated_at = ?
+       WHERE deal_id = ? AND company_id = ? AND status = 'accrued'`
+    ).run(now, current.id, user.company_id);
+  });
+  tx();
+  writeAudit(db, user, "deal.void", "deal", current.id, { reason });
+  const notifyIds = new Set<string>(parseJson<string[]>(current.agent_ids, []));
+  if (current.submitted_by) notifyIds.add(current.submitted_by);
+  if (current.created_by) notifyIds.add(current.created_by);
+  for (const uid of notifyIds) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: uid,
+      title: "成交已作废",
+      body: `成交单 ${current.id} 已作废：${reason}`,
+      kind: "deal_void",
+      ref_type: "deal",
+      ref_id: current.id,
+    });
+  }
+  return getDeal(db, user, current.id);
+}
+
 export function createPayment(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
   const deal = db
