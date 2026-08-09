@@ -514,7 +514,12 @@ export function payBill(db: Db, user: SessionUser, payload: any): ApiResult {
 export function voidBill(db: Db, user: SessionUser, payload: any): ApiResult {
   if (user.role !== "admin") return { ok: false, message: "仅管理员可作废账单", code: 403 };
   const bill = db
-    .prepare(`SELECT * FROM rental_bills WHERE id=? AND company_id=?`)
+    .prepare(
+      `SELECT b.*, l.tenant_name, p.manager_user_id FROM rental_bills b
+       JOIN rental_leases l ON l.id=b.lease_id
+       JOIN rental_properties p ON p.id=l.property_id
+       WHERE b.id=? AND b.company_id=?`
+    )
     .get(payload.id, user.company_id) as any;
   if (!bill || !["pending", "overdue"].includes(bill.status))
     return { ok: false, message: "账单不存在或当前不可作废" };
@@ -525,7 +530,22 @@ export function voidBill(db: Db, user: SessionUser, payload: any): ApiResult {
   ).run(reason, nowIso(), bill.id);
   addEvent(db, user, "bill", bill.id, "voided", { reason });
   writeAudit(db, user, "rental.bill.void", "rental_bill", bill.id, { reason });
-  return { ok: true, data: { id: bill.id, status: "voided" } };
+  if (bill.manager_user_id && bill.manager_user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: bill.store_id,
+      user_id: bill.manager_user_id,
+      title: "租金账单已作废",
+      body: `${bill.tenant_name} · ¥${bill.amount} 已作废（${reason}）`,
+      kind: "rental",
+      ref_type: "rental_bill",
+      ref_id: bill.id,
+    });
+  }
+  return {
+    ok: true,
+    data: { id: bill.id, status: "voided", void_reason: reason },
+  };
 }
 
 export function listWorkOrders(db: Db, user: SessionUser, payload: any = {}): ApiResult {
