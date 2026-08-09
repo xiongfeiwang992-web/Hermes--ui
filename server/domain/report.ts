@@ -285,7 +285,7 @@ export function exportCustomersCsv(db: Db, user: SessionUser, payload: any = {})
       row.visibility,
       row.status,
       row.agent_id,
-      row.source,
+      row.source_label || row.source,
     ])
   );
 }
