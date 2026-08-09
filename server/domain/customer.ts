@@ -12,6 +12,29 @@ import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Filter range intersects customer budget range; open ends allowed; no budget → excluded. */
+function customerBudgetOverlaps(
+  customer: { budget_min?: unknown; budget_max?: unknown },
+  filterMin: number | null,
+  filterMax: number | null
+): boolean {
+  const cMin = parseOptionalNumber(customer.budget_min);
+  const cMax = parseOptionalNumber(customer.budget_max);
+  if (cMin == null && cMax == null) return false;
+  const cLo = cMin ?? Number.NEGATIVE_INFINITY;
+  const cHi = cMax ?? Number.POSITIVE_INFINITY;
+  const fLo = filterMin ?? Number.NEGATIVE_INFINITY;
+  const fHi = filterMax ?? Number.POSITIVE_INFINITY;
+  return cLo <= fHi && cHi >= fLo;
+}
+
 function presentCustomer(db: Db, user: SessionUser, row: any) {
   const policyAllows =
     user.role === "admin" ||
@@ -46,6 +69,11 @@ export function listCustomers(db: Db, user: SessionUser, q: any = {}): ApiResult
   if (q.keyword) {
     const k = String(q.keyword);
     rows = rows.filter((c) => c.name.includes(k) || c.phone.includes(k) || (c.need || "").includes(k));
+  }
+  const filterBudgetMin = parseOptionalNumber(q.budget_min);
+  const filterBudgetMax = parseOptionalNumber(q.budget_max);
+  if (filterBudgetMin != null || filterBudgetMax != null) {
+    rows = rows.filter((c) => customerBudgetOverlaps(c, filterBudgetMin, filterBudgetMax));
   }
   return { ok: true, data: rows.map((r) => presentCustomer(db, user, r)) };
 }
