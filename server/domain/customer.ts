@@ -255,10 +255,25 @@ export function claimCustomer(db: Db, user: SessionUser, payload: { id: string }
   if (current.visibility !== "public") {
     return { ok: false, message: "仅公客可认领" };
   }
+  const priorAgentId = current.agent_id as string | null;
   db.prepare(
     `UPDATE customers SET visibility = 'private', agent_id = ?, store_id = ?, status = 'following', updated_at = ? WHERE id = ?`
   ).run(user.id, user.store_id, nowIso(), payload.id);
-  writeAudit(db, user, "customer.claim", "customer", payload.id);
+  writeAudit(db, user, "customer.claim", "customer", payload.id, {
+    prior_agent_id: priorAgentId,
+  });
+  if (priorAgentId && priorAgentId !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: priorAgentId,
+      title: "公客已被认领",
+      body: `${current.name} 已被 ${user.display_name} 认领为私客`,
+      kind: "customer_claim",
+      ref_type: "customer",
+      ref_id: payload.id,
+    });
+  }
   return getCustomer(db, user, payload.id);
 }
 
