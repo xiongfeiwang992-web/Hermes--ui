@@ -6924,7 +6924,8 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "业务参数",
         `
-        <label>个人持盘上限<input name="house_hold_limit" type="number" value="${value.house_hold_limit}" /></label>
+        <label>出售持盘上限<input name="house_hold_limit_sale" type="number" min="1" max="100" value="${value.house_hold_limit_sale ?? value.house_hold_limit}" /></label>
+        <label>出租持盘上限<input name="house_hold_limit_rent" type="number" min="1" max="100" value="${value.house_hold_limit_rent ?? value.house_hold_limit}" /></label>
         <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
         <label>房源角色保护期（天）<input name="house_role_protection_days" type="number" min="0" max="365" value="${value.house_role_protection_days}" /></label>
@@ -6935,7 +6936,8 @@ async function renderSystemCenter(main: HTMLElement) {
         `,
         async (fd) => {
           const result = await api("config.settings.save", {
-            house_hold_limit: Number(fd.get("house_hold_limit")),
+            house_hold_limit_sale: Number(fd.get("house_hold_limit_sale")),
+            house_hold_limit_rent: Number(fd.get("house_hold_limit_rent")),
             manager_award_rate: Number(fd.get("manager_award_rate")),
             password_min_length: Number(fd.get("password_min_length")),
             house_role_protection_days: Number(fd.get("house_role_protection_days")),
