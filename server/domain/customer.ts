@@ -234,12 +234,30 @@ export function toPublic(
   if (user.role === "agent" && current.agent_id !== user.id) {
     return { ok: false, message: "只能转本人私客", code: 403 };
   }
+  if (current.visibility === "public") {
+    return { ok: false, message: "已是公客" };
+  }
+  const priorAgentId = current.agent_id as string | null;
   db.prepare(
     `UPDATE customers SET visibility = 'public', status = 'public_pool', remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
   ).run(payload.reason || current.remark, nowIso(), payload.id);
   writeAudit(db, user, "customer.to_public", "customer", payload.id, {
     reason: payload.reason,
+    prior_agent_id: priorAgentId,
   });
+  if (priorAgentId && priorAgentId !== user.id) {
+    const reasonText = payload.reason ? `（原因：${payload.reason}）` : "";
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: priorAgentId,
+      title: "私客已转公客",
+      body: `${current.name} 已被 ${user.display_name} 转入公客池${reasonText}`,
+      kind: "customer_to_public",
+      ref_type: "customer",
+      ref_id: payload.id,
+    });
+  }
   return getCustomer(db, user, payload.id);
 }
 
