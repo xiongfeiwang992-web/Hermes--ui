@@ -549,9 +549,19 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
   }
   if (q.deal_id) rows = rows.filter((p) => p.deal_id === q.deal_id);
   if (q.status) rows = rows.filter((p) => p.status === q.status);
+  if (q.direction) rows = rows.filter((p) => (p.direction || "in") === q.direction);
   if (q.method) {
     const method = normalizePaymentMethod(q.method);
     rows = rows.filter((p) => normalizePaymentMethod(p.method) === method);
+  }
+  if (q.keyword) {
+    const k = String(q.keyword).trim().toLowerCase();
+    rows = rows.filter(
+      (p) =>
+        String(p.id).toLowerCase().includes(k) ||
+        String(p.deal_id).toLowerCase().includes(k) ||
+        String(p.remark || "").toLowerCase().includes(k)
+    );
   }
   return {
     ok: true,

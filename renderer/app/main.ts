@@ -2052,18 +2052,58 @@ async function renderPayments(main: HTMLElement) {
     confirmed: "已到账",
     rejected: "已驳回",
   };
+  const methodFilterOptions = await paymentMethodSelectHtml("");
   main.innerHTML = `
-    <div class="header"><h2>收款</h2>
+    <div class="header"><h2>收款</h2><div class="ops">
+      <button class="btn ghost" data-export>导出 CSV</button>
       ${canCashier ? `<button class="btn" data-new>登记收款</button>` : ""}
+    </div></div>
+    <div class="filters">
+      <select data-f="status"><option value="">全部状态</option><option value="pending">待出纳确认</option><option value="confirmed">已到账</option><option value="rejected">已驳回</option></select>
+      <select data-f="direction"><option value="">全部方向</option><option value="in">收款</option><option value="out">退款</option></select>
+      <select data-f="method"><option value="">全部方式</option>${methodFilterOptions}</select>
+      <input data-f="keyword" placeholder="搜索单号/成交单/备注" />
     </div>
+    <div class="meta" data-totals>合计加载中…</div>
     <div class="list" data-list></div>
   `;
-  const r = await api("payment.list", {});
   const list = main.querySelector("[data-list]")!;
-  if (!r.ok) list.innerHTML = `<div class="error">${r.message}</div>`;
-  else if (!(r.data as any[]).length) list.innerHTML = `<div class="empty">暂无收款</div>`;
-  else {
-    list.innerHTML = (r.data as any[])
+  const totalsEl = main.querySelector("[data-totals]")!;
+  const query = () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    return q;
+  };
+  const draw = async () => {
+    const r = await api("payment.list", query());
+    if (!r.ok) {
+      totalsEl.textContent = "";
+      list.innerHTML = `<div class="error">${r.message}</div>`;
+      return;
+    }
+    const rows = r.data as any[];
+    let confirmedIn = 0;
+    let confirmedOut = 0;
+    let pendingIn = 0;
+    for (const p of rows) {
+      const amount = Number(p.amount) || 0;
+      const direction = p.direction || "in";
+      if (p.status === "confirmed") {
+        if (direction === "out") confirmedOut += amount;
+        else confirmedIn += amount;
+      } else if (p.status === "pending" && direction !== "out") {
+        pendingIn += amount;
+      }
+    }
+    totalsEl.textContent = `当前筛选 ${rows.length} 笔 · 已确认收款 ¥${money(confirmedIn)} · 已确认退款 ¥${money(confirmedOut)} · 净额 ¥${money(confirmedIn - confirmedOut)} · 待确认 ¥${money(pendingIn)}`;
+    if (!rows.length) {
+      list.innerHTML = `<div class="empty">暂无收款</div>`;
+      return;
+    }
+    list.innerHTML = rows
       .map(
         (p) => `<div class="row"><div>
         <div>
@@ -2084,7 +2124,7 @@ async function renderPayments(main: HTMLElement) {
         });
         if (result.ok && (result.data as any).warning) toast((result.data as any).warning, "warn");
         else toast(result.ok ? "已确认到账" : result.message, result.ok ? "ok" : "error");
-        if (result.ok) render();
+        if (result.ok) draw();
       })
     );
     list.querySelectorAll("[data-reject-payment]").forEach((button) =>
@@ -2096,7 +2136,7 @@ async function renderPayments(main: HTMLElement) {
           reason,
         });
         toast(result.ok ? "收款已驳回" : result.message, result.ok ? "ok" : "error");
-        if (result.ok) render();
+        if (result.ok) draw();
       })
     );
     list.querySelectorAll("[data-refund-payment]").forEach((button) =>
@@ -2117,12 +2157,25 @@ async function renderPayments(main: HTMLElement) {
               method: fd.get("method"),
             });
             toast(result.ok ? "退款已登记" : result.message, result.ok ? "ok" : "error");
-            if (result.ok) render();
+            if (result.ok) draw();
           }
         );
       })
     );
-  }
+  };
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const result = await api("report.paymentsCsv", query());
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "收款列表.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条收款`, "ok");
+  });
   const btn = main.querySelector("[data-new]");
   if (btn) {
     btn.addEventListener("click", async () => {
@@ -2151,11 +2204,14 @@ async function renderPayments(main: HTMLElement) {
           });
           if (res.ok && (res.data as any).warning) toast((res.data as any).warning, "warn");
           else toast(res.ok ? "收款已登记，待出纳确认" : res.message, res.ok ? "ok" : "error");
-          if (res.ok) render();
+          if (res.ok) draw();
         }
       );
     });
   }
+  main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
+  main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
+  await draw();
 }
 
 async function renderCommissions(main: HTMLElement) {
