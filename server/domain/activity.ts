@@ -257,25 +257,75 @@ export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
   if (q.target_type) rows = rows.filter((f) => f.target_type === q.target_type);
   if (q.target_id) rows = rows.filter((f) => f.target_id === q.target_id);
   if (q.follow_kind) rows = rows.filter((f) => f.follow_kind === q.follow_kind);
-  if (q.due === "today" || q.due === "overdue") {
+  const dueMode = String(q.due || "");
+  if (["today", "overdue", "due", "upcoming"].includes(dueMode)) {
     const today = todayDate();
+    const upcomingDays = Math.min(Math.max(Number(q.upcoming_days) || 7, 1), 30);
+    const upcomingEnd = addDaysIso(today, upcomingDays);
+    const tomorrow = addDaysIso(today, 1);
     rows = rows.filter((f) => {
       if (!f.next_follow_at) return false;
       const d = String(f.next_follow_at).slice(0, 10);
-      return q.due === "today" ? d === today : d < today;
+      if (dueMode === "today") return d === today;
+      if (dueMode === "overdue") return d < today;
+      if (dueMode === "due") return d <= today;
+      return d >= tomorrow && d <= upcomingEnd;
     });
     if (user.role === "agent") rows = rows.filter((f) => f.created_by === user.id);
+    rows = rows.slice().sort((a, b) => {
+      const left = String(a.next_follow_at || "");
+      const right = String(b.next_follow_at || "");
+      return left.localeCompare(right) || String(a.created_at).localeCompare(String(b.created_at));
+    });
   }
   const labels = new Map(
     resolveFollowMethods(db, user.company_id).map((item) => [item.value, item.label])
   );
   return {
     ok: true,
-    data: rows.map((row) => ({
-      ...row,
-      method_label: labels.get(row.method) || row.method || "",
-    })),
+    data: rows.map((row) => {
+      const target = resolveFollowTarget(db, user.company_id, row.target_type, row.target_id);
+      return {
+        ...row,
+        method_label: labels.get(row.method) || row.method || "",
+        target_title: target.title,
+        target_subtitle: target.subtitle,
+      };
+    }),
   };
+}
+
+function addDaysIso(isoDate: string, days: number): string {
+  const stamp = Date.parse(`${isoDate}T00:00:00.000Z`);
+  if (Number.isNaN(stamp)) return isoDate;
+  return new Date(stamp + days * 86400000).toISOString().slice(0, 10);
+}
+
+function resolveFollowTarget(
+  db: Db,
+  companyId: string,
+  targetType: string,
+  targetId: string
+): { title: string; subtitle: string } {
+  if (targetType === "house") {
+    const house = db
+      .prepare(`SELECT title, community FROM houses WHERE id = ? AND company_id = ?`)
+      .get(targetId, companyId) as { title?: string; community?: string } | undefined;
+    return {
+      title: house?.title || targetId,
+      subtitle: house?.community || "",
+    };
+  }
+  if (targetType === "customer") {
+    const customer = db
+      .prepare(`SELECT name, phone FROM customers WHERE id = ? AND company_id = ?`)
+      .get(targetId, companyId) as { name?: string; phone?: string } | undefined;
+    return {
+      title: customer?.name || targetId,
+      subtitle: customer?.phone || "",
+    };
+  }
+  return { title: targetId, subtitle: "" };
 }
 
 export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
