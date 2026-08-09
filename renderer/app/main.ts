@@ -1831,16 +1831,29 @@ async function renderEarnest(main: HTMLElement) {
     ? await api("customer.list", {})
     : ({ ok: true, data: [] } as any);
   const deals = await api("deal.list", { status: "approved" });
+  const methodFilterOptions = await paymentMethodSelectHtml("");
   main.innerHTML = `
-    <div class="header"><h2>意向金</h2>${mayCreate ? `<button class="btn" data-new>登记意向金</button>` : ""}</div>
+    <div class="header"><h2>意向金</h2><div class="ops">
+      <button class="btn ghost" data-export>导出 CSV</button>
+      ${mayCreate ? `<button class="btn" data-new>登记意向金</button>` : ""}
+    </div></div>
     <div class="filters">
-      <select data-status><option value="">全部状态</option><option value="held">在管</option><option value="applied">已冲抵</option><option value="refunded">已退款</option></select>
+      <select data-f="status"><option value="">全部状态</option><option value="held">在管</option><option value="applied">已冲抵</option><option value="refunded">已退款</option></select>
+      <select data-f="method"><option value="">全部方式</option>${methodFilterOptions}</select>
+      <input data-f="keyword" placeholder="搜索客户/房源/单号/备注" />
     </div>
     <div class="list" data-list></div>
   `;
+  const query = () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    return q;
+  };
   const draw = async () => {
-    const status = (main.querySelector("[data-status]") as HTMLSelectElement).value;
-    const result = await api("earnest.list", status ? { status } : {});
+    const result = await api("earnest.list", query());
     const list = main.querySelector("[data-list]")!;
     if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
     const rows = result.data as any[];
@@ -1873,6 +1886,7 @@ async function renderEarnest(main: HTMLElement) {
               deal_id: fd.get("deal_id"),
             });
             toast(result.ok ? "意向金已冲抵" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
           }
         );
       })
@@ -1890,6 +1904,19 @@ async function renderEarnest(main: HTMLElement) {
       })
     );
   };
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const result = await api("earnest.export", query());
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "意向金列表.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条意向金`, "ok");
+  });
   const createButton = main.querySelector("[data-new]");
   if (createButton) {
     createButton.addEventListener("click", async () => {
@@ -1923,28 +1950,8 @@ async function renderEarnest(main: HTMLElement) {
       );
     });
   }
-  const seedButton = main.querySelector("[data-seed]");
-  if (seedButton) {
-    seedButton.addEventListener("click", () => {
-      const options = ((deals.data as any[]) || [])
-        .filter((deal) => deal.status === "approved")
-        .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
-        .join("");
-      openDialog(
-        "从模板补齐过户节点",
-        `<label class="full">已审批成交<select name="deal_id">${options}</select></label>`,
-        async (fd) => {
-          const result = await api("transfer.seed", { deal_id: fd.get("deal_id") });
-          toast(
-            result.ok ? `已补齐 ${(result.data as any).created} 个节点` : result.message,
-            result.ok ? "ok" : "error"
-          );
-          if (result.ok) draw();
-        }
-      );
-    });
-  }
-  main.querySelector("[data-status]")!.addEventListener("change", draw);
+  main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
+  main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
   await draw();
 }
 
