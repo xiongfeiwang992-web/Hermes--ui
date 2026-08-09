@@ -190,13 +190,35 @@ export function upsertDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return { ok: true, data: { id } };
 }
 
+function presentSettings(row: any) {
+  const legacy = Number(row?.house_hold_limit ?? 20);
+  const sale = Number(row?.house_hold_limit_sale ?? legacy);
+  const rent = Number(row?.house_hold_limit_rent ?? legacy);
+  return {
+    ...row,
+    house_hold_limit: Math.max(sale, rent, legacy),
+    house_hold_limit_sale: sale,
+    house_hold_limit_rent: rent,
+    deal_required_fields: JSON.parse(row?.deal_required_fields || "[]"),
+  };
+}
+
+/** 按租售返回个人持盘上限；缺省回退 legacy house_hold_limit */
+export function holdLimitForDealType(db: Db, companyId: string, dealType: string): number {
+  const row = db.prepare(`SELECT * FROM settings WHERE company_id = ?`).get(companyId) as any;
+  const legacy = Number(row?.house_hold_limit ?? 20);
+  if (dealType === "sale") return Number(row?.house_hold_limit_sale ?? legacy);
+  if (dealType === "rent") return Number(row?.house_hold_limit_rent ?? legacy);
+  return legacy;
+}
+
 export function getSettings(db: Db, user: SessionUser): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager"))
     return { ok: false, message: "无权限", code: 403 };
   const row = db.prepare(`SELECT * FROM settings WHERE company_id = ?`).get(user.company_id) as any;
   return {
     ok: true,
-    data: { ...row, deal_required_fields: JSON.parse(row?.deal_required_fields || "[]") },
+    data: presentSettings(row),
   };
 }
 
@@ -205,12 +227,22 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
   const current = db
     .prepare(`SELECT * FROM settings WHERE company_id = ?`)
     .get(user.company_id) as any;
-  const hold = Number(p.house_hold_limit);
+  const legacyHold = Number(
+    p.house_hold_limit ?? current?.house_hold_limit_sale ?? current?.house_hold_limit ?? 20
+  );
+  const holdSale = Number(
+    p.house_hold_limit_sale != null ? p.house_hold_limit_sale : legacyHold
+  );
+  const holdRent = Number(
+    p.house_hold_limit_rent != null ? p.house_hold_limit_rent : legacyHold
+  );
   const award = Number(p.manager_award_rate);
   const min = Number(p.password_min_length);
   const protectionDays = Number(p.house_role_protection_days ?? 30);
-  if (!Number.isInteger(hold) || hold < 1 || hold > 100)
-    return { ok: false, message: "持盘上限须为 1～100" };
+  if (!Number.isInteger(holdSale) || holdSale < 1 || holdSale > 100)
+    return { ok: false, message: "出售持盘上限须为 1～100" };
+  if (!Number.isInteger(holdRent) || holdRent < 1 || holdRent > 100)
+    return { ok: false, message: "出租持盘上限须为 1～100" };
   if (award < 0 || award > 0.5) return { ok: false, message: "管理奖比例须为 0～0.5" };
   if (!Number.isInteger(min) || min < 8 || min > 32)
     return { ok: false, message: "密码最小长度须为 8～32" };
@@ -228,13 +260,17 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
       : p.non_holder_view_remind
         ? 1
         : 0;
+  const holdLegacy = Math.max(holdSale, holdRent);
   db.prepare(
-    `UPDATE settings SET house_hold_limit=?, manager_award_rate=?, deal_required_fields=?,
+    `UPDATE settings SET house_hold_limit=?, house_hold_limit_sale=?, house_hold_limit_rent=?,
+     manager_award_rate=?, deal_required_fields=?,
      password_min_length=?, deal_doc_required=?, house_role_protection_days=?,
      force_follow_before_phone=?, non_holder_view_remind=?,
      updated_by=?, updated_at=? WHERE company_id=?`
   ).run(
-    hold,
+    holdLegacy,
+    holdSale,
+    holdRent,
     award,
     JSON.stringify(p.deal_required_fields || []),
     min,

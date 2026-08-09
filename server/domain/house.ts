@@ -12,6 +12,7 @@ import {
 } from "./activity";
 import { writeAudit } from "./audit";
 import { resolvePhoneVisibility } from "./contactGate";
+import { holdLimitForDealType } from "./config";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
 import { nextId, nowIso } from "../utils/id";
@@ -45,6 +46,25 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
   };
+}
+
+
+function agentHoldExceeded(
+  db: Db,
+  companyId: string,
+  agentId: string,
+  dealType: string
+): { exceeded: boolean; limit: number; held: number } {
+  const limit = holdLimitForDealType(db, companyId, dealType);
+  const held = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM houses
+       WHERE company_id = ? AND agent_id = ? AND deal_type = ?
+         AND status NOT IN ('closed','withdrawn')`
+    )
+    .get(companyId, agentId, dealType) as { c: number };
+  const count = Number(held?.c || 0);
+  return { exceeded: count >= limit, limit, held: count };
 }
 
 export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
@@ -100,17 +120,15 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     return { ok: false, message: "deal_type 无效" };
   }
   if (user.role === "agent") {
-    const setting = db
-      .prepare(`SELECT house_hold_limit FROM settings WHERE company_id = ?`)
-      .get(user.company_id) as any;
-    const held = db
-      .prepare(
-        `SELECT COUNT(*) AS c FROM houses WHERE company_id = ? AND agent_id = ?
-         AND status NOT IN ('closed','withdrawn')`
-      )
-      .get(user.company_id, user.id) as any;
-    if (Number(held?.c || 0) >= Number(setting?.house_hold_limit || 20)) {
-      return { ok: false, message: "已达到个人持盘上限" };
+    const hold = agentHoldExceeded(db, user.company_id, user.id, payload.deal_type);
+    if (hold.exceeded) {
+      return {
+        ok: false,
+        message:
+          payload.deal_type === "sale"
+            ? `已达到出售个人持盘上限（${hold.limit}）`
+            : `已达到出租个人持盘上限（${hold.limit}）`,
+      };
     }
   }
   const duplicate = db
@@ -386,6 +404,23 @@ export function changeHouseStatus(
     }
     const resolved = resolveStoreAgent(db, user.company_id, current.store_id, payload.agent_id);
     if (!resolved.ok) return resolved;
+    if (resolved.agent.role === "agent") {
+      const hold = agentHoldExceeded(
+        db,
+        user.company_id,
+        payload.agent_id,
+        current.deal_type
+      );
+      if (hold.exceeded) {
+        return {
+          ok: false,
+          message:
+            current.deal_type === "sale"
+              ? `目标经纪人已达出售持盘上限（${hold.limit}）`
+              : `目标经纪人已达出租持盘上限（${hold.limit}）`,
+        };
+      }
+    }
     nextAgentId = payload.agent_id;
   } else if (payload.agent_id && payload.agent_id !== current.agent_id) {
     return { ok: false, message: "仅暂缓恢复上架时可顺带改接盘人" };
@@ -452,6 +487,23 @@ export function changeHouseAgent(
   }
   const resolved = resolveStoreAgent(db, user.company_id, current.store_id, payload.agent_id);
   if (!resolved.ok) return resolved;
+  if (resolved.agent.role === "agent") {
+    const hold = agentHoldExceeded(
+      db,
+      user.company_id,
+      payload.agent_id,
+      current.deal_type
+    );
+    if (hold.exceeded) {
+      return {
+        ok: false,
+        message:
+          current.deal_type === "sale"
+            ? `目标经纪人已达出售持盘上限（${hold.limit}）`
+            : `目标经纪人已达出租持盘上限（${hold.limit}）`,
+      };
+    }
+  }
   db.prepare(`UPDATE houses SET agent_id = ?, updated_at = ? WHERE id = ?`).run(
     payload.agent_id,
     nowIso(),
