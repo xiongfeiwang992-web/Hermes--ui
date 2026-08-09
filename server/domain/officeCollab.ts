@@ -731,6 +731,25 @@ export function submitSummary(db: Db, user: SessionUser, payload: any): ApiResul
     `UPDATE office_work_summaries
      SET status='submitted', submitted_at=?, updated_at=? WHERE id=?`
   ).run(now, now, row.id);
+  const reviewers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, row.store_id) as any[];
+  for (const reviewer of reviewers) {
+    if (reviewer.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: reviewer.id,
+      title: "工作总结待评阅",
+      body: `${user.display_name} · ${row.period_start}～${row.period_end}`,
+      kind: "office_work_summary",
+      ref_type: "office_work_summary",
+      ref_id: row.id,
+    });
+  }
   addEvent(db, user, "summary", row.id, "submitted");
   writeAudit(db, user, "officeCollab.summary.submit", "office_work_summary", row.id);
   return { ok: true, data: { id: row.id, status: "submitted" } };
