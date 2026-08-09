@@ -127,6 +127,24 @@ async function paymentMethodSelectHtml(selected = "transfer") {
     .join("");
 }
 
+async function leaveTypeSelectHtml(selected = "annual") {
+  const result = await api("config.leaveTypes", {});
+  const types = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "annual", label: "年假" },
+        { value: "sick", label: "病假" },
+        { value: "personal", label: "事假" },
+        { value: "other", label: "其他" },
+      ];
+  return types
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -3058,7 +3076,7 @@ async function renderAttendanceLeave(main: HTMLElement) {
               !own &&
               ["admin", "store_manager"].includes(state.user.role);
             return `<div class="row"><div>
-              <div><span class="tag ${request.status === "approved" ? "ok" : request.status === "rejected" || request.status === "cancelled" ? "danger" : "warn"}">${leaveStatus[request.status] || request.status}</span><span class="tag">${leaveType[request.leave_type] || request.leave_type}</span><strong>${request.applicant_name}</strong> · ${request.duration_hours} 小时</div>
+              <div><span class="tag ${request.status === "approved" ? "ok" : request.status === "rejected" || request.status === "cancelled" ? "danger" : "warn"}">${leaveStatus[request.status] || request.status}</span><span class="tag">${escapeHtml(request.leave_type_label || leaveType[request.leave_type] || request.leave_type)}</span><strong>${request.applicant_name}</strong> · ${request.duration_hours} 小时</div>
               <div class="meta">${new Date(request.start_at).toLocaleString("zh-CN")} 至 ${new Date(request.end_at).toLocaleString("zh-CN")} · ${request.reason}${request.reject_reason ? ` · 驳回：${request.reject_reason}` : ""}</div>
             </div><div class="ops">
               ${canReview ? `<button class="btn" data-review-leave="${request.id}" data-leave-to="approved">通过</button><button class="btn danger" data-review-leave="${request.id}" data-leave-to="rejected">驳回</button>` : ""}
@@ -3124,10 +3142,11 @@ async function renderAttendanceLeave(main: HTMLElement) {
       if (result.ok) draw();
     })
   );
-  main.querySelector("[data-new-leave]")!.addEventListener("click", () =>
+  main.querySelector("[data-new-leave]")!.addEventListener("click", async () => {
+    const typeOptions = await leaveTypeSelectHtml("annual");
     openDialog(
       "申请请假",
-      `<label>请假类型<select name="leave_type"><option value="annual">年假</option><option value="sick">病假</option><option value="personal">事假</option><option value="other">其他</option></select></label><label>开始时间<input name="start_at" type="datetime-local" required /></label><label>结束时间<input name="end_at" type="datetime-local" required /></label><label class="full">请假原因<textarea name="reason" rows="3" required></textarea></label>`,
+      `<label>请假类型<select name="leave_type">${typeOptions}</select></label><label>开始时间<input name="start_at" type="datetime-local" required /></label><label>结束时间<input name="end_at" type="datetime-local" required /></label><label class="full">请假原因<textarea name="reason" rows="3" required></textarea></label>`,
       async (fd) => {
         const start = String(fd.get("start_at") || "");
         const end = String(fd.get("end_at") || "");
@@ -3140,8 +3159,8 @@ async function renderAttendanceLeave(main: HTMLElement) {
         toast(result.ok ? "请假申请已提交" : result.message, result.ok ? "ok" : "error");
         if (result.ok) draw();
       }
-    )
-  );
+    );
+  });
   main.querySelector("[data-attendance-settings]")?.addEventListener("click", () => {
     const value = config.ok ? (config.data as any) : {};
     openDialog(
@@ -6986,7 +7005,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method / leave_type" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

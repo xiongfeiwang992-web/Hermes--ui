@@ -1,10 +1,13 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import {
+  isAllowedLeaveType,
+  labelLeaveType,
+  normalizeLeaveType,
+} from "./config";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
-
-const LEAVE_TYPES = new Set(["annual", "sick", "personal", "other"]);
 
 function visible(user: SessionUser, row: any, ownerField: string): boolean {
   if (user.role === "admin") return true;
@@ -209,7 +212,8 @@ export function correctAttendance(db: Db, user: SessionUser, payload: any): ApiR
 }
 
 export function createLeave(db: Db, user: SessionUser, payload: any): ApiResult {
-  if (!LEAVE_TYPES.has(payload.leave_type))
+  const leaveType = normalizeLeaveType(payload.leave_type);
+  if (!leaveType || !isAllowedLeaveType(db, user.company_id, leaveType))
     return { ok: false, message: "请假类型无效" };
   const reason = String(payload.reason || "").trim();
   if (!reason) return { ok: false, message: "请假原因必填" };
@@ -237,7 +241,7 @@ export function createLeave(db: Db, user: SessionUser, payload: any): ApiResult 
     user.company_id,
     user.store_id,
     user.id,
-    payload.leave_type,
+    leaveType,
     new Date(startMs).toISOString(),
     new Date(endMs).toISOString(),
     durationHours,
@@ -264,7 +268,7 @@ export function createLeave(db: Db, user: SessionUser, payload: any): ApiResult 
     });
   }
   writeAudit(db, user, "leave.create", "leave_request", id, {
-    leave_type: payload.leave_type,
+    leave_type: leaveType,
     duration_hours: durationHours,
   });
   return { ok: true, data: { id, status: "pending", duration_hours: durationHours } };
@@ -283,7 +287,17 @@ export function listLeaves(db: Db, user: SessionUser, payload: any = {}): ApiRes
   rows = rows.filter((row) => visible(user, row, "applicant_user_id"));
   if (payload.status) rows = rows.filter((row) => row.status === payload.status);
   if (payload.user_id) rows = rows.filter((row) => row.applicant_user_id === payload.user_id);
-  return { ok: true, data: rows };
+  if (payload.leave_type) {
+    const leaveType = normalizeLeaveType(payload.leave_type);
+    rows = rows.filter((row) => normalizeLeaveType(row.leave_type) === leaveType);
+  }
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      leave_type_label: labelLeaveType(db, user.company_id, row.leave_type),
+    })),
+  };
 }
 
 export function reviewLeave(db: Db, user: SessionUser, payload: any): ApiResult {
