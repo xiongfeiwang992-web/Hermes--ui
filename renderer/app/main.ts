@@ -1442,9 +1442,24 @@ async function renderFollows(main: HTMLElement) {
         <span class="tag">${kindText(f.follow_kind || "normal")}</span>
         <strong>${escapeHtml(f.content)}</strong></div>
         <div class="meta">${escapeHtml(f.method_label || f.method || "")} · 下次 ${f.next_follow_at || "未设置"} · ${f.created_at}</div>
+      </div>
+      <div class="ops">
+        ${state.user.role === "admin" ? `<button class="btn danger" data-void="${f.id}">作废</button>` : ""}
       </div></div>`
       )
       .join("");
+    list.querySelectorAll("[data-void]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const reason = prompt("作废原因（必填；跟进不可删除，仅可作废）");
+        if (!reason) return;
+        const r = await api("follow.void", {
+          id: (btn as HTMLElement).dataset.void,
+          reason,
+        });
+        toast(r.ok ? "跟进已作废" : r.message, r.ok ? "ok" : "error");
+        if (r.ok) draw();
+      })
+    );
   };
   main.querySelector("[data-new]")!.addEventListener("click", async () => {
     const houseOpts = ((houses.data as any[]) || [])
