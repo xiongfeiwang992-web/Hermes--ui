@@ -219,6 +219,90 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   return getCustomer(db, user, payload.id);
 }
 
+function suspendedHoldExceeded(
+  db: Db,
+  companyId: string,
+  agentId: string
+): { exceeded: boolean; limit: number; held: number } {
+  const setting = db
+    .prepare(`SELECT customer_hold_limit FROM settings WHERE company_id = ?`)
+    .get(companyId) as any;
+  const limit = Number(setting?.customer_hold_limit ?? 20);
+  const held = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM customers
+       WHERE company_id = ? AND agent_id = ? AND status = 'suspended'
+       AND merged_into_id IS NULL`
+    )
+    .get(companyId, agentId) as { c: number };
+  const count = Number(held?.c || 0);
+  return { exceeded: count >= limit, limit, held: count };
+}
+
+export function suspendCustomer(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string; reason?: string }
+): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  const current = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current || !customerVisibleTo(user, current)) {
+    return { ok: false, message: "客源不存在或无权限", code: 403 };
+  }
+  if (current.visibility !== "private") {
+    return { ok: false, message: "仅私客可暂缓" };
+  }
+  if (user.role === "agent" && current.agent_id !== user.id) {
+    return { ok: false, message: "只能暂缓本人私客", code: 403 };
+  }
+  if (["closed", "invalid", "public_pool", "deal_pending", "suspended"].includes(current.status)) {
+    return { ok: false, message: "当前状态不可暂缓" };
+  }
+  const hold = suspendedHoldExceeded(db, user.company_id, current.agent_id);
+  if (hold.exceeded) {
+    return {
+      ok: false,
+      message: `暂缓客已达上限 ${hold.limit}（当前 ${hold.held}）`,
+    };
+  }
+  const reason = String(payload.reason || "").trim();
+  db.prepare(
+    `UPDATE customers SET status = 'suspended', remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
+  ).run(reason || current.remark, nowIso(), payload.id);
+  writeAudit(db, user, "customer.suspend", "customer", payload.id, {
+    reason: reason || null,
+    agent_id: current.agent_id,
+  });
+  return getCustomer(db, user, payload.id);
+}
+
+export function resumeCustomer(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string }
+): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  const current = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current || !customerVisibleTo(user, current)) {
+    return { ok: false, message: "客源不存在或无权限", code: 403 };
+  }
+  if (current.status !== "suspended") {
+    return { ok: false, message: "仅暂缓客可恢复跟进" };
+  }
+  if (user.role === "agent" && current.agent_id !== user.id) {
+    return { ok: false, message: "只能恢复本人暂缓客", code: 403 };
+  }
+  db.prepare(
+    `UPDATE customers SET status = 'following', updated_at = ? WHERE id = ?`
+  ).run(nowIso(), payload.id);
+  writeAudit(db, user, "customer.resume", "customer", payload.id);
+  return getCustomer(db, user, payload.id);
+}
+
 export function toPublic(
   db: Db,
   user: SessionUser,
@@ -534,7 +618,8 @@ export function runPublicPool(db: Db, user: SessionUser): ApiResult {
        ) AS last_activity_at
        FROM customers c
        WHERE c.company_id = ? AND c.visibility = 'private'
-       AND c.status NOT IN ('closed', 'invalid') AND c.merged_into_id IS NULL`
+       AND c.status NOT IN ('closed', 'invalid', 'suspended', 'deal_pending')
+       AND c.merged_into_id IS NULL`
     )
     .all(user.company_id) as any[];
   if (user.role === "store_manager") {

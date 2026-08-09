@@ -1168,6 +1168,7 @@ async function renderCustomers(main: HTMLElement) {
     <div class="filters">
       <select data-f="visibility"><option value="">全部可见性</option><option value="private">私客</option><option value="public">公客</option></select>
       <select data-f="intent"><option value="">全部意图</option><option value="buy">求购</option><option value="rent">求租</option></select>
+      <select data-f="status"><option value="">全部状态</option><option value="new">待联系</option><option value="following">跟进中</option><option value="viewing">带看中</option><option value="suspended">暂缓</option><option value="deal_pending">成交中</option><option value="public_pool">公客池</option></select>
       <select data-f="source"><option value="">全部来源</option></select>
       <input data-f="keyword" placeholder="搜索姓名/电话" />
     </div>
@@ -1192,7 +1193,7 @@ async function renderCustomers(main: HTMLElement) {
       <div class="row"><div>
         <div><span class="tag">${c.visibility === "private" ? "私客" : "公客"}</span>
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
-        <span class="tag">${c.level}级</span>
+        <span class="tag ${c.status === "suspended" ? "warn" : ""}">${c.status === "suspended" ? "暂缓" : c.level + "级"}</span>
         <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
         <div class="meta">${c.need || "无需求备注"} · 状态 ${c.status}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
@@ -1201,6 +1202,8 @@ async function renderCustomers(main: HTMLElement) {
         <button class="btn ghost" data-match="${c.id}">匹配房源</button>
         <button class="btn ghost" data-contacts="${c.id}">联系人</button>
         ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-merge="${c.id}">合并</button>` : ""}
+        ${c.visibility === "private" && !["closed", "invalid", "deal_pending", "suspended"].includes(c.status) ? `<button class="btn ghost" data-suspend="${c.id}">暂缓</button>` : ""}
+        ${c.status === "suspended" ? `<button class="btn" data-resume="${c.id}">恢复跟进</button>` : ""}
         ${c.visibility === "private" ? `<button class="btn ghost" data-public="${c.id}">转公客</button>` : `<button class="btn" data-claim="${c.id}">认领</button>`}
       </div></div>`
       )
@@ -1235,6 +1238,26 @@ async function renderCustomers(main: HTMLElement) {
           reason,
         });
         toast(r.ok ? "已转公客" : r.message, r.ok ? "ok" : "error");
+        if (r.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-suspend]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const reason = prompt("暂缓原因（可选）") || "";
+        const r = await api("customer.suspend", {
+          id: (btn as HTMLElement).dataset.suspend,
+          reason,
+        });
+        toast(r.ok ? "已暂缓客源" : r.message, r.ok ? "ok" : "error");
+        if (r.ok) draw();
+      })
+    );
+    list.querySelectorAll("[data-resume]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const r = await api("customer.resume", {
+          id: (btn as HTMLElement).dataset.resume,
+        });
+        toast(r.ok ? "已恢复跟进" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
       })
     );
@@ -6925,6 +6948,7 @@ async function renderSystemCenter(main: HTMLElement) {
         "业务参数",
         `
         <label>个人持盘上限<input name="house_hold_limit" type="number" value="${value.house_hold_limit}" /></label>
+        <label>暂缓客持有上限<input name="customer_hold_limit" type="number" min="1" max="100" value="${value.customer_hold_limit ?? 20}" /></label>
         <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
         <label>房源角色保护期（天）<input name="house_role_protection_days" type="number" min="0" max="365" value="${value.house_role_protection_days}" /></label>
@@ -6936,6 +6960,7 @@ async function renderSystemCenter(main: HTMLElement) {
         async (fd) => {
           const result = await api("config.settings.save", {
             house_hold_limit: Number(fd.get("house_hold_limit")),
+            customer_hold_limit: Number(fd.get("customer_hold_limit")),
             manager_award_rate: Number(fd.get("manager_award_rate")),
             password_min_length: Number(fd.get("password_min_length")),
             house_role_protection_days: Number(fd.get("house_role_protection_days")),
