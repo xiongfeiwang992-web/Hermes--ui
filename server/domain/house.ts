@@ -630,9 +630,27 @@ export function removeHouseRole(db: Db, user: SessionUser, payload: any): ApiRes
   const protectedNow = role.protected_until && role.protected_until >= nowIso();
   if (protectedNow && user.role !== "admin")
     return { ok: false, message: "角色保护期内仅管理员可解除" };
-  if (protectedNow && !String(payload.reason || "").trim())
+  const reason = String(payload.reason || "").trim();
+  if (protectedNow && !reason)
     return { ok: false, message: "保护期内解除须填写原因" };
+  const house = db
+    .prepare(`SELECT * FROM houses WHERE id=? AND company_id=?`)
+    .get(role.house_id, user.company_id) as any;
   db.prepare(`DELETE FROM house_role_holders WHERE id=?`).run(role.id);
+  if (house && role.user_id && role.user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: role.user_id,
+      title: "房源角色已解除",
+      body: reason
+        ? `${house.title}：${role.role_type} · ${reason}`
+        : `${house.title}：${role.role_type}`,
+      kind: "house_role",
+      ref_type: "house",
+      ref_id: house.id,
+    });
+  }
   writeAudit(db, user, "house.role.remove", "house_role_holder", role.id, {
     house_id: role.house_id,
     role_type: role.role_type,
