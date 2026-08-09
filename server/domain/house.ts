@@ -35,6 +35,60 @@ const ROLE_TYPES = new Set([
   "entrustment",
 ]);
 
+const HOUSE_ORIENTATIONS = new Set([
+  "east",
+  "south",
+  "west",
+  "north",
+  "south_north",
+  "east_west",
+  "southeast",
+  "southwest",
+  "northeast",
+  "northwest",
+]);
+
+const HOUSE_DECORATIONS = new Set([
+  "blank",
+  "simple",
+  "medium",
+  "fine",
+  "luxury",
+  "other",
+]);
+
+const ORIENTATION_LABELS: Record<string, string> = {
+  east: "东",
+  south: "南",
+  west: "西",
+  north: "北",
+  south_north: "南北",
+  east_west: "东西",
+  southeast: "东南",
+  southwest: "西南",
+  northeast: "东北",
+  northwest: "西北",
+};
+
+const DECORATION_LABELS: Record<string, string> = {
+  blank: "毛坯",
+  simple: "简装",
+  medium: "中装",
+  fine: "精装",
+  luxury: "豪装",
+  other: "其他",
+};
+
+function normalizeOptionalEnum(
+  value: unknown,
+  allowed: Set<string>
+): { ok: true; value: string | null } | { ok: false; message: string } {
+  if (value == null || value === "") return { ok: true, value: null };
+  const raw = String(value).trim();
+  if (!allowed.has(raw)) return { ok: false, message: "枚举值无效" };
+  return { ok: true, value: raw };
+}
+
 function presentHouse(db: Db, user: SessionUser, row: any) {
   const policyAllows = canSeeOwnerPhone(user, row);
   const gate = resolvePhoneVisibility(db, user, policyAllows, "house", row.id);
@@ -44,6 +98,12 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
+    orientation_label: row.orientation
+      ? ORIENTATION_LABELS[row.orientation] || row.orientation
+      : "",
+    decoration_label: row.decoration
+      ? DECORATION_LABELS[row.decoration] || row.decoration
+      : "",
   };
 }
 
@@ -58,6 +118,8 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
   if (q.deal_type) rows = rows.filter((h) => h.deal_type === q.deal_type);
   if (q.property_type) rows = rows.filter((h) => h.property_type === q.property_type);
   if (q.deal_mode) rows = rows.filter((h) => h.deal_mode === q.deal_mode);
+  if (q.orientation) rows = rows.filter((h) => h.orientation === q.orientation);
+  if (q.decoration) rows = rows.filter((h) => h.decoration === q.decoration);
   if (q.status) rows = rows.filter((h) => h.status === q.status);
   if (q.community)
     rows = rows.filter((h) =>
@@ -99,6 +161,10 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (!["sale", "rent"].includes(payload.deal_type)) {
     return { ok: false, message: "deal_type 无效" };
   }
+  const orientationNorm = normalizeOptionalEnum(payload.orientation, HOUSE_ORIENTATIONS);
+  if (!orientationNorm.ok) return { ok: false, message: "朝向不在可选范围内" };
+  const decorationNorm = normalizeOptionalEnum(payload.decoration, HOUSE_DECORATIONS);
+  if (!decorationNorm.ok) return { ok: false, message: "装修不在可选范围内" };
   if (user.role === "agent") {
     const setting = db
       .prepare(`SELECT house_hold_limit FROM settings WHERE company_id = ?`)
@@ -139,8 +205,9 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       id, company_id, store_id, title, deal_type, status, community, address, district,
       price, price_unit, area_size, rooms, floor, owner_name, owner_phone,
       listing_user_id, agent_id, is_private, source, remark, cover_image,
-      property_type, deal_mode, visibility, is_locked, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      property_type, deal_mode, visibility, is_locked, orientation, decoration,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     user.company_id,
@@ -168,6 +235,8 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.deal_mode || "normal",
     payload.visibility || "store",
     payload.is_locked ? 1 : 0,
+    orientationNorm.value,
+    decorationNorm.value,
     now,
     now
   );
@@ -196,6 +265,10 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     return { ok: false, message: "只能编辑本人接盘房源", code: 403 };
   }
   const nextPrice = payload.price != null ? Number(payload.price) : null;
+  const orientationUpd = normalizeOptionalEnum(payload.orientation, HOUSE_ORIENTATIONS);
+  if (!orientationUpd.ok) return { ok: false, message: "朝向不在可选范围内" };
+  const decorationUpd = normalizeOptionalEnum(payload.decoration, HOUSE_DECORATIONS);
+  if (!decorationUpd.ok) return { ok: false, message: "装修不在可选范围内" };
   const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
   const priceSummary =
     payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
@@ -264,6 +337,18 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       next: payload.deal_mode,
     },
     {
+      label: "朝向",
+      provided: payload.orientation != null,
+      prev: current.orientation,
+      next: orientationUpd.value,
+    },
+    {
+      label: "装修",
+      provided: payload.decoration != null,
+      prev: current.decoration,
+      next: decorationUpd.value,
+    },
+    {
       label: "可见范围",
       provided: payload.visibility != null,
       prev: current.visibility,
@@ -289,6 +374,8 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       property_type = COALESCE(?, property_type),
       deal_mode = COALESCE(?, deal_mode),
       visibility = COALESCE(?, visibility),
+      orientation = CASE WHEN ? THEN ? ELSE orientation END,
+      decoration = CASE WHEN ? THEN ? ELSE decoration END,
       updated_at = ?
      WHERE id = ?`
   ).run(
@@ -309,6 +396,10 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.property_type ?? null,
     payload.deal_mode ?? null,
     payload.visibility ?? null,
+    payload.orientation != null ? 1 : 0,
+    orientationUpd.value,
+    payload.decoration != null ? 1 : 0,
+    decorationUpd.value,
     nowIso(),
     payload.id
   );
