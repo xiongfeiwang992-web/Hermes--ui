@@ -704,8 +704,25 @@ export function rejectEntrustment(db: Db, user: SessionUser, payload: any): ApiR
      updated_at=? WHERE id=?`
   ).run(reason, nowIso(), row.id);
   addEvent(db, user, "entrustment", row.id, "rejected", { reason });
-  writeAudit(db, user, "marketing.entrustment.reject", "marketing_online_entrustment", row.id);
-  return { ok: true, data: { id: row.id, status: "rejected" } };
+  writeAudit(db, user, "marketing.entrustment.reject", "marketing_online_entrustment", row.id, {
+    reason,
+  });
+  if (row.created_by && row.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title: "在线委托已驳回",
+      body: `${row.contact_name} 的在线委托已被 ${user.display_name} 驳回：${reason}`,
+      kind: "marketing",
+      ref_type: "marketing_online_entrustment",
+      ref_id: row.id,
+    });
+  }
+  return {
+    ok: true,
+    data: { id: row.id, status: "rejected", reject_reason: reason },
+  };
 }
 
 export function listMarketingEvents(
