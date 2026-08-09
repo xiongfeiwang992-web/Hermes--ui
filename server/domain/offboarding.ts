@@ -284,5 +284,20 @@ export function cancelOffboarding(db: Db, user: SessionUser, payload: any): ApiR
      cancel_reason=?, updated_at=? WHERE id=?`
   ).run(now, reason, now, task.id);
   writeAudit(db, user, "offboarding.cancel", "offboarding_task", task.id, { reason });
+  if (task.target_user_id && task.target_user_id !== user.id) {
+    const employee = db
+      .prepare(`SELECT display_name FROM users WHERE id=? AND company_id=?`)
+      .get(task.user_id, user.company_id) as any;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: task.store_id,
+      user_id: task.target_user_id,
+      title: "离职交接已取消",
+      body: `${employee?.display_name || "员工"} 的交接已取消：${reason}`,
+      kind: "offboarding",
+      ref_type: "offboarding_task",
+      ref_id: task.id,
+    });
+  }
   return { ok: true, data: { id: task.id } };
 }
