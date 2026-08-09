@@ -127,6 +127,25 @@ async function paymentMethodSelectHtml(selected = "transfer") {
     .join("");
 }
 
+async function houseWithdrawReasonSelectHtml(selected = "owner_stopped") {
+  const result = await api("config.houseWithdrawReasons", {});
+  const reasons = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "owner_stopped", label: "业主不卖/不租" },
+        { value: "sold_elsewhere", label: "已他售/他租" },
+        { value: "price_mismatch", label: "价格不合适" },
+        { value: "duplicate", label: "重复录入" },
+        { value: "other", label: "其他" },
+      ];
+  return reasons
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -498,7 +517,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}${h.status === "withdrawn" && h.withdraw_reason_label ? ` · 撤盘：${escapeHtml(h.withdraw_reason_label)}` : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -693,15 +712,20 @@ async function renderHouses(main: HTMLElement) {
     });
     list.querySelectorAll("[data-withdraw]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const reason = prompt("请输入撤盘原因");
-        if (!reason) return;
-        const r = await api("house.status", {
-          id: (btn as HTMLElement).dataset.withdraw,
-          status: "withdrawn",
-          reason,
-        });
-        toast(r.ok ? "已撤盘" : r.message, r.ok ? "ok" : "error");
-        if (r.ok) draw();
+        const reasonOptions = await houseWithdrawReasonSelectHtml("owner_stopped");
+        openDialog(
+          "撤盘",
+          `<label class="full">撤盘原因<select name="reason" required>${reasonOptions}</select></label>`,
+          async (fd) => {
+            const r = await api("house.status", {
+              id: (btn as HTMLElement).dataset.withdraw,
+              status: "withdrawn",
+              reason: fd.get("reason"),
+            });
+            toast(r.ok ? "已撤盘" : r.message, r.ok ? "ok" : "error");
+            if (r.ok) draw();
+          }
+        );
       });
     });
     list.querySelectorAll("[data-lock]").forEach((btn) => {
@@ -6986,7 +7010,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method / house_withdraw_reason" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

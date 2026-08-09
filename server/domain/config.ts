@@ -164,6 +164,71 @@ export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
 }
 
+export const DEFAULT_HOUSE_WITHDRAW_REASONS = [
+  { value: "owner_stopped", label: "业主不卖/不租", sort_order: 1 },
+  { value: "sold_elsewhere", label: "已他售/他租", sort_order: 2 },
+  { value: "price_mismatch", label: "价格不合适", sort_order: 3 },
+  { value: "duplicate", label: "重复录入", sort_order: 4 },
+  { value: "other", label: "其他", sort_order: 5 },
+];
+
+const HOUSE_WITHDRAW_REASON_ALIASES: Record<string, string> = {
+  业主不卖: "owner_stopped",
+  业主不卖了: "owner_stopped",
+  业主不租: "owner_stopped",
+  "业主不卖/不租": "owner_stopped",
+  已他售: "sold_elsewhere",
+  已他租: "sold_elsewhere",
+  "已他售/他租": "sold_elsewhere",
+  价格不合适: "price_mismatch",
+  重复录入: "duplicate",
+  其他: "other",
+};
+
+export function resolveHouseWithdrawReasons(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'house_withdraw_reason' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length
+    ? rows
+    : DEFAULT_HOUSE_WITHDRAW_REASONS.map((item) => ({ ...item }));
+}
+
+export function normalizeHouseWithdrawReason(reason: unknown, fallback = ""): string {
+  const raw = String(reason ?? "").trim();
+  if (!raw) return fallback;
+  return HOUSE_WITHDRAW_REASON_ALIASES[raw] || raw;
+}
+
+export function isAllowedHouseWithdrawReason(
+  db: Db,
+  companyId: string,
+  reason: string
+): boolean {
+  return resolveHouseWithdrawReasons(db, companyId).some((item) => item.value === reason);
+}
+
+export function labelHouseWithdrawReason(
+  db: Db,
+  companyId: string,
+  reason: unknown
+): string {
+  const normalized = normalizeHouseWithdrawReason(reason, "");
+  if (!normalized) return "";
+  const hit = resolveHouseWithdrawReasons(db, companyId).find(
+    (item) => item.value === normalized
+  );
+  return hit?.label || normalized;
+}
+
+export function listHouseWithdrawReasons(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveHouseWithdrawReasons(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,

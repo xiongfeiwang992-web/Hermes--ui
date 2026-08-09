@@ -12,6 +12,11 @@ import {
 } from "./activity";
 import { writeAudit } from "./audit";
 import { resolvePhoneVisibility } from "./contactGate";
+import {
+  isAllowedHouseWithdrawReason,
+  labelHouseWithdrawReason,
+  normalizeHouseWithdrawReason,
+} from "./config";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
 import { nextId, nowIso } from "../utils/id";
@@ -44,6 +49,11 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
+    withdraw_reason_label: labelHouseWithdrawReason(
+      db,
+      user.company_id,
+      row.withdraw_reason
+    ),
   };
 }
 
@@ -371,8 +381,14 @@ export function changeHouseStatus(
   if (!allowed.includes(payload.status)) {
     return { ok: false, message: `不能从 ${current.status} 变更为 ${payload.status}` };
   }
-  if (payload.status === "withdrawn" && !payload.reason) {
-    return { ok: false, message: "撤盘须填写原因" };
+  let withdrawReason: string | null = current.withdraw_reason || null;
+  if (payload.status === "withdrawn") {
+    const reason = normalizeHouseWithdrawReason(payload.reason, "");
+    if (!reason) return { ok: false, message: "撤盘须填写原因" };
+    if (!isAllowedHouseWithdrawReason(db, user.company_id, reason)) {
+      return { ok: false, message: "撤盘原因不在当前字典中" };
+    }
+    withdrawReason = reason;
   }
   let nextAgentId = current.agent_id;
   if (
@@ -392,12 +408,12 @@ export function changeHouseStatus(
   }
   const now = nowIso();
   db.prepare(
-    `UPDATE houses SET status = ?, agent_id = ?, remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
-  ).run(payload.status, nextAgentId, payload.reason || null, now, payload.id);
+    `UPDATE houses SET status = ?, agent_id = ?, withdraw_reason = ?, updated_at = ? WHERE id = ?`
+  ).run(payload.status, nextAgentId, withdrawReason, now, payload.id);
   writeAudit(db, user, "house.status", "house", payload.id, {
     from: current.status,
     to: payload.status,
-    reason: payload.reason,
+    reason: payload.status === "withdrawn" ? withdrawReason : payload.reason,
     agent_from: current.agent_id,
     agent_to: nextAgentId,
   });

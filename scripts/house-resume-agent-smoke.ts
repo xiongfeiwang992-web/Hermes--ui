@@ -115,7 +115,7 @@ assert(
 );
 
 assert(
-  app.call("house.status", { id: houseId, status: "withdrawn", reason: "业主不卖了" }, manager)
+  app.call("house.status", { id: houseId, status: "withdrawn", reason: "owner_stopped" }, manager)
     .ok,
   "withdraw house"
 );
