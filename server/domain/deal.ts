@@ -26,12 +26,69 @@ function parseJson<T>(raw: string, fallback: T): T {
   }
 }
 
-function presentDeal(row: any) {
+function presentDeal(db: Db, companyId: string, row: any) {
+  const agentIds = parseJson<string[]>(row.agent_ids, []);
+  const splitRatios = parseJson<Record<string, number>>(row.split_ratios, {});
+  const agents = agentIds.map((id) => {
+    const user = db
+      .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+      .get(id, companyId) as { display_name?: string } | undefined;
+    const ratio = Number(splitRatios[id] ?? 0);
+    return {
+      id,
+      display_name: user?.display_name || id,
+      ratio,
+    };
+  });
   return {
     ...row,
-    agent_ids: parseJson<string[]>(row.agent_ids, []),
-    split_ratios: parseJson<Record<string, number>>(row.split_ratios, {}),
+    agent_ids: agentIds,
+    split_ratios: splitRatios,
+    agents,
+    split_summary: agents.map((item) => `${item.display_name} ${item.ratio}%`).join(" · "),
   };
+}
+
+function normalizeDealSplit(
+  db: Db,
+  user: SessionUser,
+  agentIdsRaw: string[] | undefined,
+  splitRaw: Record<string, number> | undefined
+): { ok: true; agentIds: string[]; split: Record<string, number> } | { ok: false; message: string } {
+  const agentIds = agentIdsRaw?.length ? [...new Set(agentIdsRaw.map(String))] : [user.id];
+  if (!agentIds.length) return { ok: false, message: "至少选择一名分成经纪人" };
+  const split: Record<string, number> = { ...(splitRaw || {}) };
+  if (!Object.keys(split).length) {
+    const each = Math.floor((100 / agentIds.length) * 100) / 100;
+    agentIds.forEach((id, idx) => {
+      split[id] = idx === agentIds.length - 1 ? 100 - each * (agentIds.length - 1) : each;
+    });
+  }
+  for (const id of agentIds) {
+    const member = db
+      .prepare(
+        `SELECT id, store_id, role, status, display_name FROM users WHERE id = ? AND company_id = ?`
+      )
+      .get(id, user.company_id) as any;
+    if (!member || member.status !== "active") {
+      return { ok: false, message: `分成人员无效：${id}` };
+    }
+    if (!["agent", "store_manager", "admin"].includes(member.role)) {
+      return { ok: false, message: "分成人员须为经纪人/店长/管理员" };
+    }
+    if (user.role !== "admin" && member.store_id !== user.store_id) {
+      return { ok: false, message: "只能选择本店人员分成" };
+    }
+    if (split[id] == null || Number.isNaN(Number(split[id]))) {
+      return { ok: false, message: `缺少分成比例：${member.display_name || id}` };
+    }
+  }
+  for (const key of Object.keys(split)) {
+    if (!agentIds.includes(key)) delete split[key];
+  }
+  const sum = agentIds.reduce((acc, id) => acc + Number(split[id] || 0), 0);
+  if (Math.abs(sum - 100) > 0.01) return { ok: false, message: "分成比例合计须为 100%" };
+  return { ok: true, agentIds, split };
 }
 
 function getAgentPoolRate(db: Db, companyId: string): number {
@@ -63,16 +120,10 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
   if (Math.abs(commissionOwner + commissionCustomer - commissionTotal) > 0.01) {
     return { ok: false, message: "业主佣 + 客户佣 须等于应收合计" };
   }
-  const agentIds: string[] = payload.agent_ids?.length ? payload.agent_ids : [user.id];
-  const split: Record<string, number> = payload.split_ratios || {};
-  if (!Object.keys(split).length) {
-    const each = Math.floor((100 / agentIds.length) * 100) / 100;
-    agentIds.forEach((id, idx) => {
-      split[id] = idx === agentIds.length - 1 ? 100 - each * (agentIds.length - 1) : each;
-    });
-  }
-  const sum = Object.values(split).reduce((a, b) => a + Number(b), 0);
-  if (Math.abs(sum - 100) > 0.01) return { ok: false, message: "分成比例合计须为 100%" };
+  const splitNorm = normalizeDealSplit(db, user, payload.agent_ids, payload.split_ratios);
+  if (!splitNorm.ok) return { ok: false, message: splitNorm.message };
+  const agentIds = splitNorm.agentIds;
+  const split = splitNorm.split;
   const settings = db.prepare(`SELECT * FROM settings WHERE company_id = ?`).get(user.company_id) as any;
   const required = parseJson<string[]>(settings?.deal_required_fields || "[]", []);
   for (const field of required) {
@@ -140,7 +191,7 @@ export function getDeal(db: Db, user: SessionUser, id: string): ApiResult {
   return {
     ok: true,
     data: {
-      ...presentDeal(row),
+      ...presentDeal(db, user.company_id, row),
       paid_amount: paid.s,
       unpaid_amount: row.commission_total - paid.s,
     },
@@ -168,7 +219,7 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
         )
         .get(r.id) as { s: number };
       return {
-        ...presentDeal(r),
+        ...presentDeal(db, user.company_id, r),
         paid_amount: paid.s,
         unpaid_amount: r.commission_total - paid.s,
       };
