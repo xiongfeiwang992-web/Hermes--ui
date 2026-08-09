@@ -435,3 +435,176 @@ export function notifyFollowDue(db: Db, user: SessionUser): void {
     });
   }
 }
+
+export function listTargetTimeline(
+  db: Db,
+  user: SessionUser,
+  payload: { target_type?: string; target_id?: string; id?: string }
+): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const targetType = String(payload.target_type || "").trim();
+  const targetId = String(payload.target_id || payload.id || "").trim();
+  if (!["house", "customer"].includes(targetType) || !targetId) {
+    return { ok: false, message: "须指定 house/customer 与 id" };
+  }
+  if (targetType === "house") {
+    const house = db
+      .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+      .get(targetId, user.company_id) as any;
+    if (!house || !houseVisibleTo(user, house)) {
+      return { ok: false, message: "房源不存在或无权限", code: 403 };
+    }
+  } else {
+    const customer = db
+      .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+      .get(targetId, user.company_id) as any;
+    if (!customer || !customerVisibleTo(user, customer)) {
+      return { ok: false, message: "客源不存在或无权限", code: 403 };
+    }
+  }
+
+  const follows = db
+    .prepare(
+      `SELECT id, content, method, follow_kind, next_follow_at, created_by, created_at
+       FROM follows
+       WHERE company_id = ? AND target_type = ? AND target_id = ? AND voided = 0
+       ORDER BY created_at DESC`
+    )
+    .all(user.company_id, targetType, targetId) as any[];
+
+  let views =
+    targetType === "house"
+      ? (db
+          .prepare(
+            `SELECT id, customer_id, house_id, view_at, agent_id, feedback, status, content,
+                    created_at, store_id
+             FROM views WHERE company_id = ? AND house_id = ?
+             ORDER BY view_at DESC`
+          )
+          .all(user.company_id, targetId) as any[])
+      : (db
+          .prepare(
+            `SELECT id, customer_id, house_id, view_at, agent_id, feedback, status, content,
+                    created_at, store_id
+             FROM views WHERE company_id = ? AND customer_id = ?
+             ORDER BY view_at DESC`
+          )
+          .all(user.company_id, targetId) as any[]);
+
+  let deals =
+    targetType === "house"
+      ? (db
+          .prepare(
+            `SELECT id, house_id, customer_id, status, contract_price, commission_total,
+                    agent_ids, created_by, created_at, updated_at, store_id
+             FROM deals WHERE company_id = ? AND house_id = ?
+             ORDER BY updated_at DESC`
+          )
+          .all(user.company_id, targetId) as any[])
+      : (db
+          .prepare(
+            `SELECT id, house_id, customer_id, status, contract_price, commission_total,
+                    agent_ids, created_by, created_at, updated_at, store_id
+             FROM deals WHERE company_id = ? AND customer_id = ?
+             ORDER BY updated_at DESC`
+          )
+          .all(user.company_id, targetId) as any[]);
+
+  if (user.role === "store_manager" || user.role === "agent") {
+    views = views.filter((v) => v.store_id === user.store_id);
+    deals = deals.filter((d) => d.store_id === user.store_id);
+  }
+  if (user.role === "agent") {
+    deals = deals.filter((d) => {
+      let agents: string[] = [];
+      try {
+        agents = JSON.parse(d.agent_ids || "[]");
+      } catch {
+        agents = [];
+      }
+      return agents.includes(user.id) || d.created_by === user.id;
+    });
+  }
+
+  const items: Array<{
+    kind: "follow" | "view" | "deal";
+    id: string;
+    at: string;
+    title: string;
+    summary: string;
+    status?: string;
+    meta?: Record<string, unknown>;
+  }> = [];
+
+  for (const f of follows) {
+    const kindLabel =
+      f.follow_kind === "price_change"
+        ? "改价跟进"
+        : f.follow_kind === "modification"
+          ? "修改跟进"
+          : "跟进";
+    items.push({
+      kind: "follow",
+      id: f.id,
+      at: f.created_at,
+      title: kindLabel,
+      summary: String(f.content || "").slice(0, 120),
+      meta: {
+        method: f.method,
+        follow_kind: f.follow_kind,
+        next_follow_at: f.next_follow_at,
+        created_by: f.created_by,
+      },
+    });
+  }
+  for (const v of views) {
+    items.push({
+      kind: "view",
+      id: v.id,
+      at: v.view_at || v.created_at,
+      title: "带看",
+      summary: `${v.status}${
+        v.feedback && v.feedback !== "pending" ? ` · ${v.feedback}` : ""
+      }${v.content ? ` · ${String(v.content).slice(0, 80)}` : ""}`,
+      status: v.status,
+      meta: {
+        customer_id: v.customer_id,
+        house_id: v.house_id,
+        agent_id: v.agent_id,
+        feedback: v.feedback,
+      },
+    });
+  }
+  for (const d of deals) {
+    items.push({
+      kind: "deal",
+      id: d.id,
+      at: d.updated_at || d.created_at,
+      title: "成交",
+      summary: `${d.status} · 成交价 ${d.contract_price} · 佣金 ${d.commission_total}`,
+      status: d.status,
+      meta: {
+        house_id: d.house_id,
+        customer_id: d.customer_id,
+        contract_price: d.contract_price,
+        commission_total: d.commission_total,
+      },
+    });
+  }
+
+  items.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return {
+    ok: true,
+    data: {
+      target_type: targetType,
+      target_id: targetId,
+      counts: {
+        follows: follows.length,
+        views: views.length,
+        deals: deals.length,
+        total: items.length,
+      },
+      items,
+    },
+  };
+}
