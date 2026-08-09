@@ -425,6 +425,36 @@ function openInfoDialog(title: string, bodyHtml: string) {
   backdrop.querySelector("[data-close]")!.addEventListener("click", () => backdrop.remove());
 }
 
+function timelineKindLabel(kind: string) {
+  return ({ follow: "跟进", view: "带看", deal: "成交" } as Record<string, string>)[kind] || kind;
+}
+
+async function showEntityTimeline(
+  action: "house.timeline" | "customer.timeline",
+  id: string,
+  title: string
+) {
+  const result = await api(action, { id });
+  if (!result.ok) return toast(result.message, "error");
+  const payload = result.data as any;
+  const counts = payload.counts || {};
+  const items = (payload.items || []) as any[];
+  openInfoDialog(
+    `${title} · 跟进 ${counts.follows || 0} / 带看 ${counts.views || 0} / 成交 ${counts.deals || 0}`,
+    items.length
+      ? items
+          .map(
+            (item) => `<div class="row"><div>
+              <div><span class="tag">${timelineKindLabel(item.kind)}</span>
+              <strong>${escapeHtml(item.title)}</strong> · ${escapeHtml(item.id)}</div>
+              <div class="meta">${escapeHtml(item.at)} · ${escapeHtml(item.summary)}</div>
+            </div></div>`
+          )
+          .join("")
+      : `<div class="empty">暂无跟进、带看或成交记录</div>`
+  );
+}
+
 async function renderHouses(main: HTMLElement) {
   const res = await api("house.list", {});
   const desktopShell = (window as any).weilaijia?.shell;
@@ -509,6 +539,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.status === "suspended" ? `<button class="btn" data-resume="${h.id}" data-agent="${h.agent_id}">恢复上架</button>` : ""}
           ${canManageHolder && !["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-holder="${h.id}" data-agent="${h.agent_id}">改接盘人</button>` : ""}
           ${!["closed", "withdrawn"].includes(h.status) ? `<button class="btn ghost" data-lock="${h.id}" data-locked="${h.is_locked ? "0" : "1"}">${h.is_locked ? "解锁" : "锁定"}</button>` : ""}
+          <button class="btn ghost" data-timeline="${h.id}" data-title="${escapeHtml(h.title)}">详情</button>
           <button class="btn ghost" data-photos="${h.id}">图片</button>
           <button class="btn ghost" data-related="${h.id}">同业主</button>
           <button class="btn ghost" data-roles="${h.id}">角色人</button>
@@ -537,6 +568,16 @@ async function renderHouses(main: HTMLElement) {
             toast(`业主电话：${(result.data as any).phone}`, "ok");
             draw();
           }
+        );
+      });
+    });
+    list.querySelectorAll("[data-timeline]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const elBtn = btn as HTMLElement;
+        await showEntityTimeline(
+          "house.timeline",
+          elBtn.dataset.timeline!,
+          `房源 ${elBtn.dataset.title || elBtn.dataset.timeline}`
         );
       });
     });
@@ -1198,6 +1239,7 @@ async function renderCustomers(main: HTMLElement) {
       </div>
       <div class="ops">
         ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
+        <button class="btn ghost" data-timeline="${c.id}" data-title="${escapeHtml(c.name)}">详情</button>
         <button class="btn ghost" data-match="${c.id}">匹配房源</button>
         <button class="btn ghost" data-contacts="${c.id}">联系人</button>
         ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-merge="${c.id}">合并</button>` : ""}
@@ -1224,6 +1266,16 @@ async function renderCustomers(main: HTMLElement) {
             toast(`客户电话：${(result.data as any).phone}`, "ok");
             draw();
           }
+        );
+      });
+    });
+    list.querySelectorAll("[data-timeline]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const elBtn = btn as HTMLElement;
+        await showEntityTimeline(
+          "customer.timeline",
+          elBtn.dataset.timeline!,
+          `客源 ${elBtn.dataset.title || elBtn.dataset.timeline}`
         );
       });
     });

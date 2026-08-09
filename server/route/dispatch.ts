@@ -105,6 +105,8 @@ function route(
       return house.setHouseLock(db, user!, payload);
     case "house.relatedByOwner":
       return house.listRelatedByOwner(db, user!, payload);
+    case "house.timeline":
+      return activity.listTargetTimeline(db, user!, { ...payload, target_type: "house", target_id: payload.id || payload.target_id });
     case "house.roles.list":
       return house.listHouseRoles(db, user!, payload);
     case "house.roles.assign":
@@ -116,6 +118,8 @@ function route(
       return customer.listCustomers(db, user!, payload);
     case "customer.get":
       return customer.getCustomer(db, user!, payload.id);
+    case "customer.timeline":
+      return activity.listTargetTimeline(db, user!, { ...payload, target_type: "customer", target_id: payload.id || payload.target_id });
     case "customer.create":
       return customer.createCustomer(db, user!, payload);
     case "customer.update":
