@@ -244,10 +244,33 @@ export function cancelExpense(db: Db, user: SessionUser, payload: any): ApiResul
     return { ok: false, message: "仅申请人可取消", code: 403 };
   if (!["draft", "rejected", "pending"].includes(row.status))
     return { ok: false, message: "当前状态不可取消" };
+  const previousStatus = row.status as string;
   const now = nowIso();
   db.prepare(
     `UPDATE expense_requests SET status='cancelled', cancelled_at=?, updated_at=? WHERE id=?`
   ).run(now, now, row.id);
-  writeAudit(db, user, "expense.cancel", "expense_request", row.id);
+  writeAudit(db, user, "expense.cancel", "expense_request", row.id, {
+    previous_status: previousStatus,
+  });
+  if (previousStatus === "pending") {
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND store_id=?
+         AND role='store_manager' AND status='active' AND id<>?`
+      )
+      .all(user.company_id, row.store_id, user.id) as any[];
+    for (const manager of managers) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: row.store_id,
+        user_id: manager.id,
+        title: "费用报销已取消",
+        body: `${row.title} · ¥${Number(row.amount).toFixed(2)} · ${user.display_name}`,
+        kind: "expense_review",
+        ref_type: "expense_request",
+        ref_id: row.id,
+      });
+    }
+  }
   return { ok: true, data: { id: row.id, status: "cancelled" } };
 }
