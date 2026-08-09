@@ -881,7 +881,10 @@ async function renderHouses(main: HTMLElement) {
           status: "available",
         });
         if (res.ok && (res.data as any).duplicate_hint) {
-          toast(`房源已创建，但可能重复：${(res.data as any).duplicate_hint.title}`, "warn");
+          toast(
+            `房源已创建；同小区+相近面积+同业主电话疑似重复：${(res.data as any).duplicate_hint.title}`,
+            "warn"
+          );
         } else {
           toast(res.ok ? "房源已创建" : res.message, res.ok ? "ok" : "error");
         }
