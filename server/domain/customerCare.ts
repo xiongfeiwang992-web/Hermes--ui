@@ -336,6 +336,25 @@ export function withdrawCase(db: Db, user: SessionUser, payload: any): ApiResult
   ).run(reason, nowIso(), row.id);
   addEvent(db, user, "case", row.id, "withdrawn", { reason });
   writeAudit(db, user, "customer_care.case.withdraw", "customer_care_case", row.id);
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, row.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: manager.id,
+      title: row.case_type === "lawsuit" ? "诉讼案件已撤回" : "客户投诉已撤回",
+      body: `${row.title} · ${reason}`,
+      kind: "customer_care",
+      ref_type: "customer_care_case",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "withdrawn" } };
 }
 
