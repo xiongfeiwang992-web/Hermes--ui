@@ -132,6 +132,12 @@ function route(
       return customer.upsertContact(db, user!, payload);
     case "customer.merge":
       return customer.mergeCustomers(db, user!, payload);
+    case "customer.invalidate":
+      return customer.invalidateCustomer(db, user!, payload);
+    case "customer.voidKeywords.settings":
+      return customer.getVoidKeywordSettings(db, user!);
+    case "customer.voidKeywords.update":
+      return customer.updateVoidKeywordSettings(db, user!, payload);
     case "customer.publicPool.settings":
       return customer.getPublicPoolSettings(db, user!);
     case "customer.publicPool.update":

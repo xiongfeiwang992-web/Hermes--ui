@@ -479,6 +479,208 @@ export function mergeCustomers(db: Db, user: SessionUser, payload: any): ApiResu
   return { ok: true, data: { id: target.id, merged_source_id: source.id } };
 }
 
+
+function parseVoidKeywords(raw: unknown): string[] {
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      list = Array.isArray(parsed) ? parsed : String(parsed).split(/[,，\n]/);
+    } catch {
+      list = trimmed.split(/[,，\n]/);
+    }
+  }
+  const normalized = list
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  return [...new Set(normalized)];
+}
+
+function contentHitsKeyword(content: string, keywords: string[]): string | null {
+  const hay = content.toLowerCase();
+  for (const keyword of keywords) {
+    if (keyword && hay.includes(keyword.toLowerCase())) return keyword;
+  }
+  return null;
+}
+
+function markCustomerInvalid(
+  db: Db,
+  user: SessionUser,
+  customer: any,
+  reason: string,
+  source: "manual" | "keyword"
+): void {
+  const now = nowIso();
+  db.prepare(
+    `UPDATE customers SET status = 'invalid', invalid_reason = ?, invalidated_at = ?,
+     invalidated_by = ?, updated_at = ? WHERE id = ?`
+  ).run(reason, now, user.id, now, customer.id);
+  writeAudit(
+    db,
+    user,
+    source === "manual" ? "customer.invalidate" : "customer.auto_void",
+    "customer",
+    customer.id,
+    { reason, source }
+  );
+  if (customer.agent_id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: customer.store_id,
+      user_id: customer.agent_id,
+      title: source === "manual" ? "客源已作废" : "客源已自动作废",
+      body:
+        source === "manual"
+          ? `${customer.name} 已作废：${reason}`
+          : `${customer.name} 因跟进关键字自动作废：${reason}`,
+      kind: source === "manual" ? "customer_invalidate" : "customer_auto_void",
+      ref_type: "customer",
+      ref_id: customer.id,
+    });
+  }
+}
+
+export function invalidateCustomer(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string; reason?: string }
+): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  const reason = String(payload.reason || "").trim();
+  if (!reason) return { ok: false, message: "作废原因必填" };
+  const current = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current || current.merged_into_id || !customerVisibleTo(user, current)) {
+    return { ok: false, message: "客源不存在或无权限", code: 403 };
+  }
+  if (user.role === "agent" && current.agent_id !== user.id) {
+    return { ok: false, message: "只能作废本人客源", code: 403 };
+  }
+  if (user.role === "store_manager" && current.store_id !== user.store_id) {
+    return { ok: false, message: "只能作废本店客源", code: 403 };
+  }
+  if (current.status === "invalid") return { ok: false, message: "客源已作废" };
+  if (current.status === "closed") return { ok: false, message: "已成交客源不可作废" };
+  markCustomerInvalid(db, user, current, reason, "manual");
+  return getCustomer(db, user, payload.id);
+}
+
+export function getVoidKeywordSettings(db: Db, user: SessionUser): ApiResult {
+  if (!(user.role === "admin" || user.role === "store_manager")) {
+    return { ok: false, message: "无权限", code: 403 };
+  }
+  const row = db
+    .prepare(
+      `SELECT customer_void_keywords, customer_void_hit_count FROM settings WHERE company_id = ?`
+    )
+    .get(user.company_id) as any;
+  const keywords = parseVoidKeywords(row?.customer_void_keywords);
+  const hitCount = Number(row?.customer_void_hit_count || 0);
+  return {
+    ok: true,
+    data: {
+      keywords,
+      hit_count: hitCount,
+      enabled: hitCount > 0 && keywords.length > 0,
+    },
+  };
+}
+
+export function updateVoidKeywordSettings(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
+  const keywords = parseVoidKeywords(payload.keywords ?? payload.customer_void_keywords);
+  if (keywords.some((item) => item.length > 20)) {
+    return { ok: false, message: "单个关键字最多 20 字" };
+  }
+  const hitCount = Number(payload.hit_count ?? payload.customer_void_hit_count);
+  if (!Number.isInteger(hitCount) || hitCount < 0 || hitCount > 20) {
+    return { ok: false, message: "触发次数须为 0～20 的整数" };
+  }
+  if (hitCount > 0 && keywords.length === 0) {
+    return { ok: false, message: "启用自动作废时须配置至少一个关键字" };
+  }
+  db.prepare(
+    `UPDATE settings SET customer_void_keywords = ?, customer_void_hit_count = ?,
+     updated_by = ?, updated_at = ? WHERE company_id = ?`
+  ).run(JSON.stringify(keywords), hitCount, user.id, nowIso(), user.company_id);
+  writeAudit(db, user, "customer.void_keywords.settings", "settings", user.company_id, {
+    keywords,
+    hit_count: hitCount,
+  });
+  return {
+    ok: true,
+    data: {
+      keywords,
+      hit_count: hitCount,
+      enabled: hitCount > 0 && keywords.length > 0,
+    },
+  };
+}
+
+export function maybeAutoVoidCustomerAfterFollow(
+  db: Db,
+  user: SessionUser,
+  customerId: string
+): ApiResult {
+  const customer = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(customerId, user.company_id) as any;
+  if (!customer || customer.merged_into_id) {
+    return { ok: true, data: { voided: false } };
+  }
+  if (["invalid", "closed"].includes(customer.status)) {
+    return { ok: true, data: { voided: false } };
+  }
+  const row = db
+    .prepare(
+      `SELECT customer_void_keywords, customer_void_hit_count FROM settings WHERE company_id = ?`
+    )
+    .get(user.company_id) as any;
+  const keywords = parseVoidKeywords(row?.customer_void_keywords);
+  const hitCount = Number(row?.customer_void_hit_count || 0);
+  if (hitCount <= 0 || keywords.length === 0) {
+    return { ok: true, data: { voided: false, enabled: false } };
+  }
+  const follows = db
+    .prepare(
+      `SELECT content FROM follows
+       WHERE company_id = ? AND target_type = 'customer' AND target_id = ?
+       AND voided = 0 AND follow_kind = 'normal'
+       ORDER BY created_at ASC`
+    )
+    .all(user.company_id, customerId) as Array<{ content: string }>;
+  const hits: string[] = [];
+  for (const follow of follows) {
+    const matched = contentHitsKeyword(String(follow.content || ""), keywords);
+    if (matched) hits.push(matched);
+  }
+  if (hits.length < hitCount) {
+    return {
+      ok: true,
+      data: { voided: false, enabled: true, hits: hits.length, hit_count: hitCount },
+    };
+  }
+  const reason = `跟进命中关键字「${hits.slice(0, hitCount).join("、")}」达 ${hitCount} 次`;
+  markCustomerInvalid(db, user, customer, reason, "keyword");
+  return {
+    ok: true,
+    data: {
+      voided: true,
+      enabled: true,
+      hits: hits.length,
+      hit_count: hitCount,
+      reason,
+    },
+  };
+}
+
 export function getPublicPoolSettings(db: Db, user: SessionUser): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager")) {
     return { ok: false, message: "无权限", code: 403 };

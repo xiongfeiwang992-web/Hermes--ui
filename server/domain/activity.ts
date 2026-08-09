@@ -80,6 +80,20 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
     db.prepare(`UPDATE houses SET updated_at = ? WHERE id = ?`).run(nowIso(), payload.target_id);
   }
   writeAudit(db, user, "follow.create", "follow", id);
+  if (payload.target_type === "customer" && followKind === "normal") {
+    const { maybeAutoVoidCustomerAfterFollow } = require("./customer") as typeof import("./customer");
+    const auto = maybeAutoVoidCustomerAfterFollow(db, user, payload.target_id);
+    if (auto.ok && (auto.data as any)?.voided) {
+      return {
+        ok: true,
+        data: {
+          id,
+          auto_voided: true,
+          auto_void_reason: (auto.data as any).reason,
+        },
+      };
+    }
+  }
   return { ok: true, data: { id } };
 }
 
