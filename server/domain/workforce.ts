@@ -540,5 +540,34 @@ export function cancelTransfer(db: Db, user: SessionUser, payload: any): ApiResu
      updated_at=? WHERE id=?`
   ).run(now, now, row.id);
   writeAudit(db, user, "employee_transfer.cancel", "employee_transfer", row.id);
+  const employee = db
+    .prepare(`SELECT display_name FROM users WHERE id=? AND company_id=?`)
+    .get(row.user_id, user.company_id) as any;
+  const targetStore = db
+    .prepare(`SELECT name FROM stores WHERE id=? AND company_id=?`)
+    .get(row.to_store_id, user.company_id) as any;
+  const body = `${employee?.display_name || "员工"} 调往 ${targetStore?.name || "目标门店"} 的申请已由 ${user.display_name} 取消`;
+  const recipients = new Set<string>();
+  const admins = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND role='admin' AND status='active'`
+    )
+    .all(user.company_id) as any[];
+  for (const admin of admins) {
+    if (admin.id !== user.id) recipients.add(admin.id);
+  }
+  if (row.created_by && row.created_by !== user.id) recipients.add(row.created_by);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.from_store_id,
+      user_id: userId,
+      title: "员工调动已取消",
+      body,
+      kind: "employee_transfer",
+      ref_type: "employee_transfer",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "cancelled" } };
 }
