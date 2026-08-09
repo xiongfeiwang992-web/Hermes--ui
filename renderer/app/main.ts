@@ -2891,7 +2891,7 @@ async function renderExpenses(main: HTMLElement) {
             ["admin", "finance"].includes(state.user.role);
           return `<div class="row"><div>
             <div><span class="tag ${expense.status === "paid" ? "ok" : expense.status === "rejected" || expense.status === "cancelled" ? "danger" : "warn"}">${statusLabel[expense.status] || expense.status}</span><span class="tag">${expenseCategories[expense.category] || expense.category}</span><strong>${expense.title}</strong> · ¥${money(expense.amount)}</div>
-            <div class="meta">${expense.applicant_name} · 费用日期 ${expense.expense_date} · 票据 ${expense.receipt_count} · 付款凭证 ${expense.voucher_count}${expense.description ? ` · ${expense.description}` : ""}${expense.reject_reason ? ` · 驳回：${expense.reject_reason}` : ""}${expense.payment_reference ? ` · 流水号：${expense.payment_reference}` : ""}</div>
+            <div class="meta">${expense.applicant_name} · 费用日期 ${expense.expense_date} · 票据 ${expense.receipt_count} · 付款凭证 ${expense.voucher_count}${expense.description ? ` · ${expense.description}` : ""}${expense.reject_reason ? ` · 驳回：${expense.reject_reason}` : ""}${expense.payment_method_label ? ` · ${escapeHtml(expense.payment_method_label)}` : ""}${expense.payment_reference ? ` · 流水号：${expense.payment_reference}` : ""}</div>
           </div><div class="ops">
             ${canReceipt ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="expense_receipt">上传票据</button>` : ""}
             ${canVoucher ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="payment_voucher">上传付款凭证</button>` : ""}
@@ -2946,10 +2946,11 @@ async function renderExpenses(main: HTMLElement) {
       })
     );
     list.querySelectorAll("[data-pay-expense]").forEach((button) =>
-      button.addEventListener("click", () =>
+      button.addEventListener("click", async () => {
+        const methodOptions = await paymentMethodSelectHtml("transfer");
         openDialog(
           "登记报销付款",
-          `<label>付款方式<select name="payment_method"><option value="bank">银行转账</option><option value="cash">现金</option><option value="other">其他</option></select></label><label>付款流水号<input name="payment_reference" /></label>`,
+          `<label>付款方式<select name="payment_method">${methodOptions}</select></label><label>付款流水号<input name="payment_reference" /></label>`,
           async (fd) => {
             const result = await api("expense.pay", {
               id: (button as HTMLElement).dataset.payExpense,
@@ -2959,8 +2960,8 @@ async function renderExpenses(main: HTMLElement) {
             toast(result.ok ? "报销付款已登记" : result.message, result.ok ? "ok" : "error");
             if (result.ok) draw();
           }
-        )
-      )
+        );
+      })
     );
     list.querySelectorAll("[data-cancel-expense]").forEach((button) =>
       button.addEventListener("click", async () => {
@@ -3223,7 +3224,7 @@ async function renderCashbook(main: HTMLElement) {
         .map(
           (entry) => `<div class="row"><div>
             <div><span class="tag ${entry.direction === "income" ? "ok" : "warn"}">${entry.direction === "income" ? "收入" : "支出"}</span><span class="tag ${entry.status === "voided" ? "danger" : "ok"}">${entry.status === "voided" ? "已作废" : "有效"}</span><strong>${cashbookCategories[entry.category] || entry.category}</strong> · ¥${money(entry.amount)}</div>
-            <div class="meta">${entry.store_name} · ${new Date(entry.occurred_at).toLocaleString("zh-CN")} · ${entry.payment_method}${entry.counterparty ? ` · ${entry.counterparty}` : ""}${entry.deal_id ? ` · 成交 ${entry.deal_id}` : ""} · 凭证 ${entry.voucher_count}${entry.note ? ` · ${entry.note}` : ""}${entry.void_reason ? ` · 作废：${entry.void_reason}` : ""}</div>
+            <div class="meta">${entry.store_name} · ${new Date(entry.occurred_at).toLocaleString("zh-CN")} · ${escapeHtml(entry.payment_method_label || entry.payment_method)}${entry.counterparty ? ` · ${entry.counterparty}` : ""}${entry.deal_id ? ` · 成交 ${entry.deal_id}` : ""} · 凭证 ${entry.voucher_count}${entry.note ? ` · ${entry.note}` : ""}${entry.void_reason ? ` · 作废：${entry.void_reason}` : ""}</div>
           </div><div class="ops">
             ${canWrite && entry.status === "confirmed" ? `<button class="btn ghost" data-cashbook-voucher="${entry.id}">上传凭证</button><button class="btn danger" data-void-cashbook="${entry.id}">作废</button>` : ""}
           </div></div>`
@@ -3260,13 +3261,14 @@ async function renderCashbook(main: HTMLElement) {
       })
     );
   };
-  main.querySelector("[data-new-cashbook]")?.addEventListener("click", () => {
+  main.querySelector("[data-new-cashbook]")?.addEventListener("click", async () => {
     const storeOptions = options.stores
       .map((store: any) => `<option value="${store.id}">${store.name}</option>`)
       .join("");
     const dealOptions = options.deals
       .map((deal: any) => `<option value="${deal.id}">${deal.id} · ${deal.deal_date}</option>`)
       .join("");
+    const methodOptions = await paymentMethodSelectHtml("transfer");
     const dialog = openDialog(
       "登记简易收支",
       `
@@ -3275,7 +3277,7 @@ async function renderCashbook(main: HTMLElement) {
       <label>门店<select name="store_id">${storeOptions}</select></label>
       <label>金额<input name="amount" type="number" min="0.01" step="0.01" required /></label>
       <label>发生时间<input name="occurred_at" type="datetime-local" required /></label>
-      <label>收付方式<select name="payment_method"><option value="bank">银行</option><option value="cash">现金</option><option value="wechat">微信</option><option value="alipay">支付宝</option><option value="other">其他</option></select></label>
+      <label>收付方式<select name="payment_method">${methodOptions}</select></label>
       <label>往来方<input name="counterparty" /></label>
       <label>关联成交<select name="deal_id"><option value="">无</option>${dealOptions}</select></label>
       <label class="full">备注<textarea name="note" rows="3"></textarea></label>

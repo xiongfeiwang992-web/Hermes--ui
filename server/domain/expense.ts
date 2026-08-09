@@ -1,5 +1,10 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import {
+  isAllowedPaymentMethod,
+  labelPaymentMethod,
+  normalizePaymentMethod,
+} from "./config";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -59,7 +64,15 @@ export function listExpenses(db: Db, user: SessionUser, payload: any = {}): ApiR
   if (payload.category) rows = rows.filter((row) => row.category === payload.category);
   if (payload.applicant_user_id)
     rows = rows.filter((row) => row.applicant_user_id === payload.applicant_user_id);
-  return { ok: true, data: rows };
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      payment_method_label: row.payment_method
+        ? labelPaymentMethod(db, user.company_id, row.payment_method)
+        : "",
+    })),
+  };
 }
 
 export function createExpense(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -209,16 +222,17 @@ export function payExpense(db: Db, user: SessionUser, payload: any): ApiResult {
   if (row.status !== "approved") return { ok: false, message: "仅已审批报销单可付款" };
   if (row.applicant_user_id === user.id)
     return { ok: false, message: "申请人不可给自己的报销单付款" };
-  if (!["bank", "cash", "other"].includes(payload.payment_method))
-    return { ok: false, message: "付款方式无效" };
+  const paymentMethod = normalizePaymentMethod(payload.payment_method);
+  if (!isAllowedPaymentMethod(db, user.company_id, paymentMethod))
+    return { ok: false, message: "付款方式不在当前字典中" };
   const reference = String(payload.payment_reference || "").trim();
-  if (payload.payment_method !== "cash" && !reference)
+  if (paymentMethod !== "cash" && !reference)
     return { ok: false, message: "非现金付款须填写流水号" };
   const now = nowIso();
   db.prepare(
     `UPDATE expense_requests SET status='paid', paid_by=?, paid_at=?,
      payment_method=?, payment_reference=?, updated_at=? WHERE id=?`
-  ).run(user.id, now, payload.payment_method, reference || null, now, row.id);
+  ).run(user.id, now, paymentMethod, reference || null, now, row.id);
   createMessage(db, {
     company_id: user.company_id,
     store_id: row.store_id,
@@ -231,7 +245,7 @@ export function payExpense(db: Db, user: SessionUser, payload: any): ApiResult {
   });
   writeAudit(db, user, "expense.pay", "expense_request", row.id, {
     amount: row.amount,
-    payment_method: payload.payment_method,
+    payment_method: paymentMethod,
     payment_reference: reference || null,
   });
   return { ok: true, data: { id: row.id, status: "paid" } };

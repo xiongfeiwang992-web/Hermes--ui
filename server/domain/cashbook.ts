@@ -1,5 +1,10 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import {
+  isAllowedPaymentMethod,
+  labelPaymentMethod,
+  normalizePaymentMethod,
+} from "./config";
 import { nextId, nowIso, todayDate } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -13,7 +18,6 @@ const EXPENSE_CATEGORIES = new Set([
   "reimbursement",
   "other_expense",
 ]);
-const PAYMENT_METHODS = new Set(["cash", "bank", "wechat", "alipay", "other"]);
 
 function canRead(user: SessionUser): boolean {
   return ["admin", "finance", "store_manager"].includes(user.role);
@@ -51,7 +55,13 @@ function scopedRows(db: Db, user: SessionUser, payload: any = {}): any[] {
 
 export function listCashbook(db: Db, user: SessionUser, payload: any = {}): ApiResult {
   if (!canRead(user)) return { ok: false, message: "无权限", code: 403 };
-  return { ok: true, data: scopedRows(db, user, payload) };
+  return {
+    ok: true,
+    data: scopedRows(db, user, payload).map((row) => ({
+      ...row,
+      payment_method_label: labelPaymentMethod(db, user.company_id, row.payment_method),
+    })),
+  };
 }
 
 export function cashbookOptions(db: Db, user: SessionUser): ApiResult {
@@ -82,8 +92,9 @@ export function createCashbook(db: Db, user: SessionUser, payload: any): ApiResu
   if (!allowed.has(payload.category)) return { ok: false, message: "收支类别无效" };
   const amount = Number(payload.amount);
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, message: "金额须大于 0" };
-  if (!PAYMENT_METHODS.has(payload.payment_method))
-    return { ok: false, message: "收付方式无效" };
+  const paymentMethod = normalizePaymentMethod(payload.payment_method);
+  if (!isAllowedPaymentMethod(db, user.company_id, paymentMethod))
+    return { ok: false, message: "收付方式不在当前字典中" };
   const occurredMs = Date.parse(payload.occurred_at);
   if (!Number.isFinite(occurredMs)) return { ok: false, message: "发生时间无效" };
   const storeId = payload.store_id || user.store_id;
@@ -115,7 +126,7 @@ export function createCashbook(db: Db, user: SessionUser, payload: any): ApiResu
     amount,
     new Date(occurredMs).toISOString(),
     String(payload.counterparty || "").trim() || null,
-    payload.payment_method,
+    paymentMethod,
     payload.deal_id || null,
     String(payload.note || "").trim() || null,
     user.id,
@@ -214,7 +225,7 @@ export function exportCashbook(db: Db, user: SessionUser, payload: any = {}): Ap
         row.amount,
         row.occurred_at,
         row.counterparty,
-        row.payment_method,
+        labelPaymentMethod(db, user.company_id, row.payment_method),
         row.deal_id,
         row.status,
         row.note,
