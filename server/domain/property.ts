@@ -289,8 +289,24 @@ export function createSurvey(db: Db, user: SessionUser, payload: any): ApiResult
     user.id,
     defaultProtectionUntil(db, user.company_id)
   );
-  writeAudit(db, user, "survey.create", "house_survey", id, { house_id: house.id });
-  return { ok: true, data: { id } };
+  writeAudit(db, user, "survey.create", "house_survey", id, {
+    house_id: house.id,
+    survey_type: payload.survey_type,
+  });
+  if (house.agent_id && house.agent_id !== user.id) {
+    const typeLabel = payload.survey_type === "vacant_view" ? "空看" : "实勘";
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: `${typeLabel}记录已登记`,
+      body: `${house.title} 已由 ${user.display_name} 登记${typeLabel}：${summary}`,
+      kind: "house_survey",
+      ref_type: "house_survey",
+      ref_id: id,
+    });
+  }
+  return { ok: true, data: { id, survey_type: payload.survey_type, house_id: house.id } };
 }
 
 export function listSurveys(db: Db, user: SessionUser, query: any = {}): ApiResult {
@@ -306,6 +322,9 @@ export function listSurveys(db: Db, user: SessionUser, query: any = {}): ApiResu
     .all(user.company_id) as any[];
   rows = rows.filter((row) => canOperateStore(user, row.store_id));
   if (query.house_id) rows = rows.filter((row) => row.house_id === query.house_id);
+  if (query.survey_type) {
+    rows = rows.filter((row) => row.survey_type === query.survey_type);
+  }
   return {
     ok: true,
     data: rows.map((row) => ({

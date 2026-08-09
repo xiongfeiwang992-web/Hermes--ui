@@ -34,12 +34,13 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "house",
     label: "房源协作",
-    description: "角色人、合作盘、钥匙、验真、委托、过户、按揭",
+    description: "角色人、合作盘、钥匙、实勘空看、验真、委托、过户、按揭",
     kinds: [
       "house_role",
       "house_agent",
       "house_cooperation",
       "key_borrow",
+      "house_survey",
       "verification_pending",
       "verification_review",
       "entrustment_terminated",
