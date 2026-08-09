@@ -118,6 +118,119 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
   return getDeal(db, user, id);
 }
 
+export function updateDeal(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  if (!payload?.id) return { ok: false, message: "缺少成交单编号" };
+  const current = db
+    .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "成交单不存在" };
+  if (!["draft", "rejected"].includes(current.status)) {
+    return { ok: false, message: "仅草稿或已驳回成交单可编辑" };
+  }
+  if (user.role === "store_manager" && current.store_id !== user.store_id) {
+    return { ok: false, message: "无权限", code: 403 };
+  }
+  if (user.role === "agent") {
+    const agents = parseJson<string[]>(current.agent_ids, []);
+    if (
+      current.store_id !== user.store_id ||
+      (!agents.includes(user.id) && current.created_by !== user.id)
+    ) {
+      return { ok: false, message: "只能编辑本人参与的成交单", code: 403 };
+    }
+  }
+
+  const houseId = payload.house_id ?? current.house_id;
+  const customerId = payload.customer_id ?? current.customer_id;
+  const house = db
+    .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+    .get(houseId, user.company_id) as any;
+  const customer = db
+    .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+    .get(customerId, user.company_id) as any;
+  if (!house || !customer) return { ok: false, message: "房源或客源不存在" };
+
+  const commissionOwner =
+    payload.commission_owner != null
+      ? Number(payload.commission_owner)
+      : Number(current.commission_owner || 0);
+  const commissionCustomer =
+    payload.commission_customer != null
+      ? Number(payload.commission_customer)
+      : Number(current.commission_customer || 0);
+  const commissionTotal =
+    payload.commission_total != null
+      ? Number(payload.commission_total)
+      : commissionOwner + commissionCustomer;
+  if (Math.abs(commissionOwner + commissionCustomer - commissionTotal) > 0.01) {
+    return { ok: false, message: "业主佣 + 客户佣 须等于应收合计" };
+  }
+
+  const agentIds: string[] = payload.agent_ids?.length
+    ? payload.agent_ids
+    : parseJson<string[]>(current.agent_ids, [user.id]);
+  let split: Record<string, number> = payload.split_ratios
+    ? payload.split_ratios
+    : parseJson<Record<string, number>>(current.split_ratios, {});
+  if (!Object.keys(split).length) {
+    const each = Math.floor((100 / agentIds.length) * 100) / 100;
+    agentIds.forEach((id, idx) => {
+      split[id] = idx === agentIds.length - 1 ? 100 - each * (agentIds.length - 1) : each;
+    });
+  }
+  const sum = Object.values(split).reduce((a, b) => a + Number(b), 0);
+  if (Math.abs(sum - 100) > 0.01) return { ok: false, message: "分成比例合计须为 100%" };
+
+  const contractPrice =
+    payload.contract_price != null ? Number(payload.contract_price) : Number(current.contract_price);
+  if (!(contractPrice >= 0)) return { ok: false, message: "成交价无效" };
+
+  const now = nowIso();
+  db.prepare(
+    `UPDATE deals SET
+      deal_type = ?,
+      house_id = ?,
+      customer_id = ?,
+      view_id = ?,
+      contract_price = ?,
+      commission_total = ?,
+      commission_owner = ?,
+      commission_customer = ?,
+      deal_date = ?,
+      agent_ids = ?,
+      split_ratios = ?,
+      remark = ?,
+      loan_amount = ?,
+      loan_bank = ?,
+      updated_at = ?
+     WHERE id = ?`
+  ).run(
+    payload.deal_type || current.deal_type || house.deal_type,
+    houseId,
+    customerId,
+    payload.view_id !== undefined ? payload.view_id || null : current.view_id,
+    contractPrice,
+    commissionTotal,
+    commissionOwner,
+    commissionCustomer,
+    payload.deal_date || current.deal_date || now.slice(0, 10),
+    JSON.stringify(agentIds),
+    JSON.stringify(split),
+    payload.remark !== undefined ? payload.remark || null : current.remark,
+    payload.loan_amount !== undefined
+      ? payload.loan_amount == null || payload.loan_amount === ""
+        ? null
+        : Number(payload.loan_amount)
+      : current.loan_amount,
+    payload.loan_bank !== undefined ? payload.loan_bank || null : current.loan_bank,
+    now,
+    payload.id
+  );
+  writeAudit(db, user, "deal.update", "deal", payload.id);
+  return getDeal(db, user, payload.id);
+}
+
 export function getDeal(db: Db, user: SessionUser, id: string): ApiResult {
   const row = db
     .prepare(`SELECT * FROM deals WHERE id = ? AND company_id = ?`)

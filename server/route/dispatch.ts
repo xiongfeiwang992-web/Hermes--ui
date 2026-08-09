@@ -158,6 +158,8 @@ function route(
 
     case "deal.create":
       return deal.createDeal(db, user!, payload);
+    case "deal.update":
+      return deal.updateDeal(db, user!, payload);
     case "deal.list":
       return deal.listDeals(db, user!, payload);
     case "deal.get":
