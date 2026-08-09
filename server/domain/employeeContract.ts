@@ -344,6 +344,19 @@ export function expireContracts(db: Db, user: SessionUser): ApiResult {
     }
   });
   transaction();
+  for (const row of rows) {
+    if (row.user_id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.user_id,
+      title: "员工合同已到期",
+      body: `${row.contract_no} · 到期日 ${row.end_date}`,
+      kind: "employee_contract",
+      ref_type: "employee_contract",
+      ref_id: row.id,
+    });
+  }
   if (rows.length)
     writeAudit(db, user, "employee_contract.expire", "employee_contract", undefined, {
       count: rows.length,
