@@ -472,7 +472,12 @@ export function completeTask(db: Db, user: SessionUser, payload: any): ApiResult
 
 export function cancelTask(db: Db, user: SessionUser, payload: any): ApiResult {
   const row = db
-    .prepare(`SELECT * FROM customer_care_tasks WHERE id=? AND company_id=?`)
+    .prepare(
+      `SELECT t.*, c.name AS customer_name
+       FROM customer_care_tasks t
+       JOIN customers c ON c.id=t.customer_id
+       WHERE t.id=? AND t.company_id=?`
+    )
     .get(payload.id, user.company_id) as any;
   if (
     !row ||
@@ -488,8 +493,26 @@ export function cancelTask(db: Db, user: SessionUser, payload: any): ApiResult {
      updated_at=? WHERE id=?`
   ).run(reason, nowIso(), row.id);
   addEvent(db, user, "task", row.id, "cancelled", { reason });
-  writeAudit(db, user, "customer_care.task.cancel", "customer_care_task", row.id);
-  return { ok: true, data: { id: row.id, status: "cancelled" } };
+  writeAudit(db, user, "customer_care.task.cancel", "customer_care_task", row.id, {
+    reason,
+  });
+  if (row.assignee_user_id && row.assignee_user_id !== user.id) {
+    const typeLabel = row.task_type === "survey" ? "满意度调查" : "客户回访";
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.assignee_user_id,
+      title: "客户关怀任务已取消",
+      body: `${row.customer_name} · ${typeLabel}：${reason}`,
+      kind: "customer_care",
+      ref_type: "customer_care_task",
+      ref_id: row.id,
+    });
+  }
+  return {
+    ok: true,
+    data: { id: row.id, status: "cancelled", cancel_reason: reason },
+  };
 }
 
 export function listCareEvents(db: Db, user: SessionUser, payload: any): ApiResult {
