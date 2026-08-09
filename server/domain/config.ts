@@ -164,6 +164,70 @@ export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
 }
 
+export const DEFAULT_HOUSE_SUSPEND_REASONS = [
+  { value: "owner_pause", label: "业主暂缓出售/出租", sort_order: 1 },
+  { value: "price_adjust", label: "调价中", sort_order: 2 },
+  { value: "decoration", label: "装修/整理中", sort_order: 3 },
+  { value: "key_unavailable", label: "钥匙暂不可看", sort_order: 4 },
+  { value: "other", label: "其他", sort_order: 5 },
+];
+
+const HOUSE_SUSPEND_REASON_ALIASES: Record<string, string> = {
+  业主暂缓: "owner_pause",
+  业主暂缓出售: "owner_pause",
+  业主暂缓出租: "owner_pause",
+  "业主暂缓出售/出租": "owner_pause",
+  调价中: "price_adjust",
+  装修中: "decoration",
+  "装修/整理中": "decoration",
+  钥匙暂不可看: "key_unavailable",
+  其他: "other",
+};
+
+export function resolveHouseSuspendReasons(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'house_suspend_reason' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length
+    ? rows
+    : DEFAULT_HOUSE_SUSPEND_REASONS.map((item) => ({ ...item }));
+}
+
+export function normalizeHouseSuspendReason(reason: unknown, fallback = ""): string {
+  const raw = String(reason ?? "").trim();
+  if (!raw) return fallback;
+  return HOUSE_SUSPEND_REASON_ALIASES[raw] || raw;
+}
+
+export function isAllowedHouseSuspendReason(
+  db: Db,
+  companyId: string,
+  reason: string
+): boolean {
+  return resolveHouseSuspendReasons(db, companyId).some((item) => item.value === reason);
+}
+
+export function labelHouseSuspendReason(
+  db: Db,
+  companyId: string,
+  reason: unknown
+): string {
+  const normalized = normalizeHouseSuspendReason(reason, "");
+  if (!normalized) return "";
+  const hit = resolveHouseSuspendReasons(db, companyId).find(
+    (item) => item.value === normalized
+  );
+  return hit?.label || normalized;
+}
+
+export function listHouseSuspendReasons(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveHouseSuspendReasons(db, user.company_id) };
+}
+
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,

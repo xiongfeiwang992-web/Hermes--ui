@@ -12,6 +12,11 @@ import {
 } from "./activity";
 import { writeAudit } from "./audit";
 import { resolvePhoneVisibility } from "./contactGate";
+import {
+  isAllowedHouseSuspendReason,
+  labelHouseSuspendReason,
+  normalizeHouseSuspendReason,
+} from "./config";
 import { createMessage } from "./message";
 import { setLock as setPropertyLock } from "./propertyExt";
 import { nextId, nowIso } from "../utils/id";
@@ -44,6 +49,11 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone: gate.showFull ? row.owner_phone : maskPhone(row.owner_phone),
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
+    suspend_reason_label: labelHouseSuspendReason(
+      db,
+      user.company_id,
+      row.suspend_reason
+    ),
   };
 }
 
@@ -371,6 +381,15 @@ export function changeHouseStatus(
   if (!allowed.includes(payload.status)) {
     return { ok: false, message: `不能从 ${current.status} 变更为 ${payload.status}` };
   }
+  let suspendReason: string | null = current.suspend_reason || null;
+  if (payload.status === "suspended") {
+    const reason = normalizeHouseSuspendReason(payload.reason, "");
+    if (!reason) return { ok: false, message: "暂缓须填写原因" };
+    if (!isAllowedHouseSuspendReason(db, user.company_id, reason)) {
+      return { ok: false, message: "暂缓原因不在当前字典中" };
+    }
+    suspendReason = reason;
+  }
   if (payload.status === "withdrawn" && !payload.reason) {
     return { ok: false, message: "撤盘须填写原因" };
   }
@@ -391,13 +410,21 @@ export function changeHouseStatus(
     return { ok: false, message: "仅暂缓恢复上架时可顺带改接盘人" };
   }
   const now = nowIso();
+  const remarkArg =
+    payload.status === "suspended" || payload.status === "withdrawn"
+      ? null
+      : payload.reason || null;
   db.prepare(
-    `UPDATE houses SET status = ?, agent_id = ?, remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
-  ).run(payload.status, nextAgentId, payload.reason || null, now, payload.id);
+    `UPDATE houses SET status = ?, agent_id = ?, suspend_reason = ?,
+       remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
+  ).run(payload.status, nextAgentId, suspendReason, remarkArg, now, payload.id);
   writeAudit(db, user, "house.status", "house", payload.id, {
     from: current.status,
     to: payload.status,
-    reason: payload.reason,
+    reason:
+      payload.status === "suspended"
+        ? suspendReason
+        : payload.reason,
     agent_from: current.agent_id,
     agent_to: nextAgentId,
   });
