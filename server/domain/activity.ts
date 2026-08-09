@@ -278,6 +278,64 @@ export function listFollows(db: Db, user: SessionUser, q: any = {}): ApiResult {
   };
 }
 
+function normalizeAccompanyIds(
+  db: Db,
+  user: SessionUser,
+  agentId: string,
+  raw: unknown
+): { ok: true; ids: string[] } | { ok: false; message: string } {
+  const list = Array.isArray(raw)
+    ? raw.map(String).filter(Boolean)
+    : raw
+      ? [String(raw)]
+      : [];
+  const ids = [...new Set(list)];
+  for (const id of ids) {
+    if (id === agentId) return { ok: false, message: "陪看人不能与主看人相同" };
+    const member = db
+      .prepare(
+        `SELECT id, store_id, role, status, display_name FROM users WHERE id = ? AND company_id = ?`
+      )
+      .get(id, user.company_id) as any;
+    if (!member || member.status !== "active") {
+      return { ok: false, message: `陪看人无效：${id}` };
+    }
+    if (!["agent", "store_manager", "admin"].includes(member.role)) {
+      return { ok: false, message: "陪看人须为本店经纪人/店长/管理员" };
+    }
+    if (user.role !== "admin" && member.store_id !== user.store_id) {
+      return { ok: false, message: "只能选择本店人员陪看" };
+    }
+  }
+  return { ok: true, ids };
+}
+
+function presentView(db: Db, companyId: string, row: any) {
+  let accompanyIds: string[] = [];
+  try {
+    accompanyIds = JSON.parse(row.accompany_ids || "[]");
+  } catch {
+    accompanyIds = [];
+  }
+  if (!Array.isArray(accompanyIds)) accompanyIds = [];
+  const agent = db
+    .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+    .get(row.agent_id, companyId) as { display_name?: string } | undefined;
+  const companions = accompanyIds.map((id) => {
+    const user = db
+      .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+      .get(id, companyId) as { display_name?: string } | undefined;
+    return { id, display_name: user?.display_name || id };
+  });
+  return {
+    ...row,
+    accompany_ids: accompanyIds,
+    agent_name: agent?.display_name || row.agent_id,
+    accompany_names: companions.map((item) => item.display_name),
+    accompany_summary: companions.map((item) => item.display_name).join("、"),
+  };
+}
+
 export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   if (!payload.customer_id || !payload.house_id || !payload.view_at) {
@@ -295,6 +353,9 @@ export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!house || !houseVisibleTo(user, house)) {
     return { ok: false, message: "房源不可见", code: 403 };
   }
+  const viewerId = payload.agent_id || user.id;
+  const accompanyNorm = normalizeAccompanyIds(db, user, viewerId, payload.accompany_ids);
+  if (!accompanyNorm.ok) return { ok: false, message: accompanyNorm.message };
   const id = nextId("VW");
   const now = nowIso();
   db.prepare(
@@ -309,8 +370,8 @@ export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
     payload.customer_id,
     payload.house_id,
     payload.view_at,
-    payload.agent_id || user.id,
-    JSON.stringify(payload.accompany_ids || []),
+    viewerId,
+    JSON.stringify(accompanyNorm.ids),
     payload.content || null,
     user.id,
     now,
@@ -322,7 +383,6 @@ export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
       customer.id
     );
   }
-  const viewerId = payload.agent_id || user.id;
   const gate = getContactGateSettings(db, user.company_id);
   if (gate.non_holder_view_remind && house.agent_id && house.agent_id !== viewerId) {
     const viewer = db
@@ -335,6 +395,21 @@ export function createView(db: Db, user: SessionUser, payload: any): ApiResult {
       title: "非接盘人带看提醒",
       body: `${viewer?.display_name || "同事"} 登记了您盘源「${house.title}」的带看`,
       kind: "view_non_holder",
+      ref_type: "view",
+      ref_id: id,
+    });
+  }
+  const creator = db
+    .prepare(`SELECT display_name FROM users WHERE id = ? AND company_id = ?`)
+    .get(viewerId, user.company_id) as { display_name?: string } | undefined;
+  for (const accompanyId of accompanyNorm.ids) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: accompanyId,
+      title: "陪看邀请",
+      body: `${creator?.display_name || "同事"} 邀请您陪看「${house.title}」· 客户 ${customer.name}`,
+      kind: "view_accompany",
       ref_type: "view",
       ref_id: id,
     });
@@ -356,10 +431,7 @@ export function getView(db: Db, user: SessionUser, id: string): ApiResult {
   }
   return {
     ok: true,
-    data: {
-      ...row,
-      accompany_ids: JSON.parse(row.accompany_ids || "[]"),
-    },
+    data: presentView(db, user.company_id, row),
   };
 }
 
@@ -377,7 +449,7 @@ export function listViews(db: Db, user: SessionUser, q: any = {}): ApiResult {
   if (q.house_id) rows = rows.filter((v) => v.house_id === q.house_id);
   return {
     ok: true,
-    data: rows.map((r) => ({ ...r, accompany_ids: JSON.parse(r.accompany_ids || "[]") })),
+    data: rows.map((r) => presentView(db, user.company_id, r)),
   };
 }
 

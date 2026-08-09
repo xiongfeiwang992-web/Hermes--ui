@@ -1523,7 +1523,7 @@ async function renderViews(main: HTMLElement) {
         <div><span class="tag ${v.status === "done" ? "ok" : ""}">${v.status}</span>
         <span class="tag">${v.feedback}</span>
         <strong>${cusMap[v.customer_id] || v.customer_id} × ${houseMap[v.house_id] || v.house_id}</strong></div>
-        <div class="meta">${v.view_at}</div>
+        <div class="meta">${v.view_at} · 主看 ${escapeHtml(v.agent_name || v.agent_id)}${v.accompany_summary ? ` · 陪看 ${escapeHtml(v.accompany_summary)}` : ""}</div>
       </div>
       <div class="ops">
         ${v.status === "planned" ? `<button class="btn" data-done="${v.id}">完成</button><button class="btn ghost" data-cancel="${v.id}">取消</button>` : ""}
@@ -1576,8 +1576,8 @@ async function renderViews(main: HTMLElement) {
       .map((c) => `<option value="${c.id}">${c.name}</option>`)
       .join("");
     const userOpts = ((storeUsers.data as any[]) || [])
-      .filter((u) => u.id !== state.user.id)
-      .map((u) => `<option value="${u.id}">${u.display_name}</option>`)
+      .filter((u) => u.id !== state.user.id && ["agent", "store_manager", "admin"].includes(u.role))
+      .map((u) => `<option value="${u.id}">${escapeHtml(u.display_name)} · ${roleLabel(u.role)}</option>`)
       .join("");
     openDialog(
       "新建带看",
@@ -1585,7 +1585,7 @@ async function renderViews(main: HTMLElement) {
       <label>客户<select name="customer_id">${cusOpts}</select></label>
       <label>房源<select name="house_id">${houseOpts}</select></label>
       <label class="full">时间<input name="view_at" type="datetime-local" required /></label>
-      <label class="full">陪看人（可多选）<select name="accompany_ids" multiple size="4">${userOpts}</select></label>
+      <label class="full">陪看人（可多选，不可含主看本人）<select name="accompany_ids" multiple size="4">${userOpts}</select></label>
       `,
       async (fd) => {
         const res = await api("view.create", {
@@ -1595,6 +1595,7 @@ async function renderViews(main: HTMLElement) {
           accompany_ids: fd.getAll("accompany_ids"),
         });
         toast(res.ok ? "带看已创建" : res.message, res.ok ? "ok" : "error");
+        if (res.ok) draw();
       }
     );
   });
