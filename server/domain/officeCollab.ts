@@ -825,6 +825,19 @@ export function hideCirclePost(db: Db, user: SessionUser, payload: any): ApiResu
   writeAudit(db, user, "officeCollab.circle.hide", "office_circle_post", row.id, {
     reason,
   });
+  if (row.created_by && row.created_by !== user.id) {
+    const snippet = String(row.content || "").trim().slice(0, 40);
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title: "同事圈动态已隐藏",
+      body: snippet ? `${snippet}：${reason}` : reason,
+      kind: "business_record_status",
+      ref_type: "office_circle_post",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "hidden" } };
 }
 
