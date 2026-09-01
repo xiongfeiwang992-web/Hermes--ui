@@ -413,6 +413,39 @@ export function saveTarget(db: Db, user: SessionUser, payload: any): ApiResult {
   }
   addEvent(db, user, "target", id, "created");
   writeAudit(db, user, "performance.target.create", "performance_target", id);
+  const metricLabel = payload.metric === "deals" ? "成交套数" : "佣金";
+  if (userId && userId !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId,
+      user_id: userId,
+      title: "业绩目标已下达",
+      body: `${payload.period_month} · ${metricLabel} · ${targetValue}`,
+      kind: "performance",
+      ref_type: "performance_target",
+      ref_id: id,
+    });
+  } else if (!userId) {
+    const recipients = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND store_id=? AND status='active'
+         AND role IN ('agent', 'store_manager')`
+      )
+      .all(user.company_id, storeId) as any[];
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: storeId,
+        user_id: recipient.id,
+        title: "门店业绩目标已下达",
+        body: `${payload.period_month} · ${metricLabel} · ${targetValue}`,
+        kind: "performance",
+        ref_type: "performance_target",
+        ref_id: id,
+      });
+    }
+  }
   return { ok: true, data: { id } };
 }
 
