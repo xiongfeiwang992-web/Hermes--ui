@@ -80,6 +80,41 @@ export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult
     db.prepare(`UPDATE houses SET updated_at = ? WHERE id = ?`).run(nowIso(), payload.target_id);
   }
   writeAudit(db, user, "follow.create", "follow", id);
+  let notifyUserId: string | null = null;
+  let storeId = user.store_id;
+  let targetLabel = "";
+  if (payload.target_type === "house") {
+    const house = db
+      .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
+      .get(payload.target_id, user.company_id) as any;
+    if (house?.agent_id) {
+      notifyUserId = house.agent_id;
+      storeId = house.store_id;
+      targetLabel = house.title || "房源";
+    }
+  } else {
+    const customer = db
+      .prepare(`SELECT * FROM customers WHERE id = ? AND company_id = ?`)
+      .get(payload.target_id, user.company_id) as any;
+    if (customer?.agent_id) {
+      notifyUserId = customer.agent_id;
+      storeId = customer.store_id;
+      targetLabel = customer.name || "客源";
+    }
+  }
+  if (notifyUserId && notifyUserId !== user.id) {
+    const snippet = String(payload.content).trim().slice(0, 40);
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId,
+      user_id: notifyUserId,
+      title: "新增跟进记录",
+      body: `${user.display_name} 跟进了 ${targetLabel}：${snippet}`,
+      kind: "follow_create",
+      ref_type: "follow",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 

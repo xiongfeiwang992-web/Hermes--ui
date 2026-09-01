@@ -28,8 +28,8 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "follow",
     label: "跟进与带看",
-    description: "待跟进提醒、非接盘人带看提醒",
-    kinds: ["follow_due", "view_non_holder"],
+    description: "待跟进提醒、非接盘人带看提醒、他人跟进提醒",
+    kinds: ["follow_due", "view_non_holder", "follow_create"],
   },
   {
     key: "house",
