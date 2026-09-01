@@ -804,6 +804,30 @@ export function createCirclePost(db: Db, user: SessionUser, payload: any): ApiRe
   ).run(id, user.company_id, user.store_id, content, user.id, now, now);
   addEvent(db, user, "circle", id, "created");
   writeAudit(db, user, "officeCollab.circle.create", "office_circle_post", id);
+  const managers = db
+    .prepare(
+      `SELECT id FROM users
+       WHERE company_id=? AND status='active'
+         AND (
+           role='admin'
+           OR (role='store_manager' AND store_id=?)
+         )`
+    )
+    .all(user.company_id, user.store_id) as any[];
+  const snippet = content.slice(0, 40);
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: manager.id,
+      title: "同事圈有新动态",
+      body: `${user.display_name}：${snippet}`,
+      kind: "business_record_status",
+      ref_type: "office_circle_post",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "published" } };
 }
 
