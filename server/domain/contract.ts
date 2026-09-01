@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -42,6 +43,27 @@ export function sign(db: Db, user: SessionUser, p: any): ApiResult {
      VALUES (?, ?, ?, ?, ?, ?, ?, 'signed', ?, ?, ?)`
   ).run(id, user.company_id, deal.store_id, deal.id, user.id, user.display_name, statement, now, user.id, now);
   writeAudit(db, user, "deal.signoff", "deal", deal.id, { signoff_id: id });
+  const recipients = new Set<string>();
+  for (const agentId of agents) {
+    if (agentId) recipients.add(agentId);
+  }
+  if (deal.created_by) recipients.add(deal.created_by);
+  recipients.delete(user.id);
+  const price = Number(deal.contract_price);
+  const priceText = Number.isFinite(price) ? price.toFixed(2) : String(deal.contract_price || "");
+  const body = `${user.display_name} 已签署确认 · 成交价 ${priceText}`;
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: deal.store_id,
+      user_id: userId,
+      title: "成交签署确认",
+      body,
+      kind: "business_record_status",
+      ref_type: "deal",
+      ref_id: deal.id,
+    });
+  }
   return { ok: true, data: { id, signed_at: now, legal_ca: false } };
 }
 
