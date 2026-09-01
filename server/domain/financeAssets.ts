@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -378,6 +379,24 @@ export function createVoucher(db: Db, user: SessionUser, payload: any): ApiResul
   tx();
   addEvent(db, user, "voucher", id, "created", { voucher_no: voucherNo });
   writeAudit(db, user, "finance.voucher.create", "finance_voucher", id);
+  const peers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'finance') AND id<>?`
+    )
+    .all(user.company_id, user.id) as { id: string }[];
+  for (const peer of peers) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: store.id,
+      user_id: peer.id,
+      title: "财务凭证已创建",
+      body: `${voucherNo} · ${summary}`,
+      kind: "business_record_status",
+      ref_type: "finance_voucher",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, voucher_no: voucherNo, status: "draft" } };
 }
 
