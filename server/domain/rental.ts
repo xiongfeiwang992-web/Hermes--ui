@@ -199,6 +199,18 @@ export function createProperty(db: Db, user: SessionUser, payload: any): ApiResu
     management_type: payload.management_type,
   });
   writeAudit(db, user, "rental.property.create", "rental_property", id);
+  if (payload.manager_user_id && payload.manager_user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: payload.manager_user_id,
+      title: "托管物业已登记",
+      body: house.title || id,
+      kind: "rental",
+      ref_type: "rental_property",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
