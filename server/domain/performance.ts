@@ -650,6 +650,24 @@ export function createDividendBatch(db: Db, user: SessionUser, payload: any): Ap
     return { ok: false, message: "该月分红批次已存在" };
   }
   writeAudit(db, user, "performance.dividend.create", "performance_dividend_batch", id);
+  const items = db
+    .prepare(
+      `SELECT user_id, store_id, share_amount, points FROM performance_dividend_items WHERE batch_id=?`
+    )
+    .all(id) as any[];
+  for (const item of items) {
+    if (item.user_id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: item.store_id,
+      user_id: item.user_id,
+      title: "利润分红已核算",
+      body: `${payload.period_month} 分红约 ¥${item.share_amount}（积分 ${item.points}）`,
+      kind: "performance",
+      ref_type: "performance_dividend_batch",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "calculated", total_points: totalPoints } };
 }
 
