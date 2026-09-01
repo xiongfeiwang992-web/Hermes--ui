@@ -86,7 +86,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "hr",
     label: "人事财务流程",
-    description: "考勤请假、报销、招聘、合同、薪酬、调动与离职",
+    description: "考勤请假、报销、招聘、合同、薪酬、调动、离职与账号开通",
     kinds: [
       "leave_pending",
       "leave_review",
@@ -98,6 +98,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
       "payroll",
       "employee_transfer",
       "offboarding",
+      "employee_account",
     ],
   },
   {
