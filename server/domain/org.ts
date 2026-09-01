@@ -1,6 +1,7 @@
 import type { Db } from "../db/database";
 import { canManageOrg } from "../auth/policy";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { hashPassword, verifyPassword } from "../utils/password";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
@@ -89,6 +90,27 @@ export function upsertStore(
       user.company_id
     );
     writeAudit(db, user, "store.update", "store", payload.id, payload);
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const body = `${payload.name.trim()}${payload.status ? " · " + payload.status : ""}`;
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      if (recipient.role === "store_manager" && recipient.store_id !== payload.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: payload.id,
+        user_id: recipient.id,
+        title: "门店信息已更新",
+        body,
+        kind: "business_record_status",
+        ref_type: "store",
+        ref_id: payload.id,
+      });
+    }
     return { ok: true, data: { id: payload.id } };
   }
   const id = nextId("ST");
