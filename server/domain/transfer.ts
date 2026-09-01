@@ -207,6 +207,29 @@ export function saveTransferTemplate(db: Db, user: SessionUser, payload: any): A
     now
   );
   writeAudit(db, user, "transfer_template.save", "transfer_template", id, payload);
+  // 同键更新时提醒管理员/店长（首次创建由独立切片推送）
+  if (current) {
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const body = `${payload.title} · ${payload.deal_type}/${payload.node_type}`;
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: recipient.store_id,
+        user_id: recipient.id,
+        title: "过户模板已更新",
+        body,
+        kind: "business_record_status",
+        ref_type: "transfer_template",
+        ref_id: id,
+      });
+    }
+  }
   return { ok: true, data: { id } };
 }
 
