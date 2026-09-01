@@ -690,6 +690,26 @@ export function createSalesReport(db: Db, user: SessionUser, payload: any): ApiR
     contract_price: contractPrice,
   });
   writeAudit(db, user, "newhome.sales.create", "newhome_sales_report", id);
+  const recipients = db
+    .prepare(
+      `SELECT id FROM users
+       WHERE company_id=? AND status='active'
+         AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, registration.store_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: registration.store_id,
+      user_id: recipient.id,
+      title: "新房销售报告已登记",
+      body: `${registration.project_name} · ${unitNo} · ${contractPrice}`,
+      kind: "newhome_sales_report",
+      ref_type: "newhome_sales_report",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
