@@ -117,6 +117,26 @@ export function saveJobGrade(db: Db, user: SessionUser, payload: any): ApiResult
       return { ok: false, message: "职级代码或名称已存在", code: 409 };
     }
     writeAudit(db, user, "job_grade.update", "job_grade", existing.id);
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const body = `${name}（${code}）· L${rank}`;
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: recipient.store_id,
+        user_id: recipient.id,
+        title: "职级已更新",
+        body,
+        kind: "business_record_status",
+        ref_type: "job_grade",
+        ref_id: existing.id,
+      });
+    }
     return { ok: true, data: { id: existing.id } };
   }
   const id = nextId("JG");
