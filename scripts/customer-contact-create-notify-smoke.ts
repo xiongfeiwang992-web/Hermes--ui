@@ -1,112 +1,121 @@
-/**
- * Smoke: 客源联系人登记 → 写手站内信（跳过登记人本人）
- * Run: npx tsx scripts/customer-contact-create-notify-smoke.ts
- */
-import { createDb } from "../server/db";
-import { createApi } from "../server/api";
+import path from "node:path";
+import { seedDatabase } from "./seed";
+import { createApp } from "../server/createApp";
 
-async function main() {
-  const db = await createDb(":memory:");
-  const api = createApi(db);
-  const admin = await api.auth.login("admin", "123456");
-  if (!admin.ok) throw new Error("admin login failed");
-  const ctx = { requestId: "customer-contact-create-notify-smoke", actorId: admin.user!.id };
+const app = createApp(
+  seedDatabase(path.resolve("data", "customer-contact-create-notify-smoke.db")).dbPath
+);
 
-  const store = await api.org.listStores(ctx, {});
-  if (!store.ok || !store.data?.length) throw new Error("no store");
-  const storeId = store.data[0].id;
+let passed = 0;
+let failed = 0;
+const assert = (value: unknown, name: string) => {
+  if (value) passed++;
+  else {
+    failed++;
+    console.error("FAIL:", name);
+  }
+};
+const data = <T = any>(result: any) => result.data as T;
+const login = (account: string) => {
+  const result = app.call("auth.login", { account, password: "123456" });
+  assert(result.ok, `${account} login`);
+  return result.ok ? data<any>(result).token : "";
+};
+const contactMsgs = (token: string) =>
+  data<any[]>(app.call("message.list", {}, token)).filter(
+    (m) => m.kind === "customer_contact" && m.title === "客源联系人已登记"
+  );
 
-  const agent = await api.hr.createEmployee(ctx, {
-    name: "客联登记写手",
-    username: `ccn_agent_${Date.now()}`,
-    password: "123456",
-    role: "agent",
-    store_id: storeId,
-  });
-  if (!agent.ok || !agent.data) throw new Error(`agent: ${agent.error ?? agent.message}`);
+const manager = login("manager");
+const agent = login("agent_a");
 
-  const peer = await api.hr.createEmployee(ctx, {
-    name: "客联写手同事",
-    username: `ccn_peer_${Date.now()}`,
-    password: "123456",
-    role: "agent",
-    store_id: storeId,
-  });
-  if (!peer.ok || !peer.data) throw new Error(`peer: ${peer.error ?? peer.message}`);
+const created = app.call(
+  "customer.create",
+  { name: "联系人通知客", phone: "13977001111", intent: "buy", need: "联系人通知" },
+  agent
+);
+assert(created.ok, "agent creates customer");
+const customerId = data<any>(created).id;
 
-  const customer = await api.customer.create(ctx, {
-    name: "客联通知客",
-    phone: `139${String(Date.now()).slice(-8)}`,
-    intent: "buy",
-    agent_id: peer.data.id,
-    store_id: storeId,
-  });
-  if (!customer.ok || !customer.data) throw new Error(`customer: ${customer.error ?? customer.message}`);
-
-  const before = await api.message.list(ctx, { userId: peer.data.id, pageSize: 100 });
-  if (!before.ok) throw new Error("list before failed");
-  const beforeIds = new Set((before.data ?? []).map((m) => m.id));
-
-  const upsert = await api.customer.contacts.upsert(ctx, {
-    customer_id: customer.data.id,
+const beforeAgent = contactMsgs(agent).length;
+const beforeManager = contactMsgs(manager).length;
+const upsert = app.call(
+  "customer.contacts.upsert",
+  {
+    customer_id: customerId,
     name: "紧急联系人",
     relation: "配偶",
-    phone: `138${String(Date.now()).slice(-8)}`,
-  });
-  if (!upsert.ok || !upsert.data) throw new Error(`upsert: ${upsert.error ?? upsert.message}`);
-
-  const after = await api.message.list(ctx, { userId: peer.data.id, pageSize: 100 });
-  if (!after.ok) throw new Error("list after failed");
-  const created = (after.data ?? []).filter((m) => !beforeIds.has(m.id));
-  const hit = created.find(
+    phone: "13977002222",
+  },
+  manager
+);
+assert(upsert.ok, "manager registers contact");
+const contactId = data<any>(upsert).id;
+assert(contactMsgs(agent).length === beforeAgent + 1, "agent receives contact message");
+assert(contactMsgs(manager).length === beforeManager, "manager actor skips self");
+assert(
+  contactMsgs(agent).some(
     (m) =>
-      m.kind === "customer_contact" &&
-      m.title.includes("客源联系人已登记") &&
-      m.ref_type === "customer" &&
-      m.ref_id === customer.data!.id
-  );
-  if (!hit) throw new Error(`expected customer_contact message, got ${JSON.stringify(created)}`);
+      m.ref_id === contactId &&
+      String(m.body).includes("联系人通知客") &&
+      String(m.body).includes("紧急联系人") &&
+      String(m.body).includes("13977002222")
+  ),
+  "contact message body"
+);
 
-  const selfBefore = await api.message.list(ctx, { userId: admin.user!.id, pageSize: 100 });
-  const selfBeforeIds = new Set((selfBefore.data ?? []).map((m) => m.id));
-  const ownCustomer = await api.customer.create(ctx, {
-    name: "自登联系人客",
-    phone: `137${String(Date.now()).slice(-8)}`,
-    intent: "rent",
-    agent_id: admin.user!.id,
-    store_id: storeId,
-  });
-  if (!ownCustomer.ok || !ownCustomer.data) throw new Error("own customer failed");
-  const selfUpsert = await api.customer.contacts.upsert(ctx, {
-    customer_id: ownCustomer.data.id,
-    name: "本人登记联系人",
+const beforeUpdate = contactMsgs(agent).length;
+const updated = app.call(
+  "customer.contacts.upsert",
+  {
+    id: contactId,
+    customer_id: customerId,
+    name: "紧急联系人改",
+    relation: "配偶",
+    phone: "13977002222",
+  },
+  manager
+);
+assert(updated.ok, "manager updates contact");
+assert(contactMsgs(agent).length === beforeUpdate, "update does not re-notify");
+
+const own = app.call(
+  "customer.create",
+  { name: "自登联系人客", phone: "13977003333", intent: "rent", need: "自登" },
+  agent
+);
+assert(own.ok, "agent creates own customer");
+const beforeSelf = contactMsgs(agent).length;
+const selfUpsert = app.call(
+  "customer.contacts.upsert",
+  {
+    customer_id: data<any>(own).id,
+    name: "本人联系人",
     relation: "本人",
-    phone: `136${String(Date.now()).slice(-8)}`,
-  });
-  if (!selfUpsert.ok) throw new Error("self upsert failed");
-  const selfAfter = await api.message.list(ctx, { userId: admin.user!.id, pageSize: 100 });
-  const selfCreated = (selfAfter.data ?? []).filter((m) => !selfBeforeIds.has(m.id));
-  if (selfCreated.some((m) => m.kind === "customer_contact")) {
-    throw new Error("actor should not receive customer_contact when writing own customer");
-  }
+    phone: "13977004444",
+  },
+  agent
+);
+assert(selfUpsert.ok, "agent registers own contact");
+assert(contactMsgs(agent).length === beforeSelf, "agent skips self-notify on own customer");
 
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        asserts: 2,
-        customerId: customer.data.id,
-        contactId: upsert.data.id,
-        messageId: hit.id,
-        skippedSelfNotify: true,
-      },
-      null,
-      2
-    )
-  );
-}
+assert(
+  app.call("message.subscriptions.save", { channels: { customer: false } }, agent).ok,
+  "mute customer"
+);
+const beforeMute = contactMsgs(agent).length;
+const muted = app.call(
+  "customer.contacts.upsert",
+  {
+    customer_id: customerId,
+    name: "静音联系人",
+    relation: "朋友",
+    phone: "13977005555",
+  },
+  manager
+);
+assert(muted.ok, "register while muted");
+assert(contactMsgs(agent).length === beforeMute, "muted customer suppresses message");
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+console.log(`Customer contact create notify smoke result: passed=${passed} failed=${failed}`);
+process.exit(failed ? 1 : 0);
