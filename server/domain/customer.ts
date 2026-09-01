@@ -102,6 +102,25 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
     now
   );
   writeAudit(db, user, "customer.create", "customer", id);
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, user.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: manager.id,
+      title: "新客源已登记",
+      body: `${payload.name} · ${user.display_name}`,
+      kind: "customer_create",
+      ref_type: "customer",
+      ref_id: id,
+    });
+  }
   const created = getCustomer(db, user, id);
   if (created.ok && dup) {
     return {
