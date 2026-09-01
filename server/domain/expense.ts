@@ -120,6 +120,30 @@ export function updateExpense(db: Db, user: SessionUser, payload: any): ApiResul
     row.id
   );
   writeAudit(db, user, "expense.update", "expense_request", row.id);
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  recipients = recipients.filter(
+    (recipient) => recipient.role === "admin" || recipient.store_id === row.store_id
+  );
+  const title = String(merged.title).trim();
+  const body = `${title} · ¥${Number(merged.amount).toFixed(2)}`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id || recipient.store_id,
+      user_id: recipient.id,
+      title: "费用报销草稿已更新",
+      body,
+      kind: "business_record_status",
+      ref_type: "expense_request",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "draft" } };
 }
 
