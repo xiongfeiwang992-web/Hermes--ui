@@ -176,6 +176,18 @@ export function createContract(db: Db, user: SessionUser, payload: any): ApiResu
     end_date: payload.end_date,
   });
   writeAudit(db, user, "employee_contract.create", "employee_contract", id);
+  if (employee.id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: employee.store_id,
+      user_id: employee.id,
+      title: "员工合同已登记",
+      body: `${contractNo} · ${payload.contract_type} · ${payload.start_date} 至 ${payload.end_date}`,
+      kind: "employee_contract",
+      ref_type: "employee_contract",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
