@@ -217,6 +217,18 @@ export function registerCustomer(db: Db, user: SessionUser, payload: any): ApiRe
     customer_id: customer.id,
     protect_until: protectUntil,
   });
+  if (agentId && agentId !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: customer.store_id,
+      user_id: agentId,
+      title: "新房报备已登记",
+      body: `${project.name} · ${customer.name} · 保护至 ${protectUntil.slice(0, 10)}`,
+      kind: "newhome_registration",
+      ref_type: "newhome_registration",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, protect_until: protectUntil } };
 }
 
