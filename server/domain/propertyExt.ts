@@ -372,6 +372,18 @@ export function archiveMedia(db: Db, user: SessionUser, payload: any): ApiResult
   ).run(now, row.id);
   addEvent(db, user, "media", row.id, "archived");
   writeAudit(db, user, "propertyExt.media.archive", "house_media", row.id);
+  if (house.agent_id && house.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: "房源媒体已归档",
+      body: `${house.title} · ${row.media_type} · ${row.title}`,
+      kind: "house_agent",
+      ref_type: "house_media",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "archived" } };
 }
 
