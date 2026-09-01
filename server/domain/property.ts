@@ -164,6 +164,23 @@ export function registerKey(db: Db, user: SessionUser, payload: any): ApiResult 
     return { ok: false, message: "钥匙编号已存在", code: 409 };
   }
   writeAudit(db, user, "key.register", "house_key", id, { house_id: house.id });
+  const keeperId = payload.keeper_user_id || user.id;
+  const recipients = new Set<string>();
+  if (keeperId) recipients.add(keeperId);
+  if (house.agent_id) recipients.add(house.agent_id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: userId,
+      title: "钥匙已登记",
+      body: `${house.title || "房源"} · 钥匙 ${keyNo}`,
+      kind: "key_borrow",
+      ref_type: "house_key",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
