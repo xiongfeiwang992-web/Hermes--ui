@@ -510,6 +510,19 @@ export function createBonusBatch(db: Db, user: SessionUser, payload: any): ApiRe
     return { ok: false, message: "该门店当月管理奖批次已存在" };
   }
   writeAudit(db, user, "performance.bonus.create", "performance_bonus_batch", id);
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: payload.store_id,
+      user_id: manager.id,
+      title: "管理奖已核算",
+      body: `${payload.period_month} 管理奖 ¥${perManager}`,
+      kind: "performance",
+      ref_type: "performance_bonus_batch",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "calculated", bonus_total: bonusTotal } };
 }
 
