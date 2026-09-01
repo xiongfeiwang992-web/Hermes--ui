@@ -415,6 +415,26 @@ export function changeLeadStatus(db: Db, user: SessionUser, payload: any): ApiRe
     addEvent(db, user, "lead", row.id, next);
   }
   writeAudit(db, user, `marketing.lead.${next}`, "marketing_lead", row.id);
+  if (["lost", "invalid"].includes(next)) {
+    const recipients = new Set<string>();
+    if (row.assignee_user_id) recipients.add(row.assignee_user_id);
+    if (row.created_by) recipients.add(row.created_by);
+    recipients.delete(user.id);
+    const reason = String(payload.reason || "").trim();
+    const title = next === "lost" ? "营销线索已流失" : "营销线索已无效";
+    for (const userId of recipients) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: row.store_id,
+        user_id: userId,
+        title,
+        body: reason ? `${row.contact_name} · ${reason}` : row.contact_name,
+        kind: "marketing",
+        ref_type: "marketing_lead",
+        ref_id: row.id,
+      });
+    }
+  }
   return { ok: true, data: { id: row.id, status: next } };
 }
 
