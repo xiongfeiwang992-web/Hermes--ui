@@ -177,7 +177,7 @@ export function publishDocument(db: Db, user: SessionUser, payload: any): ApiRes
     `UPDATE office_documents SET status='published', published_by=?,
      published_at=?, updated_at=? WHERE id=?`
   ).run(user.id, now, now, row.id);
-  if (row.document_kind === "announcement") {
+  if (row.document_kind === "announcement" || row.document_kind === "knowledge") {
     let recipients = db
       .prepare(
         `SELECT id, store_id FROM users WHERE company_id=? AND status='active' AND id<>?`
@@ -185,12 +185,13 @@ export function publishDocument(db: Db, user: SessionUser, payload: any): ApiRes
       .all(user.company_id, user.id) as any[];
     if (row.scope_type === "store")
       recipients = recipients.filter((recipient) => recipient.store_id === row.store_id);
+    const isKnowledge = row.document_kind === "knowledge";
     for (const recipient of recipients) {
       createMessage(db, {
         company_id: user.company_id,
         store_id: row.store_id,
         user_id: recipient.id,
-        title: "新公告发布",
+        title: isKnowledge ? "新知识库发布" : "新公告发布",
         body: row.title,
         kind: "office_announcement",
         ref_type: "office_document",
