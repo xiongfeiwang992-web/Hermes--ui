@@ -172,6 +172,25 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     now
   );
   writeAudit(db, user, "house.create", "house", id, { title: payload.title });
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, user.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: manager.id,
+      title: "新房源已登记",
+      body: `${payload.title} · ${user.display_name}`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: id,
+    });
+  }
   const created = getHouse(db, user, id);
   if (created.ok && duplicate) {
     return {
