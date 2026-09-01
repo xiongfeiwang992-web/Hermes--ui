@@ -381,6 +381,56 @@ export function listViews(db: Db, user: SessionUser, q: any = {}): ApiResult {
   };
 }
 
+function parseAccompanyIds(raw: unknown): string[] {
+  let ids: string[] = [];
+  try {
+    ids = typeof raw === "string" ? JSON.parse(raw || "[]") : Array.isArray(raw) ? raw : [];
+  } catch {
+    ids = [];
+  }
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string" && Boolean(id));
+}
+
+function notifyViewStakeholders(
+  db: Db,
+  user: SessionUser,
+  view: any,
+  title: string,
+  body: string
+): void {
+  const house = db
+    .prepare(`SELECT id, title, agent_id, store_id FROM houses WHERE id = ? AND company_id = ?`)
+    .get(view.house_id, user.company_id) as
+    | { id: string; title?: string; agent_id?: string; store_id?: string }
+    | undefined;
+  const customer = db
+    .prepare(`SELECT id, name, agent_id FROM customers WHERE id = ? AND company_id = ?`)
+    .get(view.customer_id, user.company_id) as
+    | { id: string; name?: string; agent_id?: string }
+    | undefined;
+  const recipients = new Set<string>();
+  if (house?.agent_id) recipients.add(house.agent_id);
+  if (view.agent_id) recipients.add(view.agent_id);
+  if (customer?.agent_id) recipients.add(customer.agent_id);
+  for (const accompanyId of parseAccompanyIds(view.accompany_ids)) {
+    recipients.add(accompanyId);
+  }
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: view.store_id || house?.store_id || user.store_id,
+      user_id: userId,
+      title,
+      body,
+      kind: "view_non_holder",
+      ref_type: "view",
+      ref_id: view.id,
+    });
+  }
+}
+
 export function completeView(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -398,6 +448,19 @@ export function completeView(db: Db, user: SessionUser, payload: any): ApiResult
     `UPDATE views SET feedback = ?, content = COALESCE(?, content), status = 'done', updated_at = ? WHERE id = ?`
   ).run(payload.feedback, payload.content || null, nowIso(), payload.id);
   writeAudit(db, user, "view.complete", "view", payload.id, { feedback: payload.feedback });
+  const house = db
+    .prepare(`SELECT title FROM houses WHERE id = ? AND company_id = ?`)
+    .get(current.house_id, user.company_id) as { title?: string } | undefined;
+  const customer = db
+    .prepare(`SELECT name FROM customers WHERE id = ? AND company_id = ?`)
+    .get(current.customer_id, user.company_id) as { name?: string } | undefined;
+  notifyViewStakeholders(
+    db,
+    user,
+    current,
+    "带看已完成",
+    `${house?.title || "房源"} · 客户 ${customer?.name || "-"} · 反馈 ${payload.feedback}`
+  );
   return getView(db, user, payload.id);
 }
 
@@ -409,10 +472,25 @@ export function cancelView(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!current) return { ok: false, message: "带看不存在" };
   if (current.status !== "planned") return { ok: false, message: "带看已结束" };
   if (!payload.reason) return { ok: false, message: "取消须填写原因" };
+  const reason = String(payload.reason).trim();
+  if (!reason) return { ok: false, message: "取消须填写原因" };
   db.prepare(
     `UPDATE views SET status = 'cancelled', cancel_reason = ?, updated_at = ? WHERE id = ?`
-  ).run(payload.reason, nowIso(), payload.id);
-  writeAudit(db, user, "view.cancel", "view", payload.id, { reason: payload.reason });
+  ).run(reason, nowIso(), payload.id);
+  writeAudit(db, user, "view.cancel", "view", payload.id, { reason });
+  const house = db
+    .prepare(`SELECT title FROM houses WHERE id = ? AND company_id = ?`)
+    .get(current.house_id, user.company_id) as { title?: string } | undefined;
+  const customer = db
+    .prepare(`SELECT name FROM customers WHERE id = ? AND company_id = ?`)
+    .get(current.customer_id, user.company_id) as { name?: string } | undefined;
+  notifyViewStakeholders(
+    db,
+    user,
+    current,
+    "带看已取消",
+    `${house?.title || "房源"} · 客户 ${customer?.name || "-"} · ${reason}`
+  );
   return getView(db, user, payload.id);
 }
 
