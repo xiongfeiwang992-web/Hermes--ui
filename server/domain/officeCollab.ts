@@ -261,6 +261,29 @@ export function saveEvent(db: Db, user: SessionUser, payload: any): ApiResult {
   );
   addEvent(db, user, "event", id, "created");
   writeAudit(db, user, "officeCollab.event.create", "office_event", id);
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  if (storeId)
+    recipients = recipients.filter(
+      (recipient) => recipient.role === "admin" || recipient.store_id === storeId
+    );
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId || recipient.store_id,
+      user_id: recipient.id,
+      title: "活动草稿已创建",
+      body: title,
+      kind: "business_record_status",
+      ref_type: "office_event",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
