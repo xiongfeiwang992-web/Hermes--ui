@@ -216,6 +216,26 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
       summary,
     });
   }
+  const name = String(payload.name ?? current.name);
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, current.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: manager.id,
+      title: "客源信息已更新",
+      body: `${name} · ${user.display_name}`,
+      kind: "customer_update",
+      ref_type: "customer",
+      ref_id: payload.id,
+    });
+  }
   return getCustomer(db, user, payload.id);
 }
 
