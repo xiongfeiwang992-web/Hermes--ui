@@ -196,6 +196,18 @@ export function signContract(db: Db, user: SessionUser, payload: any): ApiResult
   writeAudit(db, user, "employee_contract.sign", "employee_contract", row.id, {
     signed_at: payload.signed_at,
   });
+  if (row.user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.user_id,
+      title: "员工合同已登记签署",
+      body: `${row.contract_no} · 签署日 ${payload.signed_at}`,
+      kind: "employee_contract",
+      ref_type: "employee_contract",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, signed_at: payload.signed_at } };
 }
 
