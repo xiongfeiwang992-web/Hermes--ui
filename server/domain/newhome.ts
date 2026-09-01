@@ -546,6 +546,26 @@ export function setDistributionStatus(
     row.id,
     { status: payload.status }
   );
+  const label = payload.status === "active" ? "已启用" : "已停用";
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, row.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: manager.id,
+      title: `分销公司${label}`,
+      body: row.name,
+      kind: "distribution_status",
+      ref_type: "newhome_distribution_company",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: payload.status } };
 }
 
