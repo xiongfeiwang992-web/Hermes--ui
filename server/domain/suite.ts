@@ -360,45 +360,68 @@ export function configureIntegration(db: Db, user: SessionUser, payload: any): A
     )
     .get(user.company_id, payload.provider) as any;
   const now = nowIso();
+  const enabled = payload.enabled ? 1 : 0;
   const safeConfig = {
     credential_ref: payload.credential_ref || null,
     tenant_ref: payload.tenant_ref || null,
   };
+  let id: string;
   if (current) {
     db.prepare(
       `UPDATE integration_configs SET enabled = ?, endpoint = ?, config_json = ?,
        health_status = ?, updated_by = ?, updated_at = ? WHERE id = ?`
     ).run(
-      payload.enabled ? 1 : 0,
+      enabled,
       payload.endpoint || null,
       JSON.stringify(safeConfig),
-      payload.enabled ? "configured_not_tested" : "disabled",
+      enabled ? "configured_not_tested" : "disabled",
       user.id,
       now,
       current.id
     );
-    return { ok: true, data: { id: current.id } };
+    id = current.id;
+  } else {
+    id = nextId("INT");
+    db.prepare(
+      `INSERT INTO integration_configs(
+        id, company_id, provider, enabled, mode, endpoint, config_json,
+        health_status, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, 'adapter_only', ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      user.company_id,
+      payload.provider,
+      enabled,
+      payload.endpoint || null,
+      JSON.stringify(safeConfig),
+      enabled ? "configured_not_tested" : "disabled",
+      user.id,
+      now
+    );
   }
-  const id = nextId("INT");
-  db.prepare(
-    `INSERT INTO integration_configs(
-      id, company_id, provider, enabled, mode, endpoint, config_json,
-      health_status, updated_by, updated_at
-    ) VALUES (?, ?, ?, ?, 'adapter_only', ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    user.company_id,
-    payload.provider,
-    payload.enabled ? 1 : 0,
-    payload.endpoint || null,
-    JSON.stringify(safeConfig),
-    payload.enabled ? "configured_not_tested" : "disabled",
-    user.id,
-    now
-  );
   writeAudit(db, user, "integration.configure", "integration", id, {
     provider: payload.provider,
     enabled: Boolean(payload.enabled),
   });
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  const body = `${payload.provider} · ${enabled ? "已启用" : "已停用"}`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id,
+      user_id: recipient.id,
+      title: "外部集成配置已变更",
+      body,
+      kind: "business_record_status",
+      ref_type: "integration",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
