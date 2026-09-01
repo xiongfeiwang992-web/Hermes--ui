@@ -444,6 +444,25 @@ export function createRename(db: Db, user: SessionUser, payload: any): ApiResult
   );
   addEvent(db, user, "rename", id, "created", { target: payload.target });
   writeAudit(db, user, "dealExt.rename.create", "deal_rename", id);
+  const recipients = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, deal.store_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: deal.store_id,
+      user_id: recipient.id,
+      title: "成交更名草稿已登记",
+      body: reason,
+      kind: "deal_rename",
+      ref_type: "deal_rename",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
