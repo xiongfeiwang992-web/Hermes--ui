@@ -205,6 +205,18 @@ export function correctAttendance(db: Db, user: SessionUser, payload: any): ApiR
     check_out_at: checkOut,
     status,
   });
+  if (row.user_id && row.user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.user_id,
+      title: "考勤已修正",
+      body: `${row.work_date} · ${status} · ${reason}`,
+      kind: "business_record_status",
+      ref_type: "attendance_record",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status } };
 }
 
