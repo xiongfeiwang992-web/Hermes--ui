@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -278,5 +279,24 @@ export function saveCommissionTier(db: Db, user: SessionUser, p: any): ApiResult
      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`
   ).run(id, user.company_id, min, max, rate, user.id, nowIso(), nowIso());
   writeAudit(db, user, "commission_tier.create", "commission_tier", id, p);
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id || user.store_id,
+      user_id: recipient.id,
+      title: "提成阶梯已创建",
+      body: `金额 ${min}${max == null ? "+" : "～" + max} · 经纪人池 ${rate}`,
+      kind: "business_record_status",
+      ref_type: "commission_tier",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
