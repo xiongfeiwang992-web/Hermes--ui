@@ -90,6 +90,33 @@ export function saveJob(db: Db, user: SessionUser, payload: any): ApiResult {
       existing.id
     );
     writeAudit(db, user, "recruitment.job.update", "recruitment_job", existing.id);
+    const recipients = new Set<string>();
+    const admins = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND status='active' AND role='admin'`
+      )
+      .all(user.company_id) as { id: string }[];
+    for (const admin of admins) recipients.add(admin.id);
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND store_id=? AND status='active'
+         AND role='store_manager'`
+      )
+      .all(user.company_id, existing.store_id) as { id: string }[];
+    for (const manager of managers) recipients.add(manager.id);
+    recipients.delete(user.id);
+    for (const userId of recipients) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: existing.store_id,
+        user_id: userId,
+        title: "招聘岗位已更新",
+        body: `${title} · ${payload.target_role} · ${headcount} 人`,
+        kind: "recruitment",
+        ref_type: "recruitment_job",
+        ref_id: existing.id,
+      });
+    }
     return { ok: true, data: { id: existing.id } };
   }
   const id = nextId("JOB");
