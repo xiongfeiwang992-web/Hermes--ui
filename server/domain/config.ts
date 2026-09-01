@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -179,7 +180,13 @@ export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
 export function upsertDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   if (user.role !== "admin") return { ok: false, message: "无权限", code: 403 };
   if (!p.dict_type || !p.value || !p.label) return { ok: false, message: "字典信息不完整" };
-  const id = p.id || nextId("DIC");
+  const existing = db
+    .prepare(
+      `SELECT id FROM data_dictionaries
+       WHERE company_id=? AND dict_type=? AND value=?`
+    )
+    .get(user.company_id, p.dict_type, p.value) as any;
+  const id = existing?.id || p.id || nextId("DIC");
   db.prepare(
     `INSERT INTO data_dictionaries(id, company_id, dict_type, value, label, sort_order, status, created_by, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
@@ -187,6 +194,29 @@ export function upsertDictionary(db: Db, user: SessionUser, p: any): ApiResult {
      sort_order=excluded.sort_order, status='active', updated_at=excluded.updated_at`
   ).run(id, user.company_id, p.dict_type, p.value, p.label, Number(p.sort_order || 0), user.id, nowIso(), nowIso());
   writeAudit(db, user, "dictionary.upsert", "dictionary", id, p);
+  // 同键更新时提醒管理员/店长（首次新增由独立切片推送）
+  if (existing) {
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const body = `${p.dict_type} · ${p.label}（${p.value}）`;
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: recipient.store_id,
+        user_id: recipient.id,
+        title: "数据字典已更新",
+        body,
+        kind: "business_record_status",
+        ref_type: "dictionary",
+        ref_id: id,
+      });
+    }
+  }
   return { ok: true, data: { id } };
 }
 
