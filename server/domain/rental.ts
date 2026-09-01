@@ -665,6 +665,40 @@ export function changeWorkOrderStatus(
     return { ok: false, message: "工单状态无效" };
   }
   writeAudit(db, user, `rental.work_order.${payload.status}`, "rental_work_order", row.id);
+  const property = db
+    .prepare(`SELECT manager_user_id FROM rental_properties WHERE id=? AND company_id=?`)
+    .get(row.property_id, user.company_id) as { manager_user_id?: string } | undefined;
+  const recipients = new Set<string>();
+  if (row.created_by) recipients.add(row.created_by);
+  if (property?.manager_user_id) recipients.add(property.manager_user_id);
+  recipients.delete(user.id);
+  const isMaintenance = row.work_type === "maintenance";
+  const title =
+    payload.status === "in_progress"
+      ? isMaintenance
+        ? "维修工单已开始"
+        : "保洁工单已开始"
+      : isMaintenance
+        ? "维修工单已完成"
+        : "保洁工单已完成";
+  const body =
+    payload.status === "completed"
+      ? `${row.description} · ¥${Number(payload.actual_cost || 0)} · ${String(
+          payload.completion_note || ""
+        ).trim()}`
+      : row.description;
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title,
+      body,
+      kind: "rental",
+      ref_type: "rental_work_order",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: payload.status } };
 }
 
