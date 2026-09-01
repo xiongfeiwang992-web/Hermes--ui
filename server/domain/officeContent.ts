@@ -128,6 +128,30 @@ export function createDocument(db: Db, user: SessionUser, payload: any): ApiResu
     scope_type: scopeType,
     store_id: storeId,
   });
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  if (storeId)
+    recipients = recipients.filter(
+      (recipient) => recipient.role === "admin" || recipient.store_id === storeId
+    );
+  const kindLabel = payload.document_kind === "announcement" ? "公告" : "知识";
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId || recipient.store_id,
+      user_id: recipient.id,
+      title: `${kindLabel}草稿已创建`,
+      body: title,
+      kind: "office_announcement",
+      ref_type: "office_document",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft", version_no: 1 } };
 }
 
