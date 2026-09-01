@@ -126,6 +126,18 @@ export function setLock(db: Db, user: SessionUser, payload: any): ApiResult {
     ).run(user.id, now, reason, lockUntil, now, house.id);
     addEvent(db, user, "lock", house.id, "locked", { reason, lock_until: lockUntil });
     writeAudit(db, user, "propertyExt.lock", "house", house.id, { reason });
+    if (house.agent_id && house.agent_id !== user.id) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: house.store_id,
+        user_id: house.agent_id,
+        title: "房源已锁定",
+        body: `${house.title} · ${reason}`,
+        kind: "business_record_status",
+        ref_type: "house",
+        ref_id: house.id,
+      });
+    }
     return { ok: true, data: { id: house.id, is_locked: 1, lock_reason: reason } };
   }
   const unlockReason = String(payload.reason || "").trim();
@@ -140,6 +152,18 @@ export function setLock(db: Db, user: SessionUser, payload: any): ApiResult {
   writeAudit(db, user, "propertyExt.unlock", "house", house.id, {
     reason: unlockReason,
   });
+  if (house.agent_id && house.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: "房源已解锁",
+      body: `${house.title} · ${unlockReason}`,
+      kind: "business_record_status",
+      ref_type: "house",
+      ref_id: house.id,
+    });
+  }
   return { ok: true, data: { id: house.id, is_locked: 0 } };
 }
 
