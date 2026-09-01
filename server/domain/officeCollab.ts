@@ -716,6 +716,29 @@ export function saveSummary(db: Db, user: SessionUser, payload: any): ApiResult 
   );
   addEvent(db, user, "summary", id, "created");
   writeAudit(db, user, "officeCollab.summary.create", "office_work_summary", id);
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  recipients = recipients.filter(
+    (recipient) => recipient.role === "admin" || recipient.store_id === user.store_id
+  );
+  const body = `${periodStart}～${periodEnd}`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id || recipient.store_id,
+      user_id: recipient.id,
+      title: "工作总结草稿已创建",
+      body,
+      kind: "office_work_summary",
+      ref_type: "office_work_summary",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
