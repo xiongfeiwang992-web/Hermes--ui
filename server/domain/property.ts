@@ -218,6 +218,25 @@ export function returnKey(db: Db, user: SessionUser, payload: { id: string }): A
      borrowed_at = NULL, expected_return_at = NULL, updated_at = ? WHERE id = ?`
   ).run(now, now, key.id);
   writeAudit(db, user, "key.return", "house_key", key.id);
+  const house = db
+    .prepare(`SELECT id, title, agent_id FROM houses WHERE id=? AND company_id=?`)
+    .get(key.house_id, user.company_id) as any;
+  const recipients = new Set<string>();
+  if (key.keeper_user_id) recipients.add(key.keeper_user_id);
+  if (house?.agent_id) recipients.add(house.agent_id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: key.store_id,
+      user_id: userId,
+      title: "钥匙已归还",
+      body: `${house?.title || "房源"} · 钥匙 ${key.key_no}`,
+      kind: "key_borrow",
+      ref_type: "house_key",
+      ref_id: key.id,
+    });
+  }
   return { ok: true, data: { id: key.id } };
 }
 
