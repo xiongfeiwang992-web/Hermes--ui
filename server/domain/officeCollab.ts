@@ -126,6 +126,30 @@ export function saveExam(db: Db, user: SessionUser, payload: any): ApiResult {
       row.id
     );
     writeAudit(db, user, "officeCollab.exam.update", "office_exam", row.id);
+    let recipients = db
+      .prepare(
+        `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const notifyStoreId = storeId ?? row.store_id;
+    if (notifyStoreId)
+      recipients = recipients.filter(
+        (recipient) => recipient.role === "admin" || recipient.store_id === notifyStoreId
+      );
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: notifyStoreId || recipient.store_id,
+        user_id: recipient.id,
+        title: "考试草稿已更新",
+        body: title,
+        kind: "business_record_status",
+        ref_type: "office_exam",
+        ref_id: row.id,
+      });
+    }
     return { ok: true, data: { id: row.id } };
   }
   const id = nextId("OEX");
