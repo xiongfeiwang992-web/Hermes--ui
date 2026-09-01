@@ -199,6 +199,18 @@ export function submitExamAttempt(
   ).run(id, user.company_id, exam.id, user.id, score, passed, now);
   addEvent(db, user, "exam", exam.id, "attempt", { score, passed: !!passed });
   writeAudit(db, user, "officeCollab.exam.attempt", "office_exam_attempt", id);
+  if (exam.created_by && exam.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: exam.store_id || user.store_id,
+      user_id: exam.created_by,
+      title: passed ? "考试已通过" : "考试已提交",
+      body: `${exam.title} · ${user.display_name || "同事"} · ${score} 分`,
+      kind: "business_record_status",
+      ref_type: "office_exam_attempt",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, score, passed: !!passed } };
 }
 
