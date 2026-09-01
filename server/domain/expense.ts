@@ -89,6 +89,30 @@ export function createExpense(db: Db, user: SessionUser, payload: any): ApiResul
     amount: Number(payload.amount),
     category: payload.category,
   });
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  recipients = recipients.filter(
+    (recipient) => recipient.role === "admin" || recipient.store_id === user.store_id
+  );
+  const title = String(payload.title).trim();
+  const body = `${title} · ¥${Number(payload.amount).toFixed(2)}`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id || recipient.store_id,
+      user_id: recipient.id,
+      title: "费用报销草稿已创建",
+      body,
+      kind: "business_record_status",
+      ref_type: "expense_request",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
