@@ -222,6 +222,21 @@ export function activateProperty(db: Db, user: SessionUser, payload: any): ApiRe
   );
   addEvent(db, user, "property", row.id, "activated");
   writeAudit(db, user, "rental.property.activate", "rental_property", row.id);
+  if (row.manager_user_id && row.manager_user_id !== user.id) {
+    const house = db
+      .prepare(`SELECT title FROM houses WHERE id=? AND company_id=?`)
+      .get(row.house_id, user.company_id) as any;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.manager_user_id,
+      title: "托管物业已启用",
+      body: house?.title || row.id,
+      kind: "rental",
+      ref_type: "rental_property",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "active" } };
 }
 
