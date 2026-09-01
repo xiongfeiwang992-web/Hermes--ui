@@ -238,6 +238,25 @@ export function invalidateKey(db: Db, user: SessionUser, payload: any): ApiResul
     `UPDATE house_keys SET status = 'invalid', invalid_reason = ?, updated_at = ? WHERE id = ?`
   ).run(reason, nowIso(), key.id);
   writeAudit(db, user, "key.invalidate", "house_key", key.id, { reason });
+  const house = db
+    .prepare(`SELECT id, title, agent_id FROM houses WHERE id=? AND company_id=?`)
+    .get(key.house_id, user.company_id) as any;
+  const recipients = new Set<string>();
+  if (key.keeper_user_id) recipients.add(key.keeper_user_id);
+  if (house?.agent_id) recipients.add(house.agent_id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: key.store_id,
+      user_id: userId,
+      title: "钥匙已作废",
+      body: `${house?.title || "房源"} · 钥匙 ${key.key_no} · ${reason}`,
+      kind: "key_borrow",
+      ref_type: "house_key",
+      ref_id: key.id,
+    });
+  }
   return { ok: true, data: { id: key.id } };
 }
 
