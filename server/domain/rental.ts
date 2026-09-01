@@ -340,6 +340,21 @@ export function createLease(db: Db, user: SessionUser, payload: any): ApiResult 
   );
   addEvent(db, user, "lease", id, "created");
   writeAudit(db, user, "rental.lease.create", "rental_lease", id);
+  if (property.manager_user_id && property.manager_user_id !== user.id) {
+    const house = db
+      .prepare(`SELECT title FROM houses WHERE id=? AND company_id=?`)
+      .get(property.house_id, user.company_id) as any;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: property.store_id,
+      user_id: property.manager_user_id,
+      title: "租约草稿已登记",
+      body: `${house?.title || "托管物业"} · ${tenantName}`,
+      kind: "rental",
+      ref_type: "rental_lease",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
