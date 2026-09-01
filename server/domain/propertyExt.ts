@@ -606,6 +606,22 @@ export function activateExclusive(
     agency_type: profile.agency_type,
   });
   writeAudit(db, user, "propertyExt.exclusive.activate", "house_exclusive_profile", house.id);
+  const recipients = new Set<string>();
+  if (house.agent_id) recipients.add(house.agent_id);
+  if (profile.created_by) recipients.add(profile.created_by);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: userId,
+      title: profile.agency_type === "package" ? "包销已启用" : "独家代理已启用",
+      body: house.title,
+      kind: "business_record_status",
+      ref_type: "house_exclusive_profile",
+      ref_id: house.id,
+    });
+  }
   return { ok: true, data: { house_id: house.id, status: "active" } };
 }
 
