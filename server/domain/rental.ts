@@ -245,6 +245,21 @@ export function terminateProperty(db: Db, user: SessionUser, payload: any): ApiR
   ).run(reason, nowIso(), row.id);
   addEvent(db, user, "property", row.id, "terminated", { reason });
   writeAudit(db, user, "rental.property.terminate", "rental_property", row.id, { reason });
+  if (row.manager_user_id && row.manager_user_id !== user.id) {
+    const house = db
+      .prepare(`SELECT title FROM houses WHERE id=? AND company_id=?`)
+      .get(row.house_id, user.company_id) as any;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.manager_user_id,
+      title: "托管物业已终止",
+      body: `${house?.title || row.id} · ${reason}`,
+      kind: "rental",
+      ref_type: "rental_property",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "terminated" } };
 }
 
