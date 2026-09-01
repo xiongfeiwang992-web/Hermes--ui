@@ -168,6 +168,23 @@ export function createPayrollBatch(db: Db, user: SessionUser, payload: any): Api
   }
   addEvent(db, user, id, "created", { payroll_month: payload.payroll_month });
   writeAudit(db, user, "payroll.batch.create", "payroll_batch", id);
+  const financeUsers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND role='finance' AND status='active'`
+    )
+    .all(user.company_id) as any[];
+  for (const finance of financeUsers) {
+    if (finance.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      user_id: finance.id,
+      title: "工资批次已创建",
+      body: `${payload.payroll_month} 草稿待核算`,
+      kind: "payroll",
+      ref_type: "payroll_batch",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
