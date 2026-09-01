@@ -148,6 +148,33 @@ export function clockAttendance(db: Db, user: SessionUser, payload: any): ApiRes
     at: now,
     status,
   });
+  if (["late", "early_leave", "late_early"].includes(status)) {
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND status='active'
+         AND (role='admin' OR (role='store_manager' AND store_id=?))`
+      )
+      .all(user.company_id, user.store_id) as any[];
+    const label =
+      status === "late"
+        ? "迟到"
+        : status === "early_leave"
+          ? "早退"
+          : "迟到且早退";
+    for (const manager of managers) {
+      if (manager.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: user.store_id,
+        user_id: manager.id,
+        title: "考勤异常提醒",
+        body: `${user.display_name} · ${workDate} · ${label}`,
+        kind: "business_record_status",
+        ref_type: "attendance_record",
+        ref_id: row.id,
+      });
+    }
+  }
   return { ok: true, data: { id: row.id, kind: payload.kind, at: now, status } };
 }
 
