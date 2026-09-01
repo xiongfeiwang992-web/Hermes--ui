@@ -508,6 +508,25 @@ export function updatePublicPoolSettings(db: Db, user: SessionUser, payload: any
   writeAudit(db, user, "public_pool.settings", "settings", user.company_id, {
     public_pool_days: days,
   });
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id || user.store_id,
+      user_id: recipient.id,
+      title: "掉公规则已更新",
+      body: days > 0 ? `私客 ${days} 天未跟进将自动掉公` : "自动掉公已关闭",
+      kind: "customer_public_pool",
+      ref_type: "settings",
+      ref_id: user.company_id,
+    });
+  }
   return { ok: true, data: { public_pool_days: days, enabled: days > 0 } };
 }
 
