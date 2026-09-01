@@ -747,6 +747,30 @@ export function updateSalesReport(db: Db, user: SessionUser, payload: any): ApiR
   );
   addEvent(db, user, "sales_report", row.id, "updated", { contract_price: contractPrice });
   writeAudit(db, user, "newhome.sales.update", "newhome_sales_report", row.id);
+  const project = db
+    .prepare(`SELECT name FROM newhome_projects WHERE id=? AND company_id=?`)
+    .get(row.project_id, user.company_id) as { name?: string } | undefined;
+  const projectName = project?.name || "新房项目";
+  const recipients = db
+    .prepare(
+      `SELECT id FROM users
+       WHERE company_id=? AND status='active'
+         AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, row.store_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: recipient.id,
+      title: "新房销售报告已更新",
+      body: `${projectName} · ${unitNo} · ${contractPrice}`,
+      kind: "newhome_sales_report",
+      ref_type: "newhome_sales_report",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id } };
 }
 
