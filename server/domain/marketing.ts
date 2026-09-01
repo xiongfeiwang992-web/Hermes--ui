@@ -215,6 +215,30 @@ export function changeCampaignStatus(
   );
   addEvent(db, user, "campaign", row.id, payload.status);
   writeAudit(db, user, `marketing.campaign.${payload.status}`, "marketing_campaign", row.id);
+  const title = payload.status === "active" ? "营销活动已启用" : "营销活动已关闭";
+  const body = `${row.name} · ${row.channel}`;
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users
+       WHERE company_id=? AND status='active' AND id<>?
+       AND role IN ('agent', 'store_manager')`
+    )
+    .all(user.company_id, user.id) as { id: string; store_id: string }[];
+  if (row.store_id) {
+    recipients = recipients.filter((item) => item.store_id === row.store_id);
+  }
+  for (const recipient of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id || recipient.store_id,
+      user_id: recipient.id,
+      title,
+      body,
+      kind: "marketing",
+      ref_type: "marketing_campaign",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: payload.status } };
 }
 
