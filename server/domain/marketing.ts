@@ -183,6 +183,42 @@ export function createCampaign(db: Db, user: SessionUser, payload: any): ApiResu
   );
   addEvent(db, user, "campaign", id, "created");
   writeAudit(db, user, "marketing.campaign.create", "marketing_campaign", id);
+  const recipients = new Set<string>();
+  const admins = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active' AND role='admin'`
+    )
+    .all(user.company_id) as { id: string }[];
+  for (const admin of admins) recipients.add(admin.id);
+  if (storeId) {
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND store_id=? AND status='active'
+         AND role='store_manager'`
+      )
+      .all(user.company_id, storeId) as { id: string }[];
+    for (const manager of managers) recipients.add(manager.id);
+  } else {
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND status='active' AND role='store_manager'`
+      )
+      .all(user.company_id) as { id: string }[];
+    for (const manager of managers) recipients.add(manager.id);
+  }
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId,
+      user_id: userId,
+      title: "营销活动已创建",
+      body: `${name} · ${payload.channel}`,
+      kind: "marketing",
+      ref_type: "marketing_campaign",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "draft" } };
 }
 
