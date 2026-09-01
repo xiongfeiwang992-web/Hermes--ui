@@ -507,6 +507,29 @@ export function upsertDistributionCompany(
   }
   addEvent(db, user, "distribution_company", id, "created", { name });
   writeAudit(db, user, "newhome.distribution.create", "newhome_distribution_company", id);
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  if (storeId)
+    recipients = recipients.filter(
+      (recipient) => recipient.role === "admin" || recipient.store_id === storeId
+    );
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId || recipient.store_id,
+      user_id: recipient.id,
+      title: "分销公司已登记",
+      body: name,
+      kind: "business_record_status",
+      ref_type: "newhome_distribution_company",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
