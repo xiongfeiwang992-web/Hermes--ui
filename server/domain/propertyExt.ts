@@ -553,6 +553,19 @@ export function saveExclusive(db: Db, user: SessionUser, payload: any): ApiResul
     );
     addEvent(db, user, "exclusive", house.id, "updated");
     writeAudit(db, user, "propertyExt.exclusive.update", "house_exclusive_profile", house.id);
+    if (house.agent_id && house.agent_id !== user.id) {
+      const typeLabel = payload.agency_type === "package" ? "包销" : "独家代理";
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: house.store_id,
+        user_id: house.agent_id,
+        title: `${typeLabel}资料已更新`,
+        body: `${house.title} · ${startDate}～${endDate}`,
+        kind: "business_record_status",
+        ref_type: "house_exclusive_profile",
+        ref_id: house.id,
+      });
+    }
     return { ok: true, data: { house_id: house.id, status: existing.status } };
   }
   db.prepare(
