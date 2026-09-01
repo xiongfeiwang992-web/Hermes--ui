@@ -162,6 +162,30 @@ export function updateDocument(db: Db, user: SessionUser, payload: any): ApiResu
   writeAudit(db, user, "office_document.update", "office_document", row.id, {
     version_no: version,
   });
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  if (row.store_id)
+    recipients = recipients.filter(
+      (recipient) => recipient.role === "admin" || recipient.store_id === row.store_id
+    );
+  const kindLabel = row.document_kind === "announcement" ? "公告" : "知识";
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id || recipient.store_id,
+      user_id: recipient.id,
+      title: `${kindLabel}草稿已更新`,
+      body: `${title} · v${version}`,
+      kind: "office_announcement",
+      ref_type: "office_document",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "draft", version_no: version } };
 }
 
