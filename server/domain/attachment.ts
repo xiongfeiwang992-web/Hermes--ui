@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { markReceived } from "./dealDocuments";
 import { linkEntrustmentAttachment } from "./entrustment";
 import { houseVisibleTo } from "../auth/policy";
@@ -556,5 +557,39 @@ export function addAttachment(db: Db, user: SessionUser, payload: any): ApiResul
     category: payload.category,
     size: stat.size,
   });
+  const recipientIds = new Set<string>();
+  let notifyStoreId = attachmentStoreId;
+  let body = `${payload.name} · ${payload.category}`;
+  if (payload.parent_type === "house") {
+    const house = db
+      .prepare(`SELECT id, title, agent_id, store_id FROM houses WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (house?.agent_id) recipientIds.add(house.agent_id);
+    notifyStoreId = house?.store_id || attachmentStoreId;
+    body = `${house?.title || payload.parent_id} · ${payload.name}`;
+  } else if (payload.parent_type === "deal") {
+    const deal = db
+      .prepare(`SELECT id, created_by, agent_ids, store_id FROM deals WHERE id=? AND company_id=?`)
+      .get(payload.parent_id, user.company_id) as any;
+    if (deal?.created_by) recipientIds.add(deal.created_by);
+    for (const agentId of JSON.parse(deal?.agent_ids || "[]") as string[]) {
+      recipientIds.add(agentId);
+    }
+    notifyStoreId = deal?.store_id || attachmentStoreId;
+    body = `成交单 ${payload.parent_id} · ${payload.name}`;
+  }
+  recipientIds.delete(user.id);
+  for (const recipientId of recipientIds) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: notifyStoreId,
+      user_id: recipientId,
+      title: "附件已上传",
+      body,
+      kind: "business_record_status",
+      ref_type: "attachment",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, size: stat.size } };
 }
