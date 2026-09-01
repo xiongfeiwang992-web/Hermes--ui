@@ -115,6 +115,23 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
   initForDeal(db, id);
   initializeMortgage(db, id);
   writeAudit(db, user, "deal.create", "deal", id);
+  const recipients = new Set<string>();
+  if (house.agent_id) recipients.add(house.agent_id);
+  if (customer.agent_id) recipients.add(customer.agent_id);
+  for (const agentId of agentIds) recipients.add(agentId);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: userId,
+      title: "成交草稿已登记",
+      body: `成交单 ${id} · 成交价 ${Number(payload.contract_price)}`,
+      kind: "business_record_status",
+      ref_type: "deal",
+      ref_id: id,
+    });
+  }
   return getDeal(db, user, id);
 }
 
