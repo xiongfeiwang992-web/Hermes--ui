@@ -76,6 +76,25 @@ export function upsertCommunity(db: Db, user: SessionUser, payload: any): ApiRes
       return { ok: false, message: "同名小区已存在", code: 409 };
     }
     writeAudit(db, user, "community.update", "community", payload.id);
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: recipient.store_id,
+        user_id: recipient.id,
+        title: "小区信息已更新",
+        body: name,
+        kind: "business_record_status",
+        ref_type: "community",
+        ref_id: payload.id,
+      });
+    }
     return { ok: true, data: { id: payload.id } };
   }
   const id = nextId("COM");
