@@ -101,6 +101,25 @@ export function upsertCommunity(db: Db, user: SessionUser, payload: any): ApiRes
     return { ok: false, message: "同名小区已存在", code: 409 };
   }
   writeAudit(db, user, "community.create", "community", id, { name });
+  const recipients = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: recipient.id,
+      title: "新小区已登记",
+      body: [name, payload.district, payload.address].filter(Boolean).join(" · "),
+      kind: "business_record_status",
+      ref_type: "community",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
