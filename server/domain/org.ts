@@ -1,6 +1,7 @@
 import type { Db } from "../db/database";
 import { canManageOrg } from "../auth/policy";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { hashPassword, verifyPassword } from "../utils/password";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, Role, SessionUser } from "../utils/types";
@@ -215,6 +216,35 @@ export function upsertUser(
     account: payload.account,
     role: payload.role,
   });
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: payload.store_id,
+    user_id: id,
+    title: "账号已开通",
+    body: `${payload.display_name}（${payload.account}）· ${payload.role}`,
+    kind: "employee_account",
+    ref_type: "user",
+    ref_id: id,
+  });
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, payload.store_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id || manager.id === id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: payload.store_id,
+      user_id: manager.id,
+      title: "新员工账号已创建",
+      body: `${payload.display_name}（${payload.account}）· ${payload.role}`,
+      kind: "employee_account",
+      ref_type: "user",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
