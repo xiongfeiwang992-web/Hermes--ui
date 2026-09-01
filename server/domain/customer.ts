@@ -476,6 +476,22 @@ export function mergeCustomers(db: Db, user: SessionUser, payload: any): ApiResu
     source_id: source.id,
     reason: payload.reason,
   });
+  const recipients = new Set<string>();
+  if (source.agent_id) recipients.add(source.agent_id);
+  if (target.agent_id) recipients.add(target.agent_id);
+  for (const userId of recipients) {
+    if (userId === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: source.store_id,
+      user_id: userId,
+      title: "客源已合并",
+      body: `${source.name} → ${target.name}`,
+      kind: "customer_merge",
+      ref_type: "customer",
+      ref_id: target.id,
+    });
+  }
   return { ok: true, data: { id: target.id, merged_source_id: source.id } };
 }
 
