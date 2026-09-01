@@ -255,6 +255,22 @@ export function investigateCase(db: Db, user: SessionUser, payload: any): ApiRes
   ).run(nowIso(), row.id);
   addEvent(db, user, "case", row.id, "investigating");
   writeAudit(db, user, "customer_care.case.investigate", "customer_care_case", row.id);
+  const recipients = new Set<string>();
+  if (row.created_by) recipients.add(row.created_by);
+  if (row.assignee_user_id) recipients.add(row.assignee_user_id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: row.case_type === "lawsuit" ? "诉讼案件已开始调查" : "客户投诉已开始调查",
+      body: row.title,
+      kind: "customer_care",
+      ref_type: "customer_care_case",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "investigating" } };
 }
 
