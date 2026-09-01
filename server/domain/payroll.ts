@@ -259,7 +259,8 @@ export function adjustPayrollItem(db: Db, user: SessionUser, payload: any): ApiR
   if (user.role !== "finance") return { ok: false, message: "仅财务可调整工资", code: 403 };
   const item = db
     .prepare(
-      `SELECT i.*, b.status AS batch_status FROM payroll_items i
+      `SELECT i.*, b.status AS batch_status, b.payroll_month
+       FROM payroll_items i
        JOIN payroll_batches b ON b.id=i.batch_id WHERE i.id=? AND i.company_id=?`
     )
     .get(payload.id, user.company_id) as any;
@@ -293,6 +294,18 @@ export function adjustPayrollItem(db: Db, user: SessionUser, payload: any): ApiR
     reason,
     net_amount: net,
   });
+  if (item.user_id && item.user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: item.store_id,
+      user_id: item.user_id,
+      title: `${item.payroll_month} 工资条已调整`,
+      body: `实发 ${net.toFixed(2)} · ${reason}`,
+      kind: "payroll",
+      ref_type: "payroll_item",
+      ref_id: item.id,
+    });
+  }
   return { ok: true, data: { id: item.id, gross_amount: gross, net_amount: net } };
 }
 
