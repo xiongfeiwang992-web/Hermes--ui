@@ -395,6 +395,18 @@ export function upsertContact(db: Db, user: SessionUser, payload: any): ApiResul
   writeAudit(db, user, "customer_contact.create", "customer_contact", id, {
     customer_id: customer.id,
   });
+  if (customer.agent_id && customer.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: customer.store_id,
+      user_id: customer.agent_id,
+      title: "客源联系人已登记",
+      body: `${customer.name} · ${name} · ${phone}`,
+      kind: "customer_contact",
+      ref_type: "customer_contact",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
