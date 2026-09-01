@@ -278,19 +278,42 @@ export function setPermission(db: Db, user: SessionUser, payload: any): ApiResul
     )
     .get(user.company_id, payload.role, payload.feature) as any;
   const now = nowIso();
+  const allowed = payload.allowed ? 1 : 0;
+  let id: string;
   if (existing) {
     db.prepare(
       `UPDATE feature_permissions SET allowed = ?, updated_by = ?, updated_at = ? WHERE id = ?`
-    ).run(payload.allowed ? 1 : 0, user.id, now, existing.id);
-    return { ok: true, data: { id: existing.id } };
+    ).run(allowed, user.id, now, existing.id);
+    id = existing.id;
+  } else {
+    id = nextId("PERM");
+    db.prepare(
+      `INSERT INTO feature_permissions(
+        id, company_id, role, feature, allowed, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, user.company_id, payload.role, payload.feature, allowed, user.id, now);
   }
-  const id = nextId("PERM");
-  db.prepare(
-    `INSERT INTO feature_permissions(
-      id, company_id, role, feature, allowed, updated_by, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, user.company_id, payload.role, payload.feature, payload.allowed ? 1 : 0, user.id, now);
   writeAudit(db, user, "permission.set", "feature_permission", id, payload);
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  const body = `${payload.role} · ${payload.feature} · ${allowed ? "允许" : "禁止"}`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id,
+      user_id: recipient.id,
+      title: "功能权限已变更",
+      body,
+      kind: "business_record_status",
+      ref_type: "feature_permission",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
