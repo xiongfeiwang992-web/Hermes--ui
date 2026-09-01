@@ -290,6 +290,18 @@ export function createSurvey(db: Db, user: SessionUser, payload: any): ApiResult
     defaultProtectionUntil(db, user.company_id)
   );
   writeAudit(db, user, "survey.create", "house_survey", id, { house_id: house.id });
+  if (house.agent_id && house.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: payload.survey_type === "vacant_view" ? "空看已完成" : "实勘已完成",
+      body: `${house.title} · ${summary}`,
+      kind: "business_record_status",
+      ref_type: "house_survey",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
