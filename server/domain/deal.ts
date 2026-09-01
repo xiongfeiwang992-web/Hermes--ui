@@ -600,6 +600,19 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
     nowIso()
   );
   writeAudit(db, user, "payment.refund", "payment", id, { deal_id: deal.id, amount });
+  for (const uid of parseJson<string[]>(deal.agent_ids, [])) {
+    if (uid === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: deal.store_id,
+      user_id: uid,
+      title: "成交已退款",
+      body: `成交单 ${deal.id} 退款 ¥${amount}：${String(payload.reason || "").trim()}`,
+      kind: "payment",
+      ref_type: "payment",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
