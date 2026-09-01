@@ -164,6 +164,26 @@ export function publishExam(db: Db, user: SessionUser, payload: any): ApiResult 
     nowIso(),
     row.id
   );
+  let recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users
+       WHERE company_id=? AND status='active' AND id<>? AND role<>'finance'`
+    )
+    .all(user.company_id, user.id) as any[];
+  if (row.store_id)
+    recipients = recipients.filter((recipient) => recipient.store_id === row.store_id);
+  for (const recipient of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id || recipient.store_id,
+      user_id: recipient.id,
+      title: "考试已发布",
+      body: row.title,
+      kind: "business_record_status",
+      ref_type: "office_exam",
+      ref_id: row.id,
+    });
+  }
   addEvent(db, user, "exam", row.id, "published");
   writeAudit(db, user, "officeCollab.exam.publish", "office_exam", row.id);
   return { ok: true, data: { id: row.id, status: "published" } };
