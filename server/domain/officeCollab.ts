@@ -307,6 +307,18 @@ export function signupEvent(db: Db, user: SessionUser, payload: any): ApiResult 
       `UPDATE office_event_signups
        SET status='signed', signed_at=?, cancelled_at=NULL WHERE id=?`
     ).run(now, existing.id);
+    if (row.created_by && row.created_by !== user.id) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: row.store_id || user.store_id,
+        user_id: row.created_by,
+        title: "活动有人报名",
+        body: `${row.title} · ${user.display_name}`,
+        kind: "business_record_status",
+        ref_type: "office_event_signup",
+        ref_id: existing.id,
+      });
+    }
     return { ok: true, data: { id: existing.id, status: "signed" } };
   }
   const id = nextId("OES");
@@ -317,6 +329,18 @@ export function signupEvent(db: Db, user: SessionUser, payload: any): ApiResult 
   ).run(id, user.company_id, row.id, user.id, now);
   addEvent(db, user, "event", row.id, "signup");
   writeAudit(db, user, "officeCollab.event.signup", "office_event_signup", id);
+  if (row.created_by && row.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id || user.store_id,
+      user_id: row.created_by,
+      title: "活动有人报名",
+      body: `${row.title} · ${user.display_name}`,
+      kind: "business_record_status",
+      ref_type: "office_event_signup",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "signed" } };
 }
 
