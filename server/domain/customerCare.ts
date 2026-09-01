@@ -467,6 +467,20 @@ export function completeTask(db: Db, user: SessionUser, payload: any): ApiResult
     satisfaction_score: score,
   });
   writeAudit(db, user, "customer_care.task.complete", "customer_care_task", row.id);
+  if (row.created_by && row.created_by !== user.id) {
+    const scoreText =
+      score != null ? ` · 满意度 ${score}` : "";
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title: row.task_type === "survey" ? "满意度调查已完成" : "客户回访已完成",
+      body: `${row.purpose} · ${result}${scoreText}`,
+      kind: "customer_care",
+      ref_type: "customer_care_task",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "completed" } };
 }
 
