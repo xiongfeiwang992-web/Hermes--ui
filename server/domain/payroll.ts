@@ -230,6 +230,23 @@ export function calculatePayroll(db: Db, user: SessionUser, payload: any): ApiRe
   writeAudit(db, user, "payroll.calculate", "payroll_batch", batch.id, {
     employees: profiles.length,
   });
+  const admins = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND role='admin' AND status='active'`
+    )
+    .all(user.company_id) as any[];
+  for (const admin of admins) {
+    if (admin.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      user_id: admin.id,
+      title: "工资批次已核算",
+      body: `${batch.payroll_month} · ${profiles.length} 人待审批`,
+      kind: "payroll",
+      ref_type: "payroll_batch",
+      ref_id: batch.id,
+    });
+  }
   return { ok: true, data: { id: batch.id, status: "calculated", employees: profiles.length } };
 }
 
