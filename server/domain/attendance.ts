@@ -90,6 +90,26 @@ export function saveAttendanceSettings(db: Db, user: SessionUser, payload: any):
     work_end_time: payload.work_end_time,
     late_grace_minutes: grace,
   });
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  const body = `${payload.work_start_time}-${payload.work_end_time} · 宽限 ${grace} 分钟`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id,
+      user_id: recipient.id,
+      title: "考勤参数已更新",
+      body,
+      kind: "business_record_status",
+      ref_type: "attendance_settings",
+      ref_id: user.company_id,
+    });
+  }
   return { ok: true, data: settings(db, user.company_id) };
 }
 
