@@ -355,6 +355,18 @@ export function addMedia(db: Db, user: SessionUser, payload: any): ApiResult {
     media_type: payload.media_type,
   });
   writeAudit(db, user, "propertyExt.media.add", "house_media", id);
+  if (house.agent_id && house.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: "房源媒体已登记",
+      body: `${house.title} · ${payload.media_type} · ${title}`,
+      kind: "house_agent",
+      ref_type: "house_media",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "active" } };
 }
 
