@@ -441,6 +441,21 @@ export function terminateLease(db: Db, user: SessionUser, payload: any): ApiResu
   });
   tx();
   writeAudit(db, user, "rental.lease.terminate", "rental_lease", lease.id, { reason });
+  const property = db
+    .prepare(`SELECT manager_user_id FROM rental_properties WHERE id=?`)
+    .get(lease.property_id) as any;
+  if (property?.manager_user_id && property.manager_user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: lease.store_id,
+      user_id: property.manager_user_id,
+      title: "租约已终止",
+      body: `${lease.tenant_name} · ${reason}`,
+      kind: "rental",
+      ref_type: "rental_lease",
+      ref_id: lease.id,
+    });
+  }
   return { ok: true, data: { id: lease.id, status: "terminated" } };
 }
 
