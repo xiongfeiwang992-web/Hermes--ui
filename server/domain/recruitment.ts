@@ -192,6 +192,27 @@ export function createCandidate(db: Db, user: SessionUser, payload: any): ApiRes
   writeAudit(db, user, "recruitment.candidate.create", "recruitment_candidate", id, {
     job_id: job.id,
   });
+  const recipients = new Set<string>();
+  if (job.created_by) recipients.add(job.created_by);
+  const admins = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active' AND role='admin'`
+    )
+    .all(user.company_id) as { id: string }[];
+  for (const admin of admins) recipients.add(admin.id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: job.store_id,
+      user_id: userId,
+      title: "新招聘候选人",
+      body: `${name} · ${job.title}`,
+      kind: "recruitment",
+      ref_type: "recruitment_candidate",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "new" } };
 }
 
