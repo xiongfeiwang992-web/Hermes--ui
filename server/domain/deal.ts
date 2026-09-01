@@ -622,9 +622,32 @@ export function markCommissionPaid(
   if (!(user.role === "admin" || user.role === "finance")) {
     return { ok: false, message: "无权限", code: 403 };
   }
+  const current = db
+    .prepare(`SELECT * FROM commissions WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "提成记录不存在" };
+  if (current.status !== "accrued") {
+    return { ok: false, message: current.status === "paid" ? "该提成已发放" : "当前状态不可发放" };
+  }
+  const now = nowIso();
   db.prepare(
     `UPDATE commissions SET status = 'paid', updated_at = ? WHERE id = ? AND company_id = ?`
-  ).run(nowIso(), payload.id, user.company_id);
-  writeAudit(db, user, "commission.paid", "commission", payload.id);
-  return { ok: true, data: { id: payload.id } };
+  ).run(now, payload.id, user.company_id);
+  writeAudit(db, user, "commission.paid", "commission", payload.id, {
+    deal_id: current.deal_id,
+    amount: current.amount,
+  });
+  if (current.user_id && current.user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: current.user_id,
+      title: "提成已发放",
+      body: `成交单 ${current.deal_id} 提成 ¥${current.amount} 已标记发放`,
+      kind: "commission_paid",
+      ref_type: "commission",
+      ref_id: current.id,
+    });
+  }
+  return { ok: true, data: { id: payload.id, status: "paid" } };
 }
