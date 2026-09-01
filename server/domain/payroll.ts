@@ -125,6 +125,18 @@ export function saveSalaryProfile(db: Db, user: SessionUser, payload: any): ApiR
     fixed_allowance: money(payload.fixed_allowance),
     fixed_deduction: money(payload.fixed_deduction),
   });
+  if (employee.id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: employee.store_id,
+      user_id: employee.id,
+      title: "薪资档案已更新",
+      body: `基本工资 ${money(payload.base_salary)} · 津贴 ${money(payload.fixed_allowance)}`,
+      kind: "payroll",
+      ref_type: "salary_profile",
+      ref_id: employee.id,
+    });
+  }
   return { ok: true, data: { user_id: employee.id } };
 }
 
