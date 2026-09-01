@@ -87,6 +87,22 @@ export function createEarnest(db: Db, user: SessionUser, payload: any): ApiResul
     now
   );
   writeAudit(db, user, "earnest.create", "earnest_money", id, { amount });
+  const recipients = new Set<string>();
+  if (house.agent_id) recipients.add(house.agent_id);
+  if (customer.agent_id) recipients.add(customer.agent_id);
+  for (const userId of recipients) {
+    if (userId === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: userId,
+      title: "意向金已登记",
+      body: `${customer.name} · ${house.title} · ¥${amount}`,
+      kind: "earnest_create",
+      ref_type: "earnest_money",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 

@@ -22,8 +22,8 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "payment",
     label: "收付款",
-    description: "佣金到账、收款驳回、意向金冲抵与退款",
-    kinds: ["payment", "payment_reject", "earnest_apply", "earnest_refund"],
+    description: "佣金到账、收款驳回、意向金登记冲抵与退款",
+    kinds: ["payment", "payment_reject", "earnest_create", "earnest_apply", "earnest_refund"],
   },
   {
     key: "follow",
