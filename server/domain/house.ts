@@ -461,17 +461,19 @@ export function changeHouseAgent(
     from: current.agent_id,
     to: payload.agent_id,
   });
-  createMessage(db, {
-    company_id: user.company_id,
-    store_id: current.store_id,
-    user_id: payload.agent_id,
-    title: "接盘房源已分配",
-    body: `房源「${current.title}」已指定您为接盘人`,
-    kind: "house_agent",
-    ref_type: "house",
-    ref_id: current.id,
-  });
-  if (current.agent_id) {
+  if (payload.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: payload.agent_id,
+      title: "接盘房源已分配",
+      body: `房源「${current.title}」已指定您为接盘人`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: current.id,
+    });
+  }
+  if (current.agent_id && current.agent_id !== user.id) {
     createMessage(db, {
       company_id: user.company_id,
       store_id: current.store_id,
