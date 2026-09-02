@@ -476,21 +476,29 @@ export function decideWorkflow(db: Db, user: SessionUser, payload: any): ApiResu
     }
   });
   tx();
-  createMessage(db, {
-    company_id: user.company_id,
-    store_id: row.store_id,
-    user_id: row.created_by,
-    title: decision === "approved" ? "会签已通过一步" : "会签已驳回",
-    body: comment || row.title,
-    kind: "office_workflow",
-    ref_type: "office_workflow",
-    ref_id: row.id,
-  });
-  addEvent(db, user, "workflow", row.id, decision, { comment });
-  writeAudit(db, user, `officeCollab.workflow.${decision}`, "office_workflow", row.id);
   const latest = db
     .prepare(`SELECT status FROM office_workflows WHERE id=?`)
     .get(row.id) as any;
+  if (row.created_by !== user.id) {
+    const title =
+      decision === "rejected"
+        ? "会签已驳回"
+        : latest.status === "approved"
+          ? "会签已全部通过"
+          : "会签已通过一步";
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title,
+      body: comment || row.title,
+      kind: "office_workflow",
+      ref_type: "office_workflow",
+      ref_id: row.id,
+    });
+  }
+  addEvent(db, user, "workflow", row.id, decision, { comment });
+  writeAudit(db, user, `officeCollab.workflow.${decision}`, "office_workflow", row.id);
   return { ok: true, data: { id: row.id, status: latest.status } };
 }
 
