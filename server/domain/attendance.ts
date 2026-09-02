@@ -307,12 +307,20 @@ export function reviewLeave(db: Db, user: SessionUser, payload: any): ApiResult 
     `UPDATE leave_requests SET status=?, reviewed_by=?, reviewed_at=?,
      reject_reason=?, updated_at=? WHERE id=?`
   ).run(payload.status, user.id, now, payload.status === "rejected" ? reason : null, now, row.id);
+  const typeLabel =
+    row.leave_type === "annual"
+      ? "年假"
+      : row.leave_type === "sick"
+        ? "病假"
+        : row.leave_type === "personal"
+          ? "事假"
+          : "其他";
   createMessage(db, {
     company_id: user.company_id,
     store_id: row.store_id,
     user_id: row.applicant_user_id,
     title: payload.status === "approved" ? "请假申请已通过" : "请假申请已驳回",
-    body: reason || `${row.duration_hours} 小时请假`,
+    body: reason || `${typeLabel} · ${row.duration_hours} 小时`,
     kind: "leave_review",
     ref_type: "leave_request",
     ref_id: row.id,
