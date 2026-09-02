@@ -190,16 +190,27 @@ export function borrowKey(db: Db, user: SessionUser, payload: any): ApiResult {
      WHERE id = ?`
   ).run(borrowerId, now, payload.expected_return_at || null, now, key.id);
   writeAudit(db, user, "key.borrow", "house_key", key.id, { borrower_id: borrowerId });
-  createMessage(db, {
-    company_id: user.company_id,
-    store_id: key.store_id,
-    user_id: borrowerId,
-    title: "钥匙已借出",
-    body: `钥匙 ${key.key_no} 已登记借用`,
-    kind: "key_borrow",
-    ref_type: "house_key",
-    ref_id: key.id,
-  });
+  const house = db
+    .prepare(`SELECT id, title, agent_id FROM houses WHERE id=? AND company_id=?`)
+    .get(key.house_id, user.company_id) as any;
+  const recipients = new Set<string>();
+  recipients.add(borrowerId);
+  if (key.keeper_user_id) recipients.add(key.keeper_user_id);
+  if (house?.agent_id) recipients.add(house.agent_id);
+  recipients.delete(user.id);
+  const houseLabel = String(house?.title || "").trim() || "房源";
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: key.store_id,
+      user_id: userId,
+      title: "钥匙已借出",
+      body: `${houseLabel} · 钥匙 ${key.key_no} 已借给 ${borrower.display_name}`,
+      kind: "key_borrow",
+      ref_type: "house_key",
+      ref_id: key.id,
+    });
+  }
   return { ok: true, data: { id: key.id } };
 }
 
