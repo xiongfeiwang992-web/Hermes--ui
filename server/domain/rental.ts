@@ -604,17 +604,22 @@ export function createWorkOrder(db: Db, user: SessionUser, payload: any): ApiRes
     now
   );
   addEvent(db, user, "work_order", id, "created");
-  if (assigneeId !== user.id)
+  if (assigneeId !== user.id) {
+    const house = db
+      .prepare(`SELECT title FROM houses WHERE id=?`)
+      .get(property.house_id) as { title?: string } | undefined;
+    const houseLabel = String(house?.title || "").trim() || String(property.house_id).slice(0, 8);
     createMessage(db, {
       company_id: user.company_id,
       store_id: property.store_id,
       user_id: assigneeId,
       title: payload.work_type === "maintenance" ? "新维修工单" : "新保洁工单",
-      body: description,
+      body: `「${houseLabel}」${description}`,
       kind: "rental",
       ref_type: "rental_work_order",
       ref_id: id,
     });
+  }
   writeAudit(db, user, "rental.work_order.create", "rental_work_order", id);
   return { ok: true, data: { id, status: "pending" } };
 }
