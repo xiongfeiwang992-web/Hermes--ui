@@ -412,12 +412,13 @@ export function submitWorkflow(db: Db, user: SessionUser, payload: any): ApiResu
     .prepare(`SELECT user_id FROM office_workflow_approvers WHERE workflow_id=?`)
     .all(row.id) as any[];
   for (const approver of approvers) {
+    if (approver.user_id === user.id) continue;
     createMessage(db, {
       company_id: user.company_id,
       store_id: row.store_id,
       user_id: approver.user_id,
       title: "待会签流程",
-      body: row.title,
+      body: `${user.display_name} · ${row.title}`,
       kind: "office_workflow",
       ref_type: "office_workflow",
       ref_id: row.id,
