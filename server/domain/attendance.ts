@@ -245,17 +245,18 @@ export function createLeave(db: Db, user: SessionUser, payload: any): ApiResult 
     now,
     now
   );
-  const managers = db
+  const reviewers = db
     .prepare(
-      `SELECT id FROM users WHERE company_id=? AND store_id=? AND role='store_manager'
-       AND status='active' AND id<>?`
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))
+       AND id<>?`
     )
     .all(user.company_id, user.store_id, user.id) as any[];
-  for (const manager of managers) {
+  for (const reviewer of reviewers) {
     createMessage(db, {
       company_id: user.company_id,
       store_id: user.store_id,
-      user_id: manager.id,
+      user_id: reviewer.id,
       title: "请假申请待审批",
       body: `${user.display_name} · ${durationHours} 小时`,
       kind: "leave_pending",
