@@ -356,19 +356,23 @@ export function submitVerification(db: Db, user: SessionUser, payload: any): Api
     user.id,
     defaultProtectionUntil(db, user.company_id)
   );
-  const managers = db
+  const reviewers = db
     .prepare(
-      `SELECT id FROM users WHERE company_id = ? AND store_id = ?
-       AND role IN ('store_manager','admin') AND status = 'active'`
+      `SELECT id FROM users WHERE company_id = ? AND status = 'active'
+       AND id <> ?
+       AND (
+         role = 'admin'
+         OR (role = 'store_manager' AND store_id = ?)
+       )`
     )
-    .all(user.company_id, house.store_id) as any[];
-  for (const manager of managers) {
+    .all(user.company_id, user.id, house.store_id) as any[];
+  for (const reviewer of reviewers) {
     createMessage(db, {
       company_id: user.company_id,
       store_id: house.store_id,
-      user_id: manager.id,
+      user_id: reviewer.id,
       title: "房源验真待审核",
-      body: `${house.title} 的验真记录待审核`,
+      body: `${user.display_name} 提交「${house.title}」验真待审核`,
       kind: "verification_pending",
       ref_type: "house_verification",
       ref_id: id,
