@@ -555,7 +555,7 @@ export function createTicket(db: Db, user: SessionUser, payload: any): ApiResult
       store_id: user.store_id,
       user_id: manager.id,
       title: "票据申领待审批",
-      body: title,
+      body: `${user.display_name} 申领「${title}」×${quantity}`,
       kind: "office_ticket",
       ref_type: "office_ticket",
       ref_id: id,
