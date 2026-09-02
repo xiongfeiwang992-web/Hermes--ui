@@ -417,19 +417,26 @@ export function reviewVerification(db: Db, user: SessionUser, payload: any): Api
     `UPDATE house_verifications SET status = ?, reviewed_by = ?, reviewed_at = ?,
      reject_reason = ?, updated_at = ? WHERE id = ?`
   ).run(payload.status, user.id, now, payload.reason || null, now, record.id);
-  createMessage(db, {
-    company_id: user.company_id,
-    store_id: record.store_id,
-    user_id: record.submitted_by,
-    title: payload.status === "approved" ? "房源验真已通过" : "房源验真已驳回",
-    body:
-      payload.status === "approved"
-        ? `验真记录 ${record.id} 已通过`
-        : `验真记录 ${record.id} 已驳回：${payload.reason}`,
-    kind: "verification_review",
-    ref_type: "house_verification",
-    ref_id: record.id,
-  });
+  if (record.submitted_by !== user.id) {
+    const house = db
+      .prepare(`SELECT title FROM houses WHERE id = ?`)
+      .get(record.house_id) as { title?: string } | undefined;
+    const houseLabel = String(house?.title || "").trim() || String(record.house_id).slice(0, 8);
+    const reason = String(payload.reason || "").trim();
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: record.store_id,
+      user_id: record.submitted_by,
+      title: payload.status === "approved" ? "房源验真已通过" : "房源验真已驳回",
+      body:
+        payload.status === "approved"
+          ? `「${houseLabel}」验真已通过`
+          : `「${houseLabel}」验真已驳回：${reason}`,
+      kind: "verification_review",
+      ref_type: "house_verification",
+      ref_id: record.id,
+    });
+  }
   writeAudit(db, user, "verification.review", "house_verification", record.id, {
     status: payload.status,
     reason: payload.reason,
