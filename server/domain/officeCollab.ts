@@ -752,16 +752,18 @@ export function reviewSummary(db: Db, user: SessionUser, payload: any): ApiResul
      SET status='reviewed', review_comment=?, reviewed_by=?, reviewed_at=?, updated_at=?
      WHERE id=?`
   ).run(comment, user.id, now, now, row.id);
-  createMessage(db, {
-    company_id: user.company_id,
-    store_id: row.store_id,
-    user_id: row.user_id,
-    title: "工作总结已评阅",
-    body: comment,
-    kind: "office_work_summary",
-    ref_type: "office_work_summary",
-    ref_id: row.id,
-  });
+  if (row.user_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.user_id,
+      title: "工作总结已评阅",
+      body: `${row.period_start}～${row.period_end} · ${comment}`,
+      kind: "office_work_summary",
+      ref_type: "office_work_summary",
+      ref_id: row.id,
+    });
+  }
   addEvent(db, user, "summary", row.id, "reviewed", { comment });
   writeAudit(db, user, "officeCollab.summary.review", "office_work_summary", row.id);
   return { ok: true, data: { id: row.id, status: "reviewed" } };
