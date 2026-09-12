@@ -21,18 +21,26 @@ function defaultProtectionUntil(db: Db, companyId: string): string | null {
 export function listCommunities(
   db: Db,
   user: SessionUser,
-  query: { keyword?: string } = {}
+  query: { keyword?: string; district?: string } = {}
 ): ApiResult {
   let rows = db
     .prepare(
-      `SELECT c.*, COUNT(h.id) AS house_count
+      `SELECT c.*,
+        COUNT(DISTINCT h.id) AS house_count,
+        COUNT(DISTINCT u.id) AS unit_count
        FROM communities c
        LEFT JOIN houses h ON h.company_id = c.company_id AND h.community = c.name
+       LEFT JOIN community_units u
+         ON u.community_id = c.id AND u.company_id = c.company_id AND u.status = 'active'
        WHERE c.company_id = ? AND c.status = 'active'
        GROUP BY c.id
        ORDER BY c.name`
     )
     .all(user.company_id) as any[];
+  if (query.district) {
+    const district = query.district.trim();
+    rows = rows.filter((row) => (row.district || "") === district);
+  }
   if (query.keyword) {
     const keyword = query.keyword.trim();
     rows = rows.filter(
@@ -43,6 +51,204 @@ export function listCommunities(
     );
   }
   return { ok: true, data: rows };
+}
+
+export function listCommunityDistricts(db: Db, user: SessionUser): ApiResult {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT district FROM communities
+       WHERE company_id = ? AND status = 'active'
+         AND district IS NOT NULL AND TRIM(district) != ''
+       ORDER BY district`
+    )
+    .all(user.company_id) as Array<{ district: string }>;
+  return { ok: true, data: rows.map((row) => row.district) };
+}
+
+function normalizeUnitPart(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function unitLabel(row: {
+  building?: string;
+  unit_no?: string;
+  room_no?: string;
+}): string {
+  const parts = [row.building, row.unit_no, row.room_no].filter((part) => String(part || "").trim());
+  return parts.join("-") || row.room_no || "";
+}
+
+export function listCommunityUnits(
+  db: Db,
+  user: SessionUser,
+  query: { community_id?: string; keyword?: string } = {}
+): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  if (!query.community_id) return { ok: false, message: "小区必填" };
+  const community = db
+    .prepare(`SELECT id, name FROM communities WHERE id = ? AND company_id = ? AND status = 'active'`)
+    .get(query.community_id, user.company_id) as any;
+  if (!community) return { ok: false, message: "小区不存在" };
+  let rows = db
+    .prepare(
+      `SELECT u.*, c.name AS community_name
+       FROM community_units u
+       JOIN communities c ON c.id = u.community_id
+       WHERE u.company_id = ? AND u.community_id = ? AND u.status = 'active'
+       ORDER BY u.building, u.unit_no, u.room_no`
+    )
+    .all(user.company_id, query.community_id) as any[];
+  if (query.keyword) {
+    const keyword = query.keyword.trim();
+    rows = rows.filter((row) => {
+      const hay = `${row.building || ""} ${row.unit_no || ""} ${row.room_no || ""} ${row.orientation || ""} ${row.remark || ""}`;
+      return hay.includes(keyword);
+    });
+  }
+  return {
+    ok: true,
+    data: rows.map((row) => ({ ...row, label: unitLabel(row) })),
+  };
+}
+
+export function upsertCommunityUnit(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  const communityId = String(payload.community_id || "").trim();
+  const roomNo = normalizeUnitPart(payload.room_no);
+  if (!communityId || !roomNo) return { ok: false, message: "小区与房号必填" };
+  const community = db
+    .prepare(`SELECT id, name FROM communities WHERE id = ? AND company_id = ? AND status = 'active'`)
+    .get(communityId, user.company_id) as any;
+  if (!community) return { ok: false, message: "小区不存在" };
+
+  const building = normalizeUnitPart(payload.building);
+  const unitNo = normalizeUnitPart(payload.unit_no);
+  const orientation = normalizeUnitPart(payload.orientation) || null;
+  const remark = normalizeUnitPart(payload.remark) || null;
+  const areaSize =
+    payload.area_size == null || payload.area_size === "" ? null : Number(payload.area_size);
+  const buildArea =
+    payload.build_area == null || payload.build_area === "" ? null : Number(payload.build_area);
+  if (areaSize != null && !(areaSize > 0)) return { ok: false, message: "套内面积须为正数" };
+  if (buildArea != null && !(buildArea > 0)) return { ok: false, message: "建筑面积须为正数" };
+
+  const now = nowIso();
+  if (payload.id) {
+    const existing = db
+      .prepare(`SELECT * FROM community_units WHERE id = ? AND company_id = ? AND status = 'active'`)
+      .get(payload.id, user.company_id) as any;
+    if (!existing) return { ok: false, message: "房号不存在" };
+    if (existing.community_id !== communityId) return { ok: false, message: "不可跨小区修改房号" };
+    try {
+      db.prepare(
+        `UPDATE community_units SET building = ?, unit_no = ?, room_no = ?,
+         area_size = ?, build_area = ?, orientation = ?, remark = ?, updated_at = ?
+         WHERE id = ? AND company_id = ?`
+      ).run(
+        building,
+        unitNo,
+        roomNo,
+        areaSize,
+        buildArea,
+        orientation,
+        remark,
+        now,
+        payload.id,
+        user.company_id
+      );
+    } catch {
+      return { ok: false, message: "同栋同单元同房号已存在", code: 409 };
+    }
+    writeAudit(db, user, "community.unit.update", "community_unit", payload.id, {
+      community_id: communityId,
+      label: unitLabel({ building, unit_no: unitNo, room_no: roomNo }),
+    });
+    return { ok: true, data: { id: payload.id } };
+  }
+
+  const id = nextId("CUNIT");
+  try {
+    db.prepare(
+      `INSERT INTO community_units(
+        id, company_id, community_id, building, unit_no, room_no,
+        area_size, build_area, orientation, remark, status, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+    ).run(
+      id,
+      user.company_id,
+      communityId,
+      building,
+      unitNo,
+      roomNo,
+      areaSize,
+      buildArea,
+      orientation,
+      remark,
+      user.id,
+      now,
+      now
+    );
+  } catch {
+    return { ok: false, message: "同栋同单元同房号已存在", code: 409 };
+  }
+  writeAudit(db, user, "community.unit.create", "community_unit", id, {
+    community_id: communityId,
+    label: unitLabel({ building, unit_no: unitNo, room_no: roomNo }),
+  });
+  return { ok: true, data: { id } };
+}
+
+export function removeCommunityUnit(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
+  const id = String(payload.id || "").trim();
+  if (!id) return { ok: false, message: "房号必填" };
+  const existing = db
+    .prepare(`SELECT * FROM community_units WHERE id = ? AND company_id = ? AND status = 'active'`)
+    .get(id, user.company_id) as any;
+  if (!existing) return { ok: false, message: "房号不存在" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE community_units SET status = 'inactive', updated_at = ? WHERE id = ? AND company_id = ?`
+  ).run(now, id, user.company_id);
+  writeAudit(db, user, "community.unit.remove", "community_unit", id, {
+    community_id: existing.community_id,
+    label: unitLabel(existing),
+  });
+  return { ok: true, data: { id } };
+}
+
+/** 防重盘：同小区同栋同单元同房号是否已在字典中登记 */
+export function checkCommunityUnitConflict(db: Db, user: SessionUser, payload: any): ApiResult {
+  if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
+  const communityId = String(payload.community_id || "").trim();
+  const roomNo = normalizeUnitPart(payload.room_no);
+  if (!communityId || !roomNo) return { ok: false, message: "小区与房号必填" };
+  const building = normalizeUnitPart(payload.building);
+  const unitNo = normalizeUnitPart(payload.unit_no);
+  const row = db
+    .prepare(
+      `SELECT id, building, unit_no, room_no, area_size, orientation
+       FROM community_units
+       WHERE company_id = ? AND community_id = ? AND building = ? AND unit_no = ? AND room_no = ?
+         AND status = 'active'
+         AND (? = '' OR id != ?)`
+    )
+    .get(
+      user.company_id,
+      communityId,
+      building,
+      unitNo,
+      roomNo,
+      String(payload.exclude_id || ""),
+      String(payload.exclude_id || "")
+    ) as any;
+  return {
+    ok: true,
+    data: {
+      conflict: Boolean(row),
+      unit: row ? { ...row, label: unitLabel(row) } : null,
+    },
+  };
 }
 
 export function upsertCommunity(db: Db, user: SessionUser, payload: any): ApiResult {
