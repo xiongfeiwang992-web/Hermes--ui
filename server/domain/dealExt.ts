@@ -347,6 +347,28 @@ export function withdrawComplaint(
   writeAudit(db, user, "dealExt.complaint.withdraw", "deal_complaint", row.id, {
     reason,
   });
+  const recipients = new Set<string>();
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR (role='store_manager' AND store_id=?))`
+    )
+    .all(user.company_id, row.store_id) as any[];
+  for (const manager of managers) recipients.add(manager.id);
+  if (row.created_by) recipients.add(row.created_by);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: "成交投诉已撤回",
+      body: `${row.title} · ${reason}`,
+      kind: "deal_complaint",
+      ref_type: "deal_complaint",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "withdrawn" } };
 }
 
