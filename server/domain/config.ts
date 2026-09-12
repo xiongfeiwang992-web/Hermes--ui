@@ -114,6 +114,53 @@ export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerSources(db, user.company_id) };
 }
 
+export const DEFAULT_CUSTOMER_LEVELS = [
+  { value: "A", label: "A级", sort_order: 1 },
+  { value: "B", label: "B级", sort_order: 2 },
+  { value: "C", label: "C级", sort_order: 3 },
+];
+
+const CUSTOMER_LEVEL_ALIASES: Record<string, string> = {
+  a: "A",
+  b: "B",
+  c: "C",
+  A级: "A",
+  B级: "B",
+  C级: "C",
+};
+
+export function resolveCustomerLevels(db: Db, companyId: string) {
+  const rows = db
+    .prepare(
+      `SELECT value, label, sort_order FROM data_dictionaries
+       WHERE company_id = ? AND dict_type = 'customer_level' AND status = 'active'
+       ORDER BY sort_order, label`
+    )
+    .all(companyId) as Array<{ value: string; label: string; sort_order: number }>;
+  return rows.length ? rows : DEFAULT_CUSTOMER_LEVELS.map((item) => ({ ...item }));
+}
+
+export function normalizeCustomerLevel(level: unknown, fallback = "B"): string {
+  const raw = String(level ?? "").trim();
+  if (!raw) return fallback;
+  return CUSTOMER_LEVEL_ALIASES[raw] || CUSTOMER_LEVEL_ALIASES[raw.toLowerCase()] || raw;
+}
+
+export function isAllowedCustomerLevel(db: Db, companyId: string, level: string): boolean {
+  return resolveCustomerLevels(db, companyId).some((item) => item.value === level);
+}
+
+export function labelCustomerLevel(db: Db, companyId: string, level: unknown): string {
+  const normalized = normalizeCustomerLevel(level, "");
+  if (!normalized) return "";
+  const hit = resolveCustomerLevels(db, companyId).find((item) => item.value === normalized);
+  return hit?.label || normalized;
+}
+
+export function listCustomerLevels(db: Db, user: SessionUser): ApiResult {
+  return { ok: true, data: resolveCustomerLevels(db, user.company_id) };
+}
+
 export const DEFAULT_PAYMENT_METHODS = [
   { value: "transfer", label: "转账", sort_order: 1 },
   { value: "cash", label: "现金", sort_order: 2 },
