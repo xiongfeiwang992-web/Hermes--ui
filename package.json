@@ -65,7 +65,8 @@
     "smoke:expense-categories": "tsx scripts/expense-categories-smoke.ts",
     "smoke:hold-limit-rent-sale": "tsx scripts/hold-limit-rent-sale-smoke.ts",
     "smoke:house-sources": "tsx scripts/house-sources-smoke.ts",
-    "smoke:leave-types": "tsx scripts/leave-types-smoke.ts"
+    "smoke:leave-types": "tsx scripts/leave-types-smoke.ts",
+    "smoke:password-policy": "tsx scripts/password-policy-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
