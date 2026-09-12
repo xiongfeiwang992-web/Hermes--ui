@@ -51,7 +51,7 @@ function textMerge(base, ours, theirs) {
     if (!ancestor.trim()) {
       const l = parse(left), r = parse(right);
       const variables = s => s.statements.filter(ts.isVariableStatement).flatMap(n => n.declarationList.declarations.map(d => d.name.getText()));
-      if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && [...l.statements, ...r.statements].every(n => ts.isVariableStatement(n) || ts.isIfStatement(n)) && variables(l).length && variables(r).length && !variables(l).some(name => variables(r).includes(name))) return left + right;
+      if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && [...l.statements, ...r.statements].every(n => ts.isVariableStatement(n) || ts.isIfStatement(n)) && variables(l).length + variables(r).length > 0 && !variables(l).some(name => variables(r).includes(name))) return left + right;
       const propertyNames = text => {
         const source = parse(`const merged = { ${text} };`);
         if (source.parseDiagnostics.length) return null;

@@ -1,7 +1,13 @@
 import type { Db } from "../db/database";
+
 import { canWriteListing, customerVisibleTo, maskPhone } from "../auth/policy";
+
 import { buildModificationSummary, recordModificationFollow } from "./activity";
+
 import { writeAudit } from "./audit";
+
+import { isBlacklistedPhone } from "./blacklist";
+
 import {
   isAllowedCustomerLevel,
   isAllowedCustomerSource,
@@ -10,9 +16,13 @@ import {
   normalizeCustomerLevel,
   normalizeCustomerSource,
 } from "./config";
+
 import { resolvePhoneVisibility } from "./contactGate";
+
 import { createMessage } from "./message";
+
 import { nextId, nowIso } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 function presentCustomer(db: Db, user: SessionUser, row: any) {
@@ -75,6 +85,9 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   if (!["buy", "rent"].includes(payload.intent)) {
     return { ok: false, message: "intent 无效" };
   }
+  if (isBlacklistedPhone(db, user.company_id, payload.phone)) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
+  }
   const source = normalizeCustomerSource(payload.source);
   if (source && !isAllowedCustomerSource(db, user.company_id, source)) {
     return { ok: false, message: "客户来源不在当前字典中" };
@@ -126,6 +139,7 @@ export function createCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   return created;
 }
 
+
 export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -143,6 +157,13 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   const nextSource = sourceProvided ? normalizeCustomerSource(payload.source) : null;
   if (sourceProvided && nextSource && !isAllowedCustomerSource(db, user.company_id, nextSource)) {
     return { ok: false, message: "客户来源不在当前字典中" };
+  }
+  if (
+    payload.phone != null &&
+    String(payload.phone).trim() !== String(current.phone || "").trim() &&
+    isBlacklistedPhone(db, user.company_id, payload.phone)
+  ) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
   }
   const levelProvided = Object.prototype.hasOwnProperty.call(payload, "level");
   const nextLevel = levelProvided ? normalizeCustomerLevel(payload.level) : null;
@@ -239,6 +260,7 @@ export function updateCustomer(db: Db, user: SessionUser, payload: any): ApiResu
   }
   return getCustomer(db, user, payload.id);
 }
+
 
 function suspendedHoldExceeded(
   db: Db,

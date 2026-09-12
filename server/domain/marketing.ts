@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import type { Db } from "../db/database";
 import { maskPhone } from "../auth/policy";
 import { writeAudit } from "./audit";
+import { isBlacklistedPhone } from "./blacklist";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -67,18 +67,6 @@ function addEvent(
     JSON.stringify(details),
     user.id,
     nowIso()
-  );
-}
-
-function phoneBlocked(db: Db, companyId: string, phone: string): boolean {
-  const hash = createHash("sha256").update(phone).digest("hex");
-  return Boolean(
-    db
-      .prepare(
-        `SELECT id FROM blacklists WHERE company_id=? AND status='active'
-         AND kind IN ('phone', 'lead') AND value_hash=?`
-      )
-      .get(companyId, hash)
   );
 }
 
@@ -248,7 +236,7 @@ export function createLead(db: Db, user: SessionUser, payload: any): ApiResult {
     return { ok: false, message: "联系人姓名或手机号无效" };
   if (!INTENTS.has(payload.intent)) return { ok: false, message: "线索意向无效" };
   if (!CHANNELS.has(payload.channel)) return { ok: false, message: "线索渠道无效" };
-  if (phoneBlocked(db, user.company_id, contactPhone))
+  if (isBlacklistedPhone(db, user.company_id, contactPhone))
     return { ok: false, message: "该电话已在业务或商机黑名单中" };
   const openLead = db
     .prepare(
@@ -431,7 +419,7 @@ export function convertLead(db: Db, user: SessionUser, payload: any): ApiResult 
     return { ok: false, message: "仅跟进中或已确认线索可转客源" };
   if (!row.assignee_user_id)
     return { ok: false, message: "请先分派线索负责人" };
-  if (phoneBlocked(db, user.company_id, row.contact_phone))
+  if (isBlacklistedPhone(db, user.company_id, row.contact_phone))
     return { ok: false, message: "该电话已在业务或商机黑名单中" };
   const existing = db
     .prepare(
@@ -533,7 +521,7 @@ export function createEntrustment(db: Db, user: SessionUser, payload: any): ApiR
   const content = String(payload.content || "").trim();
   if (!contactName || !/^1\d{10}$/.test(contactPhone) || !content)
     return { ok: false, message: "联系人、手机号和委托内容必填" };
-  if (phoneBlocked(db, user.company_id, contactPhone))
+  if (isBlacklistedPhone(db, user.company_id, contactPhone))
     return { ok: false, message: "该电话已在业务或商机黑名单中" };
   const price =
     payload.expected_price == null || payload.expected_price === ""
@@ -609,7 +597,7 @@ export function acceptEntrustment(db: Db, user: SessionUser, payload: any): ApiR
   )
     return { ok: false, message: "在线委托不存在或无受理权限", code: 403 };
   if (row.status !== "new") return { ok: false, message: "仅新委托可受理" };
-  if (phoneBlocked(db, user.company_id, row.contact_phone))
+  if (isBlacklistedPhone(db, user.company_id, row.contact_phone))
     return { ok: false, message: "该电话已在业务或商机黑名单中" };
   const openLead = db
     .prepare(

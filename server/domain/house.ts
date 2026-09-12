@@ -17,6 +17,8 @@ import { writeAudit } from "./audit";
 
 import { isAllowedDealMode, labelDealMode, normalizeDealMode, holdLimitForDealType, isAllowedHouseSource, labelHouseSource, normalizeHouseSource, isAllowedPropertyType, labelPropertyType, normalizePropertyType } from "./config";
 
+import { isBlacklistedPhone } from "./blacklist";
+
 import { resolvePhoneVisibility } from "./contactGate";
 
 import { createMessage } from "./message";
@@ -59,7 +61,6 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     property_type_label: labelPropertyType(db, user.company_id, row.property_type),
   };
 }
-
 
 function agentHoldExceeded(
   db: Db,
@@ -146,6 +147,9 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   const propertyType = normalizePropertyType(payload.property_type);
   if (!isAllowedPropertyType(db, user.company_id, propertyType)) {
     return { ok: false, message: "物业类型不在当前字典中" };
+  }
+  if (isBlacklistedPhone(db, user.company_id, payload.owner_phone)) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
   }
   if (user.role === "agent") {
     const hold = agentHoldExceeded(db, user.company_id, user.id, payload.deal_type);
@@ -241,6 +245,13 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (!houseVisibleTo(user, current)) return { ok: false, message: "无权限", code: 403 };
   if (user.role === "agent" && current.agent_id !== user.id) {
     return { ok: false, message: "只能编辑本人接盘房源", code: 403 };
+  }
+  if (
+    payload.owner_phone != null &&
+    String(payload.owner_phone).trim() !== String(current.owner_phone || "").trim() &&
+    isBlacklistedPhone(db, user.company_id, payload.owner_phone)
+  ) {
+    return { ok: false, message: "该电话已在业务黑名单中" };
   }
   const nextPrice = payload.price != null ? Number(payload.price) : null;
   const nextPrivate = payload.is_private == null ? null : payload.is_private ? 1 : 0;
