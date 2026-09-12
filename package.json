@@ -222,7 +222,8 @@
     "smoke:newhome-project-create-notify": "tsx scripts/newhome-project-create-notify-smoke.ts",
     "smoke:newhome-project-update-notify": "tsx scripts/newhome-project-update-notify-smoke.ts",
     "smoke:newhome-register-notify": "tsx scripts/newhome-register-notify-smoke.ts",
-    "smoke:newhome-registration-expire-notify": "tsx scripts/newhome-registration-expire-notify-smoke.ts"
+    "smoke:newhome-registration-expire-notify": "tsx scripts/newhome-registration-expire-notify-smoke.ts",
+    "smoke:newhome-sales-cancel-notify": "tsx scripts/newhome-sales-cancel-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
