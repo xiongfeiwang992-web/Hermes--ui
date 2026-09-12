@@ -204,7 +204,8 @@
     "smoke:house-verification-submit-notify": "tsx scripts/house-verification-submit-notify-smoke.ts",
     "smoke:integration-configure-notify": "tsx scripts/integration-configure-notify-smoke.ts",
     "smoke:job-grade-assign-notify": "tsx scripts/job-grade-assign-notify-smoke.ts",
-    "smoke:job-grade-create-notify": "tsx scripts/job-grade-create-notify-smoke.ts"
+    "smoke:job-grade-create-notify": "tsx scripts/job-grade-create-notify-smoke.ts",
+    "smoke:job-grade-update-notify": "tsx scripts/job-grade-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
