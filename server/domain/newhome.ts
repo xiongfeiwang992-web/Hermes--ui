@@ -242,6 +242,22 @@ export function confirmArrival(db: Db, user: SessionUser, payload: any): ApiResu
     `UPDATE newhome_registrations SET status='arrived', arrived_at=?,
      arrival_note=?, updated_at=? WHERE id=?`
   ).run(now, note, now, row.id);
+  const recipients = new Set<string>();
+  if (row.agent_id) recipients.add(row.agent_id);
+  if (row.created_by) recipients.add(row.created_by);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: "新房报备已到场",
+      body: `${row.project_name} · ${note}`,
+      kind: "newhome_registration",
+      ref_type: "newhome_registration",
+      ref_id: row.id,
+    });
+  }
   writeAudit(db, user, "newhome.registration.arrival", "newhome_registration", row.id);
   return { ok: true, data: { id: row.id, arrived_at: now } };
 }
