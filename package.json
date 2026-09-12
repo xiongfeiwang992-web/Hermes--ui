@@ -170,7 +170,8 @@
     "smoke:entrustment-register-notify": "tsx scripts/entrustment-register-notify-smoke.ts",
     "smoke:entrustment-renew-notify": "tsx scripts/entrustment-renew-notify-smoke.ts",
     "smoke:event-create-notify": "tsx scripts/event-create-notify-smoke.ts",
-    "smoke:event-open-notify": "tsx scripts/event-open-notify-smoke.ts"
+    "smoke:event-open-notify": "tsx scripts/event-open-notify-smoke.ts",
+    "smoke:event-signup-notify": "tsx scripts/event-signup-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
