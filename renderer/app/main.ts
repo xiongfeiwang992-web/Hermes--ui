@@ -1931,6 +1931,7 @@ async function renderFollows(main: HTMLElement) {
       </div>
       <div class="ops">
         <button class="btn ghost" data-open-target="${f.target_type}:${f.target_id}">查看对象</button>
+        ${state.user.role === "admin" ? `<button class="btn danger" data-void="${f.id}">作废</button>` : ""}
       </div></div>`
       )
       .join("");
@@ -1960,6 +1961,18 @@ async function renderFollows(main: HTMLElement) {
         }
       });
     });
+    list.querySelectorAll("[data-void]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const reason = prompt("作废原因（必填；跟进不可删除，仅可作废）");
+        if (!reason) return;
+        const r = await api("follow.void", {
+          id: (btn as HTMLElement).dataset.void,
+          reason,
+        });
+        toast(r.ok ? "跟进已作废" : r.message, r.ok ? "ok" : "error");
+        if (r.ok) draw();
+      })
+    );
   };
   main.querySelector("[data-new]")!.addEventListener("click", async () => {
     const houseOpts = ((houses.data as any[]) || [])
@@ -2021,6 +2034,7 @@ async function renderFollows(main: HTMLElement) {
   main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
   await draw();
 }
+
 
 async function renderViews(main: HTMLElement) {
   const houses = await api("house.list", { status: "available" });
@@ -2557,7 +2571,6 @@ async function renderDeals(main: HTMLElement) {
   main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
   await draw();
 }
-
 
 async function renderEarnest(main: HTMLElement) {
   const mayCreate = ["admin", "store_manager", "agent"].includes(state.user.role);

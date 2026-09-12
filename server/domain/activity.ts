@@ -1,11 +1,14 @@
 import type { Db } from "../db/database";
+
 import {
   canSeeOwnerPhone,
   canWriteListing,
   customerVisibleTo,
   houseVisibleTo,
 } from "../auth/policy";
+
 import { writeAudit } from "./audit";
+
 import {
   isAllowedFollowMethod,
   isAllowedViewFeedback,
@@ -15,9 +18,13 @@ import {
   normalizeViewFeedback,
   resolveFollowMethods,
 } from "./config";
+
 import { getContactGateSettings } from "./contactGate";
+
 import { createMessage } from "./message";
+
 import { nextId, nowIso, todayDate } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 export function createFollow(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -344,6 +351,43 @@ function resolveFollowTarget(
     };
   }
   return { title: targetId, subtitle: "" };
+}
+
+export function voidFollow(
+  db: Db,
+  user: SessionUser,
+  payload: { id: string; reason?: string }
+): ApiResult {
+  if (user.role !== "admin") return { ok: false, message: "仅管理员可作废跟进", code: 403 };
+  const reason = String(payload.reason || "").trim();
+  if (!reason) return { ok: false, message: "作废原因必填" };
+  const current = db
+    .prepare(`SELECT * FROM follows WHERE id = ? AND company_id = ?`)
+    .get(payload.id, user.company_id) as any;
+  if (!current) return { ok: false, message: "跟进不存在" };
+  if (Number(current.voided) === 1) return { ok: false, message: "跟进已作废" };
+  const now = nowIso();
+  db.prepare(
+    `UPDATE follows SET voided = 1, void_reason = ?, voided_by = ?, voided_at = ?
+     WHERE id = ? AND company_id = ?`
+  ).run(reason, user.id, now, current.id, user.company_id);
+  writeAudit(db, user, "follow.void", "follow", current.id, { reason });
+  if (current.created_by && current.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: current.created_by,
+      title: "跟进已作废",
+      body: `跟进 ${current.id} 已作废：${reason}`,
+      kind: "follow_void",
+      ref_type: "follow",
+      ref_id: current.id,
+    });
+  }
+  const row = db
+    .prepare(`SELECT * FROM follows WHERE id = ? AND company_id = ?`)
+    .get(current.id, user.company_id) as any;
+  return { ok: true, data: row };
 }
 
 export function createView(db: Db, user: SessionUser, payload: any): ApiResult {

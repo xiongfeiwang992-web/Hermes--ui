@@ -205,6 +205,8 @@ case "follow.create":
       return activity.createFollow(db, user!, payload);
 case "follow.list":
       return activity.listFollows(db, user!, payload);
+case "follow.void":
+      return activity.voidFollow(db, user!, payload);
 case "contact.reveal":
       return activity.revealContact(db, user!, payload);
 case "view.create":
