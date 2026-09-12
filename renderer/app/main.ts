@@ -1078,7 +1078,6 @@ async function renderHouses(main: HTMLElement) {
   await draw();
 }
 
-
 async function renderCommunities(main: HTMLElement) {
   const districts = await api("property.districts.list", {});
   const districtOptions = ((districts.ok ? (districts.data as string[]) : []) || [])
@@ -6995,7 +6994,7 @@ async function renderSystemCenter(main: HTMLElement) {
       ${canManageSystem ? `<button class="btn ghost" data-blacklist>添加黑名单</button>` : ""}
       <button class="btn ghost" data-password>修改密码</button>
       <button class="btn ghost" data-preferences>界面偏好</button>
-      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>业务参数</button><button class="btn ghost" data-tiers>提成阶梯</button><button class="btn ghost" data-dictionary>数据字典</button><button class="btn ghost" data-template>合同模板</button><button class="btn ghost" data-doc-template>资料清单</button><button class="btn ghost" data-transfer-template>过户模板</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-settings>系统参数</button><button class="btn ghost" data-tiers>提成阶梯</button><button class="btn ghost" data-dictionary>数据字典</button><button class="btn ghost" data-template>合同模板</button><button class="btn ghost" data-doc-template>资料清单</button><button class="btn ghost" data-transfer-template>过户模板</button>` : ""}
       ${desktopShell ? `<button class="btn ghost" data-screenshot>截图</button><button class="btn ghost" data-fullscreen>全屏</button><button class="btn ghost" data-clear-cache>清缓存</button><button class="btn ghost" data-new-tab>新标签</button><button class="btn ghost" data-downloads>下载管理</button><button class="btn ghost" data-check-update>检查更新</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-permission>功能权限</button><button class="btn ghost" data-backup>立即备份</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn" data-integration>配置适配器</button>` : ""}
@@ -7347,12 +7346,14 @@ async function renderSystemCenter(main: HTMLElement) {
       if (!current.ok) return toast(current.message, "error");
       const value = current.data as any;
       openDialog(
-        "业务参数",
+        "系统参数",
         `
         <label>暂缓客持有上限<input name="customer_hold_limit" type="number" min="1" max="100" value="${value.customer_hold_limit ?? 20}" /></label>
         <label>出售持盘上限<input name="house_hold_limit_sale" type="number" min="1" max="100" value="${value.house_hold_limit_sale ?? value.house_hold_limit}" /></label>
         <label>出租持盘上限<input name="house_hold_limit_rent" type="number" min="1" max="100" value="${value.house_hold_limit_rent ?? value.house_hold_limit}" /></label>
+        <label>经纪人提成池比例<input name="agent_pool_rate" type="number" step="0.01" min="0" max="1" value="${value.agent_pool_rate ?? 0.5}" /></label>
         <label>店长管理奖比例<input name="manager_award_rate" type="number" step="0.01" value="${value.manager_award_rate}" /></label>
+        <label>私客掉公天数（0=关闭）<input name="public_pool_days" type="number" min="0" max="365" value="${value.public_pool_days ?? 0}" /></label>
         <label>密码最小长度<input name="password_min_length" type="number" value="${value.password_min_length}" /></label>
         <label>密码最长使用天数（0=不强制）<input name="password_max_age_days" type="number" min="0" max="730" value="${value.password_max_age_days ?? 0}" /></label>
         <label>房源角色保护期（天）<input name="house_role_protection_days" type="number" min="0" max="365" value="${value.house_role_protection_days}" /></label>
@@ -7366,7 +7367,9 @@ async function renderSystemCenter(main: HTMLElement) {
             customer_hold_limit: Number(fd.get("customer_hold_limit")),
             house_hold_limit_sale: Number(fd.get("house_hold_limit_sale")),
             house_hold_limit_rent: Number(fd.get("house_hold_limit_rent")),
+            agent_pool_rate: Number(fd.get("agent_pool_rate")),
             manager_award_rate: Number(fd.get("manager_award_rate")),
+            public_pool_days: Number(fd.get("public_pool_days")),
             password_min_length: Number(fd.get("password_min_length")),
             password_max_age_days: Number(fd.get("password_max_age_days")),
             house_role_protection_days: Number(fd.get("house_role_protection_days")),
@@ -7378,7 +7381,7 @@ async function renderSystemCenter(main: HTMLElement) {
               .map((item) => item.trim())
               .filter(Boolean),
           });
-          toast(result.ok ? "业务参数已保存" : result.message, result.ok ? "ok" : "error");
+          toast(result.ok ? "系统参数已保存" : result.message, result.ok ? "ok" : "error");
         }
       );
     });

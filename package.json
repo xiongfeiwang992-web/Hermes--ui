@@ -69,7 +69,8 @@
     "smoke:password-policy": "tsx scripts/password-policy-smoke.ts",
     "smoke:pay-types": "tsx scripts/pay-types-smoke.ts",
     "smoke:permission-matrix": "tsx scripts/permission-matrix-smoke.ts",
-    "smoke:property-types": "tsx scripts/property-types-smoke.ts"
+    "smoke:property-types": "tsx scripts/property-types-smoke.ts",
+    "smoke:system-settings": "tsx scripts/system-settings-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
