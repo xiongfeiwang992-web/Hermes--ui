@@ -2276,11 +2276,28 @@ async function renderViews(main: HTMLElement) {
   const houses = await api("house.list", { status: "available" });
   const customers = await api("customer.list", {});
   const storeUsers = await api("org.users.store", {});
+  const agentOpts = ((storeUsers.data as any[]) || [])
+    .map((u) => `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`)
+    .join("");
+  const statusLabel = (status: string) =>
+    ({ planned: "待看", done: "已完成", cancelled: "已取消" } as Record<string, string>)[status] ||
+    status;
+  const feedbackLabel = (feedback: string) =>
+    ({
+      pending: "待反馈",
+      interested: "有意向",
+      considering: "考虑中",
+      rejected: "无意向",
+      deal: "成交",
+    } as Record<string, string>)[feedback] || feedback;
   main.innerHTML = `
     <div class="header"><h2>带看</h2><div class="ops"><button class="btn ghost" data-export>导出 CSV</button><button class="btn" data-new>新建带看</button></div></div>
     <div class="filters">
-      <select data-f="status"><option value="">全部状态</option><option value="planned">planned</option><option value="done">done</option><option value="cancelled">cancelled</option></select>
-      <select data-f="feedback"><option value="">全部反馈</option><option value="pending">pending</option><option value="interested">interested</option><option value="considering">considering</option><option value="rejected">rejected</option><option value="deal">deal</option></select>
+      <input data-f="view_from" type="date" title="开始日期" />
+      <input data-f="view_to" type="date" title="结束日期" />
+      <select data-f="agent_id"><option value="">全部主看人</option>${agentOpts}</select>
+      <select data-f="status"><option value="">全部状态</option><option value="planned">待看</option><option value="done">已完成</option><option value="cancelled">已取消</option></select>
+      <select data-f="feedback"><option value="">全部结果</option><option value="pending">待反馈</option><option value="interested">有意向</option><option value="considering">考虑中</option><option value="rejected">无意向</option><option value="deal">成交</option></select>
     </div>
     <div class="list" data-list></div>
   `;
@@ -2300,13 +2317,16 @@ async function renderViews(main: HTMLElement) {
     if (!rows.length) return (list.innerHTML = `<div class="empty">暂无带看</div>`);
     const houseMap = Object.fromEntries(((houses.data as any[]) || []).map((h) => [h.id, h.title]));
     const cusMap = Object.fromEntries(((customers.data as any[]) || []).map((c) => [c.id, c.name]));
+    const agentMap = Object.fromEntries(
+      ((storeUsers.data as any[]) || []).map((u) => [u.id, u.display_name])
+    );
     list.innerHTML = rows
       .map(
         (v) => `<div class="row"><div>
-        <div><span class="tag ${v.status === "done" ? "ok" : ""}">${v.status === "done" ? "已完成" : v.status === "cancelled" ? "已取消" : "计划中"}</span>
-        <span class="tag">${escapeHtml(v.feedback_label || v.feedback)}</span>
-        <strong>${cusMap[v.customer_id] || v.customer_id} × ${houseMap[v.house_id] || v.house_id}</strong></div>
-        <div class="meta">${v.view_at} · 主看 ${escapeHtml(v.agent_name || v.agent_id)}${v.accompany_summary ? ` · 陪看 ${escapeHtml(v.accompany_summary)}` : ""}</div>
+        <div><span class="tag ${v.status === "done" ? "ok" : v.status === "cancelled" ? "danger" : "warn"}">${statusLabel(v.status)}</span>
+        <span class="tag">${escapeHtml(v.feedback_label || feedbackLabel(v.feedback))}</span>
+        <strong>${escapeHtml(cusMap[v.customer_id] || v.customer_id)} × ${escapeHtml(houseMap[v.house_id] || v.house_id)}</strong></div>
+        <div class="meta">${v.view_at} · 主看 ${escapeHtml(v.agent_name || agentMap[v.agent_id] || v.agent_id)}${v.accompany_summary ? ` · 陪看 ${escapeHtml(v.accompany_summary)}` : ""}</div>
       </div>
       <div class="ops">
         <button class="btn ghost" data-slip="${v.id}">导出带看单</button>
@@ -2402,6 +2422,7 @@ async function renderViews(main: HTMLElement) {
   });
   await draw();
 }
+
 
 async function renderDeals(main: HTMLElement) {
   const houses = await api("house.list", {});
@@ -2845,7 +2866,6 @@ async function renderDeals(main: HTMLElement) {
   await draw();
   if (fromView) openNewDealDialog();
 }
-
 
 async function renderEarnest(main: HTMLElement) {
   const mayCreate = ["admin", "store_manager", "agent"].includes(state.user.role);

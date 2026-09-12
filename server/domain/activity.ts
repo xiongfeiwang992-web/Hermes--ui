@@ -549,7 +549,6 @@ export function getView(db: Db, user: SessionUser, id: string): ApiResult {
   };
 }
 
-
 export function listViews(db: Db, user: SessionUser, q: any = {}): ApiResult {
   if (user.role === "finance") return { ok: false, message: "无权限", code: 403 };
   let rows = db
@@ -565,6 +564,14 @@ export function listViews(db: Db, user: SessionUser, q: any = {}): ApiResult {
   }
   if (q.customer_id) rows = rows.filter((v) => v.customer_id === q.customer_id);
   if (q.house_id) rows = rows.filter((v) => v.house_id === q.house_id);
+  const viewFrom = String(q.view_from || q.from || "").trim().slice(0, 10);
+  const viewTo = String(q.view_to || q.to || "").trim().slice(0, 10);
+  if (viewFrom) {
+    rows = rows.filter((v) => String(v.view_at || "").slice(0, 10) >= viewFrom);
+  }
+  if (viewTo) {
+    rows = rows.filter((v) => String(v.view_at || "").slice(0, 10) <= viewTo);
+  }
   return {
     ok: true,
     data: rows.map((r) => presentView(db, user.company_id, r)),
