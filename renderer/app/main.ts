@@ -8177,10 +8177,21 @@ async function renderSystemCenter(main: HTMLElement) {
   }
   const integrationList = main.querySelector("[data-integrations]");
   if (integrationList) {
+    const providerLabels: Record<string, string> = {
+      ca_esign: "CA电子签",
+      virtual_number: "真隐号",
+      external_listing: "外网房源平台",
+      external_broadcast: "外网群发",
+      distribution_miniprogram: "分销小程序",
+      financial_ledger: "财务总账",
+      map: "地图",
+      wechat: "微信",
+      sms: "短信",
+    };
     integrationList.innerHTML = ((integrations.data as any[]) || [])
       .map(
         (item) =>
-          `<div class="row"><div><strong>${item.provider}</strong><div class="meta">${item.enabled ? "已配置" : "未配置"} · ${item.mode} · ${item.health_status}</div></div></div>`
+          `<div class="row"><div><strong>${providerLabels[item.provider] || item.provider}</strong><div class="meta">${item.enabled ? "已配置" : "未配置"} · ${item.mode} · ${item.health_status}</div></div></div>`
       )
       .join("");
   }
@@ -8283,7 +8294,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "配置第三方适配器",
         `
-        <label>服务<select name="provider"><option value="ca_esign">CA电子签</option><option value="virtual_number">真隐号</option><option value="external_listing">外网房源平台</option><option value="map">地图</option><option value="wechat">微信</option><option value="sms">短信</option></select></label>
+        <label>服务<select name="provider"><option value="ca_esign">CA电子签</option><option value="virtual_number">真隐号</option><option value="external_listing">外网房源平台</option><option value="external_broadcast">外网群发</option><option value="distribution_miniprogram">分销小程序</option><option value="financial_ledger">财务总账</option><option value="map">地图</option><option value="wechat">微信</option><option value="sms">短信</option></select></label>
         <label><span><input name="enabled" type="checkbox" /> 启用</span></label>
         <label class="full">HTTPS 地址<input name="endpoint" placeholder="https://api.example.com" /></label>
         <label>凭据引用<input name="credential_ref" placeholder="环境变量/密钥管理器引用" /></label>

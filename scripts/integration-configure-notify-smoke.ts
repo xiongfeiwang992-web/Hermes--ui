@@ -30,6 +30,22 @@ const admin = login("admin");
 const manager = login("manager");
 const agent = login("agent_a");
 
+const listed = app.call("integration.list", {}, admin);
+const providerCodes = data<any[]>(listed).map((p) => p.provider);
+for (const code of [
+  "ca_esign",
+  "virtual_number",
+  "external_listing",
+  "external_broadcast",
+  "distribution_miniprogram",
+  "financial_ledger",
+  "map",
+  "wechat",
+  "sms",
+]) {
+  assert(providerCodes.includes(code), `integration.list includes ${code}`);
+}
+
 assert(
   !app.call(
     "integration.configure",
