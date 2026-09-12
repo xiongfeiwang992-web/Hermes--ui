@@ -250,7 +250,8 @@
     "smoke:rental-lease-terminate-notify": "tsx scripts/rental-lease-terminate-notify-smoke.ts",
     "smoke:rental-property-create-notify": "tsx scripts/rental-property-create-notify-smoke.ts",
     "smoke:rental-terminate-notify": "tsx scripts/rental-terminate-notify-smoke.ts",
-    "smoke:rental-workorder-cancel-notify": "tsx scripts/rental-workorder-cancel-notify-smoke.ts"
+    "smoke:rental-workorder-cancel-notify": "tsx scripts/rental-workorder-cancel-notify-smoke.ts",
+    "smoke:rental-workorder-create-notify": "tsx scripts/rental-workorder-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
