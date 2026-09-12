@@ -15,7 +15,7 @@ import {
 
 import { writeAudit } from "./audit";
 
-import { isAllowedDealMode, labelDealMode, normalizeDealMode, holdLimitForDealType, isAllowedHouseSource, labelHouseSource, normalizeHouseSource } from "./config";
+import { isAllowedDealMode, labelDealMode, normalizeDealMode, holdLimitForDealType, isAllowedHouseSource, labelHouseSource, normalizeHouseSource, isAllowedPropertyType, labelPropertyType, normalizePropertyType } from "./config";
 
 import { resolvePhoneVisibility } from "./contactGate";
 
@@ -56,6 +56,7 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     force_follow_required: gate.forceFollowRequired,
     deal_mode_label: labelDealMode(db, user.company_id, row.deal_mode),
     source_label: labelHouseSource(db, user.company_id, row.source),
+    property_type_label: labelPropertyType(db, user.company_id, row.property_type),
   };
 }
 
@@ -142,6 +143,10 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   if (source && !isAllowedHouseSource(db, user.company_id, source)) {
     return { ok: false, message: "房源来源不在当前字典中" };
   }
+  const propertyType = normalizePropertyType(payload.property_type);
+  if (!isAllowedPropertyType(db, user.company_id, propertyType)) {
+    return { ok: false, message: "物业类型不在当前字典中" };
+  }
   if (user.role === "agent") {
     const hold = agentHoldExceeded(db, user.company_id, user.id, payload.deal_type);
     if (hold.exceeded) {
@@ -205,7 +210,7 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     source,
     payload.remark || null,
     payload.cover_image || null,
-    payload.property_type || "residential",
+    propertyType,
     dealMode,
     payload.visibility || "store",
     payload.is_locked ? 1 : 0,
@@ -248,6 +253,17 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   const nextSource = sourceProvided ? normalizeHouseSource(payload.source) : null;
   if (sourceProvided && nextSource && !isAllowedHouseSource(db, user.company_id, nextSource)) {
     return { ok: false, message: "房源来源不在当前字典中" };
+  }
+  const propertyTypeProvided = Object.prototype.hasOwnProperty.call(payload, "property_type");
+  const nextPropertyType = propertyTypeProvided
+    ? normalizePropertyType(payload.property_type)
+    : null;
+  if (
+    propertyTypeProvided &&
+    nextPropertyType &&
+    !isAllowedPropertyType(db, user.company_id, nextPropertyType)
+  ) {
+    return { ok: false, message: "物业类型不在当前字典中" };
   }
   const priceSummary =
     payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
@@ -310,9 +326,9 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     },
     {
       label: "物业类型",
-      provided: payload.property_type != null,
+      provided: propertyTypeProvided,
       prev: current.property_type,
-      next: payload.property_type,
+      next: nextPropertyType,
     },
     {
       label: "交易模式",
@@ -363,7 +379,7 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     sourceProvided ? nextSource : null,
     payload.remark ?? null,
     payload.cover_image ?? null,
-    payload.property_type ?? null,
+    propertyTypeProvided ? nextPropertyType : null,
     dealModeProvided ? nextDealMode : null,
     payload.visibility ?? null,
     nowIso(),
