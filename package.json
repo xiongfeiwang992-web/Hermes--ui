@@ -98,7 +98,8 @@
     "smoke:house-rooms-floor": "tsx scripts/house-rooms-floor-smoke.ts",
     "smoke:house-suspend-reason": "tsx scripts/house-suspend-reason-smoke.ts",
     "smoke:house-withdraw-reason": "tsx scripts/house-withdraw-reason-smoke.ts",
-    "smoke:houses-page-export": "tsx scripts/houses-page-export-smoke.ts"
+    "smoke:houses-page-export": "tsx scripts/houses-page-export-smoke.ts",
+    "smoke:keys-lifecycle": "tsx scripts/keys-lifecycle-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

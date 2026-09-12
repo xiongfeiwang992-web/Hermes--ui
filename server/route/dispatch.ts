@@ -273,6 +273,10 @@ case "property.keys.return":
       return property.returnKey(db, user!, payload);
 case "property.keys.invalidate":
       return property.invalidateKey(db, user!, payload);
+case "property.keys.returnOwner":
+      return property.returnKeyToOwner(db, user!, payload);
+case "property.keys.external":
+      return property.markKeyExternal(db, user!, payload);
 case "property.surveys.list":
       return property.listSurveys(db, user!, payload);
 case "property.surveys.create":
