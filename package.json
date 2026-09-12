@@ -87,7 +87,8 @@
     "smoke:deal-update": "tsx scripts/deal-update-smoke.ts",
     "smoke:deal-void": "tsx scripts/deal-void-smoke.ts",
     "smoke:deals-page-export": "tsx scripts/deals-page-export-smoke.ts",
-    "smoke:detail-timeline": "tsx scripts/detail-timeline-smoke.ts"
+    "smoke:detail-timeline": "tsx scripts/detail-timeline-smoke.ts",
+    "smoke:earnest-page-export": "tsx scripts/earnest-page-export-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

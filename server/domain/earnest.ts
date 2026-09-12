@@ -7,7 +7,7 @@ import {
   normalizePaymentMethod,
 } from "./config";
 import { createMessage } from "./message";
-import { nextId, nowIso } from "../utils/id";
+import { nextId, nowIso, todayDate } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
 function visibleTo(user: SessionUser, row: { store_id: string; created_by: string }): boolean {
@@ -33,12 +33,95 @@ export function listEarnest(db: Db, user: SessionUser, query: any = {}): ApiResu
   if (query.customer_id) rows = rows.filter((row) => row.customer_id === query.customer_id);
   if (query.house_id) rows = rows.filter((row) => row.house_id === query.house_id);
   if (query.deal_id) rows = rows.filter((row) => row.deal_id === query.deal_id);
+  if (query.method) {
+    const method = normalizePaymentMethod(query.method);
+    rows = rows.filter((row) => normalizePaymentMethod(row.method) === method);
+  }
+  if (query.keyword) {
+    const k = String(query.keyword).trim().toLowerCase();
+    rows = rows.filter(
+      (row) =>
+        String(row.id).toLowerCase().includes(k) ||
+        String(row.customer_name || "").toLowerCase().includes(k) ||
+        String(row.house_title || "").toLowerCase().includes(k) ||
+        String(row.deal_id || "").toLowerCase().includes(k) ||
+        String(row.remark || "").toLowerCase().includes(k) ||
+        String(row.refund_reason || "").toLowerCase().includes(k)
+    );
+  }
   return {
     ok: true,
     data: rows.map((row) => ({
       ...row,
       method_label: labelPaymentMethod(db, user.company_id, row.method),
     })),
+  };
+}
+
+function csvCell(value: unknown): string {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+export function exportEarnest(db: Db, user: SessionUser, query: any = {}): ApiResult {
+  const listed = listEarnest(db, user, query);
+  if (!listed.ok) return listed;
+  const rows = listed.data as any[];
+  const statusLabel: Record<string, string> = {
+    held: "在管",
+    applied: "已冲抵",
+    refunded: "已退款",
+  };
+  const header = [
+    "意向金编号",
+    "门店",
+    "状态",
+    "金额",
+    "方式",
+    "客户",
+    "房源",
+    "成交单",
+    "收款时间",
+    "冲抵时间",
+    "退款时间",
+    "备注",
+    "退款原因",
+  ];
+  const content = `\uFEFF${[
+    header.map(csvCell).join(","),
+    ...rows.map((row) =>
+      [
+        row.id,
+        row.store_id,
+        statusLabel[row.status] || row.status,
+        row.amount,
+        row.method_label || row.method,
+        row.customer_name,
+        row.house_title,
+        row.deal_id || "",
+        row.paid_at,
+        row.applied_at || "",
+        row.refunded_at || "",
+        row.remark || "",
+        row.refund_reason || "",
+      ]
+        .map(csvCell)
+        .join(",")
+    ),
+  ].join("\r\n")}`;
+  writeAudit(db, user, "earnest.export", "earnest_money", undefined, {
+    rows: rows.length,
+    status: query.status || null,
+    method: query.method || null,
+    keyword: query.keyword || null,
+  });
+  return {
+    ok: true,
+    data: {
+      filename: `意向金列表-${todayDate()}.csv`,
+      mime: "text/csv;charset=utf-8",
+      content,
+      rows: rows.length,
+    },
   };
 }
 
