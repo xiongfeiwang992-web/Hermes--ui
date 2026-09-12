@@ -196,7 +196,6 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
   return { ok: true, data: presented };
 }
 
-
 export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {
   const row = db
     .prepare(`SELECT * FROM houses WHERE id = ? AND company_id = ?`)
@@ -245,22 +244,32 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       };
     }
   }
-  const duplicate = db
-    .prepare(
-      `SELECT id, title FROM houses
-       WHERE company_id = ? AND status NOT IN ('closed','withdrawn')
-       AND (
-         owner_phone = ?
-         OR (community = ? AND area_size IS NOT NULL AND ABS(area_size - ?) <= 5)
-       )
-       LIMIT 1`
-    )
-    .get(
-      user.company_id,
-      payload.owner_phone,
-      payload.community,
-      Number(payload.area_size || 0)
-    ) as any;
+  const areaSize =
+    payload.area_size == null || payload.area_size === ""
+      ? null
+      : Number(payload.area_size);
+  const duplicate =
+    areaSize != null &&
+    Number.isFinite(areaSize) &&
+    String(payload.community || "").trim() &&
+    String(payload.owner_phone || "").trim()
+      ? (db
+          .prepare(
+            `SELECT id, title FROM houses
+             WHERE company_id = ? AND status NOT IN ('closed','withdrawn')
+             AND owner_phone = ?
+             AND community = ?
+             AND area_size IS NOT NULL
+             AND ABS(area_size - ?) <= 5
+             LIMIT 1`
+          )
+          .get(
+            user.company_id,
+            payload.owner_phone,
+            payload.community,
+            areaSize
+          ) as any)
+      : null;
   const id = nextId("H");
   const storeId = user.role === "admin" && payload.store_id ? payload.store_id : user.store_id;
   const agentId = payload.agent_id || user.id;
@@ -316,6 +325,7 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   return created;
 }
+
 
 export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };

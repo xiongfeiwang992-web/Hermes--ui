@@ -91,7 +91,8 @@
     "smoke:earnest-page-export": "tsx scripts/earnest-page-export-smoke.ts",
     "smoke:follow-due": "tsx scripts/follow-due-smoke.ts",
     "smoke:follow-void": "tsx scripts/follow-void-smoke.ts",
-    "smoke:house-coop-filters": "tsx scripts/house-coop-filters-smoke.ts"
+    "smoke:house-coop-filters": "tsx scripts/house-coop-filters-smoke.ts",
+    "smoke:house-dedupe": "tsx scripts/house-dedupe-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
