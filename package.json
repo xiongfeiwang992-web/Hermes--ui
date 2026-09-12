@@ -240,7 +240,8 @@
     "smoke:public-pool-settings-notify": "tsx scripts/public-pool-settings-notify-smoke.ts",
     "smoke:recruitment-candidate-create-notify": "tsx scripts/recruitment-candidate-create-notify-smoke.ts",
     "smoke:recruitment-job-close-notify": "tsx scripts/recruitment-job-close-notify-smoke.ts",
-    "smoke:recruitment-job-create-notify": "tsx scripts/recruitment-job-create-notify-smoke.ts"
+    "smoke:recruitment-job-create-notify": "tsx scripts/recruitment-job-create-notify-smoke.ts",
+    "smoke:recruitment-job-update-notify": "tsx scripts/recruitment-job-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
