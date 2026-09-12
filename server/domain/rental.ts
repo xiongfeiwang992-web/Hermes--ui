@@ -1,5 +1,10 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import {
+  isAllowedPaymentMethod,
+  labelPaymentMethod,
+  normalizePaymentMethod,
+} from "./config";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
@@ -461,7 +466,15 @@ export function listBills(db: Db, user: SessionUser, payload: any = {}): ApiResu
   rows = rows.filter((row) => propertyVisible(user, row));
   if (payload.lease_id) rows = rows.filter((row) => row.lease_id === payload.lease_id);
   if (payload.status) rows = rows.filter((row) => row.status === payload.status);
-  return { ok: true, data: rows };
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      payment_method_label: row.payment_method
+        ? labelPaymentMethod(db, user.company_id, row.payment_method)
+        : "",
+    })),
+  };
 }
 
 export function payBill(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -477,22 +490,23 @@ export function payBill(db: Db, user: SessionUser, payload: any): ApiResult {
     .get(payload.id, user.company_id) as any;
   if (!bill || !["pending", "overdue"].includes(bill.status))
     return { ok: false, message: "账单不存在或当前不可收款" };
-  if (!["cash", "bank", "other"].includes(payload.payment_method))
-    return { ok: false, message: "收款方式无效" };
+  const paymentMethod = normalizePaymentMethod(payload.payment_method);
+  if (!isAllowedPaymentMethod(db, user.company_id, paymentMethod))
+    return { ok: false, message: "收款方式不在当前字典中" };
   const paidAmount = Number(payload.paid_amount);
   if (!Number.isFinite(paidAmount) || paidAmount !== Number(bill.amount))
     return { ok: false, message: "本期仅支持足额收款" };
   const reference = String(payload.payment_reference || "").trim();
-  if (payload.payment_method === "bank" && !reference)
-    return { ok: false, message: "银行收款必须填写流水号" };
+  if (paymentMethod !== "cash" && !reference)
+    return { ok: false, message: "非现金收款须填写流水号" };
   const now = nowIso();
   db.prepare(
     `UPDATE rental_bills SET status='paid', paid_amount=?, payment_method=?,
      payment_reference=?, paid_by=?, paid_at=?, updated_at=? WHERE id=?`
-  ).run(paidAmount, payload.payment_method, reference || null, user.id, now, now, bill.id);
+  ).run(paidAmount, paymentMethod, reference || null, user.id, now, now, bill.id);
   addEvent(db, user, "bill", bill.id, "paid", {
     amount: paidAmount,
-    payment_method: payload.payment_method,
+    payment_method: paymentMethod,
   });
   if (bill.manager_user_id !== user.id)
     createMessage(db, {
@@ -507,6 +521,7 @@ export function payBill(db: Db, user: SessionUser, payload: any): ApiResult {
     });
   writeAudit(db, user, "rental.bill.pay", "rental_bill", bill.id, {
     amount: paidAmount,
+    payment_method: paymentMethod,
   });
   return { ok: true, data: { id: bill.id, status: "paid" } };
 }
