@@ -1,14 +1,21 @@
 import type { Db } from "../db/database";
+
 import { writeAudit } from "./audit";
+
 import {
   isAllowedPaymentMethod,
   labelPaymentMethod,
   normalizePaymentMethod,
 } from "./config";
+
+import { createMessage } from "./message";
+
 import { nextId, nowIso, todayDate } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 const INCOME_CATEGORIES = new Set(["commission", "deposit", "service", "other_income"]);
+
 const EXPENSE_CATEGORIES = new Set([
   "office",
   "marketing",
@@ -140,8 +147,29 @@ export function createCashbook(db: Db, user: SessionUser, payload: any): ApiResu
     store_id: storeId,
     deal_id: payload.deal_id || null,
   });
+  const peers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'finance') AND id<>?`
+    )
+    .all(user.company_id, user.id) as { id: string }[];
+  const directionLabel = payload.direction === "income" ? "收入" : "支出";
+  const counterparty = String(payload.counterparty || "").trim();
+  for (const peer of peers) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: storeId,
+      user_id: peer.id,
+      title: "收支流水已登记",
+      body: `${directionLabel} ¥${amount.toFixed(2)}${counterparty ? ` · ${counterparty}` : ""} · ${payload.category}`,
+      kind: "business_record_status",
+      ref_type: "cashbook_entry",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "confirmed" } };
 }
+
 
 export function voidCashbook(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!(user.role === "admin" || user.role === "finance"))
