@@ -42,7 +42,7 @@ export function login(
   db: Db,
   account: string,
   password: string
-): ApiResult<{ token: string; user: SessionUser }> {
+): ApiResult<{ token: string; user: SessionUser; must_change_password: boolean }> {
   const row = db
     .prepare(`SELECT * FROM users WHERE account = ? AND status = 'active'`)
     .get(account) as any;

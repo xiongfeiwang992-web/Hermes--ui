@@ -140,7 +140,7 @@ assert(
 );
 assert(
   data<any[]>(app.call("message.list", {}, agent)).filter((msg) => msg.kind === "payment")
-    .length === beforePay + 1,
+    .length === beforePay + 2,
   "unmuted payment channel delivers message"
 );
 

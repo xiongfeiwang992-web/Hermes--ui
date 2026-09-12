@@ -51,7 +51,7 @@ const houseId = data<any>(house).id;
 const beforeAgent = statusMsgs(agent).length;
 const beforeManager = statusMsgs(manager).length;
 assert(
-  app.call("house.status", { id: houseId, status: "suspended" }, manager).ok,
+  app.call("house.status", { id: houseId, status: "suspended", reason: "other" }, manager).ok,
   "manager suspends house"
 );
 assert(statusMsgs(agent).length === beforeAgent + 1, "agent receives status message");
@@ -72,7 +72,7 @@ assert(
 );
 const beforeSelf = statusMsgs(agent).length;
 assert(
-  app.call("house.status", { id: houseId, status: "suspended" }, agent).ok,
+  app.call("house.status", { id: houseId, status: "suspended", reason: "other" }, agent).ok,
   "agent suspends own house"
 );
 assert(statusMsgs(agent).length === beforeSelf, "agent skips self-notify on own status change");
@@ -82,7 +82,7 @@ assert(
   "manager resumes without agent change"
 );
 assert(
-  app.call("house.status", { id: houseId, status: "suspended" }, manager).ok,
+  app.call("house.status", { id: houseId, status: "suspended", reason: "other" }, manager).ok,
   "manager suspends again"
 );
 const beforeResume = statusMsgs(agent).length;
@@ -129,7 +129,7 @@ assert(
 );
 const beforeMute = statusMsgs(agent).length;
 assert(
-  app.call("house.status", { id: data<any>(house2).id, status: "suspended" }, manager).ok,
+  app.call("house.status", { id: data<any>(house2).id, status: "suspended", reason: "other" }, manager).ok,
   "suspend while muted"
 );
 assert(statusMsgs(agent).length === beforeMute, "muted house suppresses status message");

@@ -114,7 +114,7 @@ const andMatchId = data<any>(andMatch).id;
 assert(
   app.call(
     "house.status",
-    { id: firstId, status: "withdrawn", reason: "重复录入测试" },
+    { id: firstId, status: "withdrawn", reason: "duplicate" },
     manager
   ).ok,
   "withdraw base house"
@@ -122,7 +122,7 @@ assert(
 assert(
   app.call(
     "house.status",
-    { id: andMatchId, status: "withdrawn", reason: "重复录入测试" },
+    { id: andMatchId, status: "withdrawn", reason: "duplicate" },
     manager
   ).ok,
   "withdraw AND-match house"

@@ -5,13 +5,13 @@ import { createApp } from "../server/createApp";
 const app = createApp(seedDatabase(path.resolve("data", "password-policy-smoke.db")).dbPath);
 let passed = 0;
 let failed = 0;
-const assert = (value: unknown, name: string) => {
+function assert(value: any, name: string): asserts value {
   if (value) passed++;
   else {
     failed++;
     console.error("FAIL:", name);
   }
-};
+}
 const data = <T = any>(result: any) => result.data as T;
 const login = (account: string, password = "123456") => {
   const result = app.call("auth.login", { account, password });
@@ -72,9 +72,9 @@ const expired = expiredLogin?.token || "";
 
 const me = app.call("auth.me", {}, expired);
 assert(me.ok && data<any>(me).must_change_password === true, "auth.me flags expiry");
+const expiredHouseList = app.call("house.list", {}, expired);
 assert(
-  !app.call("house.list", {}, expired).ok &&
-    app.call("house.list", {}, expired).message.includes("密码已过期"),
+  !expiredHouseList.ok && expiredHouseList.message.includes("密码已过期"),
   "expired agent blocked from business APIs"
 );
 assert(app.call("auth.logout", {}, expired).ok, "expired agent may logout");

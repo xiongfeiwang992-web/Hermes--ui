@@ -347,10 +347,15 @@ check(
   "other-store employee cannot list knowledge attachment"
 );
 check(
-  !data<any[]>(app.call("message.list", {}, agentA)).some(
-    (message) => message.ref_id === storeKnowledgeId
-  ),
-  "knowledge publication does not create announcement broadcast"
+  data<any[]>(app.call("message.list", {}, agentA)).some(
+    (message) =>
+      message.ref_id === storeKnowledgeId && message.title === "新知识库发布"
+  ) &&
+    !data<any[]>(app.call("message.list", {}, agentA)).some(
+      (message) =>
+        message.ref_id === storeKnowledgeId && message.title === "新公告发布"
+    ),
+  "knowledge publication notifies as knowledge, not announcement broadcast"
 );
 check(
   data<any>(app.call("officeContent.unread", {}, agentA)).knowledge === 1,

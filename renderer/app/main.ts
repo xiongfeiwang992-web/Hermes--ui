@@ -108,7 +108,6 @@ async function customerSourceSelectHtml(selected = "", includeEmpty = true) {
     : options;
 }
 
-<<<<<<< HEAD
 async function customerLevelSelectHtml(selected = "B") {
   const result = await api("config.customerLevels", {});
   const levels = result.ok
@@ -126,8 +125,6 @@ async function customerLevelSelectHtml(selected = "B") {
     .join("");
 }
 
-=======
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
 async function paymentMethodSelectHtml(selected = "transfer") {
   const result = await api("config.paymentMethods", {});
   const methods = result.ok
@@ -147,7 +144,6 @@ async function paymentMethodSelectHtml(selected = "transfer") {
     .join("");
 }
 
-<<<<<<< HEAD
 async function dealModeSelectHtml(selected = "normal", includeEmpty = false) {
   const result = await api("config.dealModes", {});
   const modes = result.ok
@@ -316,8 +312,6 @@ async function houseWithdrawReasonSelectHtml(selected = "owner_stopped") {
     .join("");
 }
 
-=======
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -3002,30 +2996,6 @@ async function renderEarnest(main: HTMLElement) {
             remark: fd.get("remark"),
           });
           toast(result.ok ? "意向金已登记" : result.message, result.ok ? "ok" : "error");
-<<<<<<< HEAD
-=======
-          if (result.ok) draw();
-        }
-      );
-    });
-  }
-  const seedButton = main.querySelector("[data-seed]");
-  if (seedButton) {
-    seedButton.addEventListener("click", () => {
-      const options = ((deals.data as any[]) || [])
-        .filter((deal) => deal.status === "approved")
-        .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
-        .join("");
-      openDialog(
-        "从模板补齐过户节点",
-        `<label class="full">已审批成交<select name="deal_id">${options}</select></label>`,
-        async (fd) => {
-          const result = await api("transfer.seed", { deal_id: fd.get("deal_id") });
-          toast(
-            result.ok ? `已补齐 ${(result.data as any).created} 个节点` : result.message,
-            result.ok ? "ok" : "error"
-          );
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
           if (result.ok) draw();
         }
       );
@@ -3128,6 +3098,27 @@ async function renderTransfer(main: HTMLElement) {
       );
     });
   }
+  const seedButton = main.querySelector("[data-seed]");
+  if (seedButton) {
+    seedButton.addEventListener("click", () => {
+      const options = ((deals.data as any[]) || [])
+        .filter((deal) => deal.status === "approved")
+        .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
+        .join("");
+      openDialog(
+        "从模板补齐过户节点",
+        `<label class="full">已审批成交<select name="deal_id">${options}</select></label>`,
+        async (fd) => {
+          const result = await api("transfer.seed", { deal_id: fd.get("deal_id") });
+          toast(
+            result.ok ? `已补齐 ${(result.data as any).created} 个节点` : result.message,
+            result.ok ? "ok" : "error"
+          );
+          if (result.ok) draw();
+        }
+      );
+    });
+  }
   main.querySelector("[data-status]")!.addEventListener("change", draw);
   await draw();
 }
@@ -3196,11 +3187,7 @@ async function renderPayments(main: HTMLElement) {
         (p) => `<div class="row"><div>
         <div>
           <span class="tag ${p.status === "confirmed" ? "ok" : p.status === "rejected" ? "danger" : "warn"}">${p.direction === "out" ? "退款" : statusLabel[p.status] || p.status}</span>
-<<<<<<< HEAD
           <strong>¥${money(p.amount)}</strong> · ${escapeHtml(p.pay_type_label || p.pay_type)} · ${escapeHtml(p.method_label || p.method)} · ${p.payer_side}
-=======
-          <strong>¥${money(p.amount)}</strong> · ${escapeHtml(p.method_label || p.method)} · ${p.payer_side}
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
         </div>
         <div class="meta">成交单 ${p.deal_id} · ${p.paid_at}${p.reject_reason ? ` · 驳回：${escapeHtml(p.reject_reason)}` : ""}</div>
       </div><div class="ops">
@@ -3249,11 +3236,7 @@ async function renderPayments(main: HTMLElement) {
               method: fd.get("method"),
             });
             toast(result.ok ? "退款已登记" : result.message, result.ok ? "ok" : "error");
-<<<<<<< HEAD
             if (result.ok) draw();
-=======
-            if (result.ok) render();
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
           }
         );
       })
@@ -3283,19 +3266,13 @@ async function renderPayments(main: HTMLElement) {
         )
         .join("");
       const methodOptions = await paymentMethodSelectHtml("transfer");
-<<<<<<< HEAD
       const payTypeOptions = await payTypeSelectHtml("commission", true);
-=======
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
       openDialog(
         "登记收款（待出纳确认）",
         `
         <label class="full">成交单<select name="deal_id">${opts}</select></label>
         <label>金额<input name="amount" type="number" step="0.01" required /></label>
-<<<<<<< HEAD
         <label>收款类型<select name="pay_type">${payTypeOptions}</select></label>
-=======
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
         <label>方式<select name="method">${methodOptions}</select></label>
         <label>付款方<select name="payer_side"><option value="customer">客户</option><option value="owner">业主</option><option value="other">其他</option></select></label>
         `,
@@ -3309,11 +3286,7 @@ async function renderPayments(main: HTMLElement) {
           });
           if (res.ok && (res.data as any).warning) toast((res.data as any).warning, "warn");
           else toast(res.ok ? "收款已登记，待出纳确认" : res.message, res.ok ? "ok" : "error");
-<<<<<<< HEAD
           if (res.ok) draw();
-=======
-          if (res.ok) render();
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
         }
       );
     });
@@ -8374,11 +8347,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-<<<<<<< HEAD
         <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category / house_source / leave_type / pay_type / property_type / view_feedback / house_suspend_reason / house_withdraw_reason" required /></label>
-=======
-        <label>字典类型<input name="dict_type" placeholder="customer_source / follow_method / payment_method" required /></label>
->>>>>>> origin/cursor/payment-method-dictionary-5bdb
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

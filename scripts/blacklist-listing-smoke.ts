@@ -5,13 +5,13 @@ import { createApp } from "../server/createApp";
 const app = createApp(seedDatabase(path.resolve("data", "blacklist-listing-smoke.db")).dbPath);
 let passed = 0;
 let failed = 0;
-const assert = (value: unknown, name: string) => {
+function assert(value: any, name: string): asserts value {
   if (value) passed++;
   else {
     failed++;
     console.error("FAIL:", name);
   }
-};
+}
 const data = <T = any>(result: any) => result.data as T;
 const login = (account: string) => {
   const result = app.call("auth.login", { account, password: "123456" });

@@ -144,8 +144,8 @@ const mutedHouse = app.call(
 );
 assert(mutedHouse.ok, "create muted house");
 assert(
-  app.call("message.subscriptions.save", { channels: { other: false } }, agent).ok,
-  "mute other"
+  app.call("message.subscriptions.save", { channels: { house: false } }, agent).ok,
+  "mute house"
 );
 const beforeMute = surveyMsgs(agent).length;
 assert(

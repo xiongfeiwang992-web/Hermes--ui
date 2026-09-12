@@ -264,10 +264,20 @@
     "smoke:survey-notify": "tsx scripts/survey-notify-smoke.ts",
     "smoke:target-create-notify": "tsx scripts/target-create-notify-smoke.ts",
     "smoke:transfer-cancel-notify": "tsx scripts/transfer-cancel-notify-smoke.ts",
-    "smoke:transfer-node-cancel-notify": "tsx scripts/transfer-node-cancel-notify-smoke.ts"
+    "smoke:transfer-node-cancel-notify": "tsx scripts/transfer-node-cancel-notify-smoke.ts",
+    "smoke:transfer-node-complete-notify": "tsx scripts/transfer-node-complete-notify-smoke.ts",
+    "smoke:transfer-node-start-notify": "tsx scripts/transfer-node-start-notify-smoke.ts",
+    "smoke:transfer-template-notify": "tsx scripts/transfer-template-notify-smoke.ts",
+    "smoke:transfer-template-update-notify": "tsx scripts/transfer-template-update-notify-smoke.ts",
+    "smoke:view-complete-cancel-notify": "tsx scripts/view-complete-cancel-notify-smoke.ts",
+    "smoke:work-summary-review-notify": "tsx scripts/work-summary-review-notify-smoke.ts",
+    "smoke:work-summary-submit-notify": "tsx scripts/work-summary-submit-notify-smoke.ts",
+    "smoke:workflow-create-notify": "tsx scripts/workflow-create-notify-smoke.ts",
+    "smoke:workflow-decide-notify": "tsx scripts/workflow-decide-notify-smoke.ts",
+    "smoke:workflow-submit-notify": "tsx scripts/workflow-submit-notify-smoke.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.9.1"
+    "better-sqlite3": "^13.0.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

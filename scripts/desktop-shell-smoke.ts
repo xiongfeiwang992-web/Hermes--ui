@@ -3,12 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url);
+const nodeRequire = createRequire(__filename);
 const {
   createShellStore,
   evaluateUpdateFeed,
   compareSemver,
-} = require("../electron/shell-state.cjs") as {
+} = nodeRequire("../electron/shell-state.cjs") as {
   createShellStore: (options?: any) => any;
   evaluateUpdateFeed: (params?: any) => any;
   compareSemver: (a: string, b: string) => number;
