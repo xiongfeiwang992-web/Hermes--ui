@@ -23,10 +23,25 @@ export function canSeeCommissions(user: SessionUser): "all" | "store" | "self" |
   return "none";
 }
 
+/** Display-style mask pattern: 138****1234 (not carrier VN). */
+export const MASKED_PHONE_PATTERN = /^\d{3}\*{4}\d{4}$/;
+
+/** Mask a raw phone for UI/API present fields. Keeps stable `138****1234` style. */
 export function maskPhone(phone: string): string {
   if (!phone) return "";
   if (phone.length < 7) return "***";
   return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+}
+
+/** Normalize already-masked or raw phones to the stable display mask format. */
+export function formatMaskedPhone(phone: string): string {
+  if (!phone) return "";
+  if (MASKED_PHONE_PATTERN.test(phone)) return phone;
+  return maskPhone(phone);
+}
+
+export function isMaskedPhoneFormat(phone: string): boolean {
+  return MASKED_PHONE_PATTERN.test(phone);
 }
 
 export function canSeeOwnerPhone(

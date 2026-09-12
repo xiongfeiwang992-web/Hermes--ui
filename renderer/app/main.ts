@@ -321,6 +321,13 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", "&#039;");
 }
 
+/** Wrap masked phones with consistent display-style treatment (title hint only). */
+function phoneHtml(phone: unknown, masked?: boolean) {
+  const text = escapeHtml(phone);
+  if (!masked) return text;
+  return `<span class="phone-masked" title="已脱敏">${text}</span>`;
+}
+
 function el(html: string) {
   const box = document.createElement("div");
   box.innerHTML = html.trim();
@@ -810,7 +817,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.active_cooperation_count ? `<span class="tag ok">合作 ${h.active_cooperation_count}</span>` : ""}
           ${h.cooperation_as_partner ? `<span class="tag warn">被合作</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${escapeHtml(h.community)}${h.district ? ` · ${escapeHtml(h.district)}` : ""}${h.property_type_label ? ` · ${escapeHtml(h.property_type_label)}` : ""}${h.deal_mode_label && h.deal_mode !== "normal" ? ` · ${escapeHtml(h.deal_mode_label)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"}${h.rooms ? ` · ${escapeHtml(h.rooms)}` : ""}${h.area_size != null ? ` · ${h.area_size}㎡` : ""}${h.floor ? ` · ${escapeHtml(h.floor)}层` : ""}${h.orientation_label ? ` · ${escapeHtml(h.orientation_label)}` : ""}${h.decoration_label ? ` · ${escapeHtml(h.decoration_label)}` : ""} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${escapeHtml(h.owner_name)} ${escapeHtml(h.owner_phone)}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}${h.source_label ? ` · 来源 ${escapeHtml(h.source_label)}` : ""}</div>
+          <div class="meta">${escapeHtml(h.community)}${h.district ? ` · ${escapeHtml(h.district)}` : ""}${h.property_type_label ? ` · ${escapeHtml(h.property_type_label)}` : ""}${h.deal_mode_label && h.deal_mode !== "normal" ? ` · ${escapeHtml(h.deal_mode_label)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"}${h.rooms ? ` · ${escapeHtml(h.rooms)}` : ""}${h.area_size != null ? ` · ${h.area_size}㎡` : ""}${h.floor ? ` · ${escapeHtml(h.floor)}层` : ""}${h.orientation_label ? ` · ${escapeHtml(h.orientation_label)}` : ""}${h.decoration_label ? ` · ${escapeHtml(h.decoration_label)}` : ""} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${escapeHtml(h.owner_name)} ${phoneHtml(h.owner_phone, h.owner_phone_masked)}${h.force_follow_required ? " · 须写跟进后查看" : ""}${h.source_label ? ` · 来源 ${escapeHtml(h.source_label)}` : ""}</div>
           ${h.status === "suspended" && h.suspend_reason_label ? `<div class="meta">暂缓：${escapeHtml(h.suspend_reason_label)}</div>` : ""}
           ${h.status === "withdrawn" && h.withdraw_reason_label ? `<div class="meta">撤盘：${escapeHtml(h.withdraw_reason_label)}</div>` : ""}
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
@@ -875,7 +882,7 @@ async function renderHouses(main: HTMLElement) {
         const payload = result.data as any;
         const items = payload.items as any[];
         openInfoDialog(
-          `同业主相关盘（${payload.owner_name} · ${payload.owner_phone}）`,
+          `同业主相关盘（${escapeHtml(payload.owner_name)} · ${phoneHtml(payload.owner_phone, payload.owner_phone_masked)}）`,
           items.length
             ? items
                 .map(
@@ -1787,7 +1794,7 @@ async function renderCustomers(main: HTMLElement) {
         <div><span class="tag">${c.visibility === "private" ? "私客" : "公客"}</span>
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag ${c.status === "suspended" ? "warn" : ""}">${c.status === "suspended" ? "暂缓" : escapeHtml(c.level_label || c.level)}</span>
-        <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+        <strong>${c.name}</strong> ${phoneHtml(c.phone, c.phone_masked)}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
         <div class="meta">${c.need || "无需求备注"} · ${formatBudget(c)} · 状态 ${customerStatusLabel(c.status)} · 维护 ${escapeHtml(agentName(c.agent_id))}${c.invalid_reason ? ` · ${escapeHtml(c.invalid_reason)}` : ""}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
       <div class="ops">
@@ -2099,6 +2106,7 @@ async function renderCustomers(main: HTMLElement) {
   }
   await draw();
 }
+
 
 async function renderFollows(main: HTMLElement) {
   const kindText = (kind: string) =>

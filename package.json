@@ -99,7 +99,8 @@
     "smoke:house-suspend-reason": "tsx scripts/house-suspend-reason-smoke.ts",
     "smoke:house-withdraw-reason": "tsx scripts/house-withdraw-reason-smoke.ts",
     "smoke:houses-page-export": "tsx scripts/houses-page-export-smoke.ts",
-    "smoke:keys-lifecycle": "tsx scripts/keys-lifecycle-smoke.ts"
+    "smoke:keys-lifecycle": "tsx scripts/keys-lifecycle-smoke.ts",
+    "smoke:masked-phone-display": "tsx scripts/masked-phone-display-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
