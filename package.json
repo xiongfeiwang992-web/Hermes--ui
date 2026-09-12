@@ -224,7 +224,8 @@
     "smoke:newhome-register-notify": "tsx scripts/newhome-register-notify-smoke.ts",
     "smoke:newhome-registration-expire-notify": "tsx scripts/newhome-registration-expire-notify-smoke.ts",
     "smoke:newhome-sales-cancel-notify": "tsx scripts/newhome-sales-cancel-notify-smoke.ts",
-    "smoke:offboarding-cancel-notify": "tsx scripts/offboarding-cancel-notify-smoke.ts"
+    "smoke:offboarding-cancel-notify": "tsx scripts/offboarding-cancel-notify-smoke.ts",
+    "smoke:office-document-archive-notify": "tsx scripts/office-document-archive-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
