@@ -480,6 +480,30 @@ export function upsertDistributionCompany(
     }
     addEvent(db, user, "distribution_company", row.id, "updated", { name });
     writeAudit(db, user, "newhome.distribution.update", "newhome_distribution_company", row.id);
+    let recipients = db
+      .prepare(
+        `SELECT id, store_id, role FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const notifyStoreId = storeId || row.store_id;
+    if (notifyStoreId)
+      recipients = recipients.filter(
+        (recipient) => recipient.role === "admin" || recipient.store_id === notifyStoreId
+      );
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: notifyStoreId || recipient.store_id,
+        user_id: recipient.id,
+        title: "分销公司已更新",
+        body: name,
+        kind: "business_record_status",
+        ref_type: "newhome_distribution_company",
+        ref_id: row.id,
+      });
+    }
     return { ok: true, data: { id: row.id } };
   }
   const id = nextId("NDC");

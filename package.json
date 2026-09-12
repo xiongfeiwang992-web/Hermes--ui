@@ -155,7 +155,8 @@
     "smoke:deal-refund-notify": "tsx scripts/deal-refund-notify-smoke.ts",
     "smoke:deal-rename-cancel-notify": "tsx scripts/deal-rename-cancel-notify-smoke.ts",
     "smoke:deal-signoff-notify": "tsx scripts/deal-signoff-notify-smoke.ts",
-    "smoke:distribution-company-create-notify": "tsx scripts/distribution-company-create-notify-smoke.ts"
+    "smoke:distribution-company-create-notify": "tsx scripts/distribution-company-create-notify-smoke.ts",
+    "smoke:distribution-company-update-notify": "tsx scripts/distribution-company-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
