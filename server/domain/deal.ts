@@ -349,6 +349,34 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
     });
   }
   if (q.status) rows = rows.filter((d) => d.status === q.status);
+  const houseTitles = new Map(
+    (
+      db
+        .prepare(`SELECT id, title FROM houses WHERE company_id = ?`)
+        .all(user.company_id) as any[]
+    ).map((row) => [row.id, row.title])
+  );
+  const customerNames = new Map(
+    (
+      db
+        .prepare(`SELECT id, name FROM customers WHERE company_id = ?`)
+        .all(user.company_id) as any[]
+    ).map((row) => [row.id, row.name])
+  );
+  if (q.keyword) {
+    const k = String(q.keyword).trim().toLowerCase();
+    rows = rows.filter((d) => {
+      const houseTitle = String(houseTitles.get(d.house_id) || "").toLowerCase();
+      const customerName = String(customerNames.get(d.customer_id) || "").toLowerCase();
+      return (
+        String(d.id).toLowerCase().includes(k) ||
+        String(d.house_id).toLowerCase().includes(k) ||
+        String(d.customer_id).toLowerCase().includes(k) ||
+        houseTitle.includes(k) ||
+        customerName.includes(k)
+      );
+    });
+  }
   return {
     ok: true,
     data: rows.map((r) => {
@@ -361,6 +389,8 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
       const paidAmount = Number(paid.s || 0);
       return {
         ...presentDeal(db, user.company_id, r),
+        house_title: houseTitles.get(r.house_id) || r.house_id,
+        customer_name: customerNames.get(r.customer_id) || r.customer_id,
         receivable_amount: receivable,
         paid_amount: paidAmount,
         unpaid_amount: receivable - paidAmount,
@@ -369,6 +399,7 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
     }),
   };
 }
+
 
 export function submitDeal(db: Db, user: SessionUser, payload: { id: string }): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };

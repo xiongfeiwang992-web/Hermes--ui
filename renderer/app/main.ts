@@ -2043,11 +2043,23 @@ async function renderDeals(main: HTMLElement) {
   const desktopShell = (window as any).weilaijia?.shell;
   const prefill = state.cache.prefillDeal || {};
   main.innerHTML = `
-    <div class="header"><h2>成交</h2><button class="btn" data-new>新建成交单</button></div>
+    <div class="header"><h2>成交</h2><div class="ops">
+      <button class="btn ghost" data-export>导出 CSV</button>
+      <button class="btn" data-new>新建成交单</button>
+    </div></div>
+    <div class="filters">
+      <select data-f="status"><option value="">全部状态</option><option value="draft">草稿</option><option value="pending_approval">待审批</option><option value="approved">已审批</option><option value="rejected">已驳回</option></select>
+      <input data-f="keyword" placeholder="搜索单号/房源/客户" />
+    </div>
     <div class="list" data-list></div>
   `;
   const draw = async () => {
-    const r = await api("deal.list", {});
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    const r = await api("deal.list", q);
     const list = main.querySelector("[data-list]")!;
     if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
     const rows = r.data as any[];
@@ -2074,7 +2086,7 @@ async function renderDeals(main: HTMLElement) {
         <div><span class="tag ${d.status === "approved" ? "ok" : d.status === "rejected" || d.status === "void" ? "danger" : "warn"}">${dealStatusLabel(d.status)}</span>
         <strong>${d.id}</strong>
         应收 ¥${money(d.receivable_amount ?? d.commission_total)} · 已收 ¥${money(d.paid_amount)} · 未收 ¥${money(d.unpaid_amount)}${d.overpaid ? ` <span class="tag danger">超收</span>` : ""}</div>
-        <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${escapeHtml(d.reject_reason)}` : ""}${d.void_reason ? ` · 作废：${escapeHtml(d.void_reason)}` : ""}</div>
+        <div class="meta">房 ${escapeHtml(d.house_title || d.house_id)} · 客 ${escapeHtml(d.customer_name || d.customer_id)} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${escapeHtml(d.reject_reason)}` : ""}${d.void_reason ? ` · 作废：${escapeHtml(d.void_reason)}` : ""}</div>
         ${d.split_summary ? `<div class="meta">分成 ${escapeHtml(d.split_summary)}</div>` : ""}
         ${checklists.get(d.id)?.ok ? `<div class="meta">必传资料 ${(checklists.get(d.id) as any).data.received_count}/${(checklists.get(d.id) as any).data.required_count} ${(checklists.get(d.id) as any).data.complete ? "✓" : ""}</div>` : ""}
         ${mortgages.get(d.id)?.ok && (mortgages.get(d.id) as any).data ? `<div class="meta">按揭 ${(mortgages.get(d.id) as any).data.bank} · ${(mortgages.get(d.id) as any).data.amount} · ${(mortgages.get(d.id) as any).data.status}</div>` : ""}
@@ -2425,6 +2437,26 @@ async function renderDeals(main: HTMLElement) {
       }
     );
   });
+  main.querySelector("[data-export]")!.addEventListener("click", async () => {
+    const q: any = {};
+    main.querySelectorAll("[data-f]").forEach((input) => {
+      const el = input as HTMLInputElement;
+      if (el.value) q[el.dataset.f!] = el.value;
+    });
+    const result = await api("report.dealsListCsv", q);
+    if (!result.ok) return toast(result.message, "error");
+    const file = result.data as any;
+    const blob = new Blob([file.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename || "成交列表.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${file.rows} 条成交`, "ok");
+  });
+  main.querySelectorAll("[data-f]").forEach((input) => input.addEventListener("change", draw));
+  main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
   await draw();
 }
 
