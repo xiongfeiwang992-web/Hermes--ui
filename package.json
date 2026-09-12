@@ -78,7 +78,8 @@
     "smoke:cashbook-payment-methods": "tsx scripts/cashbook-payment-methods-smoke.ts",
     "smoke:commission-paid": "tsx scripts/commission-paid-smoke.ts",
     "smoke:contract-preview": "tsx scripts/contract-preview-smoke.ts",
-    "smoke:customer-budget-filter": "tsx scripts/customer-budget-filter-smoke.ts"
+    "smoke:customer-budget-filter": "tsx scripts/customer-budget-filter-smoke.ts",
+    "smoke:customer-list-filters": "tsx scripts/customer-list-filters-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
