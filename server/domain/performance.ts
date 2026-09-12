@@ -739,3 +739,163 @@ export function listPerformanceEvents(
     .all(user.company_id, payload.entity_type, payload.entity_id);
   return { ok: true, data: events };
 }
+
+/** M11-08：月度门店/人员排名与目标完成率（部门≈门店） */
+export function monthlyRankings(db: Db, user: SessionUser, payload: any = {}): ApiResult {
+  const periodMonth = String(payload.period_month || nowIso().slice(0, 7));
+  if (!validMonth(periodMonth)) return { ok: false, message: "排名月份无效" };
+  const { start, end } = monthRange(periodMonth);
+  const deals = db
+    .prepare(
+      `SELECT id, store_id, commission_total, agent_ids, split_ratios, deal_date
+       FROM deals
+       WHERE company_id=? AND status='approved' AND deal_date BETWEEN ? AND ?`
+    )
+    .all(user.company_id, start, end) as any[];
+
+  let stores = db
+    .prepare(
+      `SELECT id, name FROM stores WHERE company_id=? AND status='active' ORDER BY name`
+    )
+    .all(user.company_id) as Array<{ id: string; name: string }>;
+  let agents = db
+    .prepare(
+      `SELECT id, store_id, display_name, role FROM users
+       WHERE company_id=? AND status='active' AND role IN ('agent','store_manager')
+       ORDER BY display_name`
+    )
+    .all(user.company_id) as Array<{
+    id: string;
+    store_id: string;
+    display_name: string;
+    role: string;
+  }>;
+
+  if (user.role === "agent") {
+    stores = stores.filter((store) => store.id === user.store_id);
+    agents = agents.filter((agent) => agent.id === user.id);
+  } else if (user.role === "store_manager") {
+    stores = stores.filter((store) => store.id === user.store_id);
+    agents = agents.filter((agent) => agent.store_id === user.store_id);
+  }
+
+  const storeMap = new Map(
+    stores.map((store) => [
+      store.id,
+      {
+        store_id: store.id,
+        store_name: store.name,
+        deal_count: 0,
+        commission_total: 0,
+        target_value: null as number | null,
+        actual_value: 0,
+        completion_rate: null as number | null,
+        metric: null as string | null,
+      },
+    ])
+  );
+  const agentMap = new Map(
+    agents.map((agent) => [
+      agent.id,
+      {
+        user_id: agent.id,
+        display_name: agent.display_name,
+        store_id: agent.store_id,
+        role: agent.role,
+        deal_count: 0,
+        performance: 0,
+        target_value: null as number | null,
+        actual_value: 0,
+        completion_rate: null as number | null,
+        metric: null as string | null,
+      },
+    ])
+  );
+
+  for (const deal of deals) {
+    if (!storeMap.has(deal.store_id)) continue;
+    const storeRow = storeMap.get(deal.store_id)!;
+    storeRow.deal_count += 1;
+    storeRow.commission_total = money(storeRow.commission_total + Number(deal.commission_total));
+
+    const ratios = JSON.parse(deal.split_ratios || "{}") as Record<string, number>;
+    const agentIds = JSON.parse(deal.agent_ids || "[]") as string[];
+    for (const agentId of agentIds) {
+      const agentRow = agentMap.get(agentId);
+      if (!agentRow) continue;
+      agentRow.deal_count += 1;
+      const ratio = Number(ratios[agentId] || 0);
+      agentRow.performance = money(
+        agentRow.performance + Number(deal.commission_total) * (ratio / 100)
+      );
+    }
+  }
+
+  const targets = db
+    .prepare(
+      `SELECT * FROM performance_targets
+       WHERE company_id=? AND period_month=? AND status='active'`
+    )
+    .all(user.company_id, periodMonth) as any[];
+
+  for (const target of targets) {
+    const actual = actualForTarget(db, target);
+    const completion =
+      Number(target.target_value) > 0
+        ? money((actual / Number(target.target_value)) * 100)
+        : 0;
+    if (!target.user_id) {
+      const storeRow = storeMap.get(target.store_id);
+      if (!storeRow) continue;
+      // Prefer commission store targets for board; fall back to deals if no commission target
+      if (storeRow.metric === "commission" && target.metric !== "commission") continue;
+      storeRow.metric = target.metric;
+      storeRow.target_value = Number(target.target_value);
+      storeRow.actual_value = actual;
+      storeRow.completion_rate = completion;
+    } else {
+      const agentRow = agentMap.get(target.user_id);
+      if (!agentRow) continue;
+      if (agentRow.metric === "commission" && target.metric !== "commission") continue;
+      if (agentRow.metric === "deals" && target.metric === "commission") {
+        /* upgrade to commission target when both exist */
+      } else if (agentRow.metric && agentRow.metric !== target.metric) {
+        continue;
+      }
+      agentRow.metric = target.metric;
+      agentRow.target_value = Number(target.target_value);
+      agentRow.actual_value = actual;
+      agentRow.completion_rate = completion;
+    }
+  }
+
+  // Align store actual_value with ranking metric when no target
+  for (const storeRow of storeMap.values()) {
+    if (storeRow.target_value == null) {
+      storeRow.actual_value = storeRow.commission_total;
+    }
+  }
+  for (const agentRow of agentMap.values()) {
+    if (agentRow.target_value == null) {
+      agentRow.actual_value = agentRow.performance;
+    }
+  }
+
+  const storeRankings = [...storeMap.values()].sort((a, b) => {
+    if (b.commission_total !== a.commission_total) return b.commission_total - a.commission_total;
+    return b.deal_count - a.deal_count;
+  });
+  const agentRankings = [...agentMap.values()].sort((a, b) => {
+    if (b.performance !== a.performance) return b.performance - a.performance;
+    return b.deal_count - a.deal_count;
+  });
+
+  return {
+    ok: true,
+    data: {
+      period_month: periodMonth,
+      stores: storeRankings.map((row, index) => ({ ...row, rank: index + 1 })),
+      agents: agentRankings.map((row, index) => ({ ...row, rank: index + 1 })),
+    },
+  };
+}

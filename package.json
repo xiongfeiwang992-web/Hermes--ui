@@ -105,7 +105,8 @@
     "smoke:org-store-stats": "tsx scripts/org-store-stats-smoke.ts",
     "smoke:payments-page-export": "tsx scripts/payments-page-export-smoke.ts",
     "smoke:performance-export": "tsx scripts/performance-export-smoke.ts",
-    "smoke:rental-payment-methods": "tsx scripts/rental-payment-methods-smoke.ts"
+    "smoke:rental-payment-methods": "tsx scripts/rental-payment-methods-smoke.ts",
+    "smoke:store-rankings": "tsx scripts/store-rankings-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

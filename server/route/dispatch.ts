@@ -643,6 +643,8 @@ case "performance.dividend.pay":
       return performance.payDividendBatch(db, user!, payload);
 case "performance.events":
       return performance.listPerformanceEvents(db, user!, payload);
+case "performance.rankings.monthly":
+      return performance.monthlyRankings(db, user!, payload);
 case "dealExt.options":
       return dealExt.dealExtOptions(db, user!);
 case "dealExt.complaints.list":
