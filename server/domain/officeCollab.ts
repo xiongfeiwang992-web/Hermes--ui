@@ -800,7 +800,7 @@ export function issueTicket(db: Db, user: SessionUser, payload: any): ApiResult 
     store_id: row.store_id,
     user_id: row.applicant_user_id,
     title: "票据已发放",
-    body: row.title,
+    body: `${user.display_name} 已发放「${row.title}」×${row.quantity}`,
     kind: "office_ticket",
     ref_type: "office_ticket",
     ref_id: row.id,

@@ -228,6 +228,7 @@
     "smoke:office-document-archive-notify": "tsx scripts/office-document-archive-notify-smoke.ts",
     "smoke:office-ticket-approve-notify": "tsx scripts/office-ticket-approve-notify-smoke.ts",
     "smoke:office-ticket-create-notify": "tsx scripts/office-ticket-create-notify-smoke.ts",
+    "smoke:office-ticket-issue-notify": "tsx scripts/office-ticket-issue-notify-smoke.ts",
     "smoke:office-ticket-return-notify": "tsx scripts/office-ticket-return-notify-smoke.ts",
     "smoke:online-entrust-reject-notify": "tsx scripts/online-entrust-reject-notify-smoke.ts",
     "smoke:payment-create-notify": "tsx scripts/payment-create-notify-smoke.ts",
