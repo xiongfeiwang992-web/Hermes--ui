@@ -81,7 +81,8 @@
     "smoke:customer-budget-filter": "tsx scripts/customer-budget-filter-smoke.ts",
     "smoke:customer-list-filters": "tsx scripts/customer-list-filters-smoke.ts",
     "smoke:customer-void-keywords": "tsx scripts/customer-void-keywords-smoke.ts",
-    "smoke:customers-page-export": "tsx scripts/customers-page-export-smoke.ts"
+    "smoke:customers-page-export": "tsx scripts/customers-page-export-smoke.ts",
+    "smoke:deal-amounts": "tsx scripts/deal-amounts-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

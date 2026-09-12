@@ -1824,7 +1824,6 @@ async function renderCustomers(main: HTMLElement) {
   await draw();
 }
 
-
 async function renderFollows(main: HTMLElement) {
   const kindText = (kind: string) =>
     kind === "price_change" ? "改价" : kind === "modification" ? "修改" : "普通";
@@ -2058,12 +2057,14 @@ async function renderDeals(main: HTMLElement) {
       .map(
         (d) => `<div class="row"><div>
         <div><span class="tag ${d.status === "approved" ? "ok" : d.status === "rejected" ? "danger" : "warn"}">${d.status}</span>
-        <strong>${d.id}</strong> 佣金 ¥${money(d.commission_total)} · 未收 ¥${money(d.unpaid_amount)}</div>
+        <strong>${d.id}</strong>
+        应收 ¥${money(d.receivable_amount ?? d.commission_total)} · 已收 ¥${money(d.paid_amount)} · 未收 ¥${money(d.unpaid_amount)}${d.overpaid ? ` <span class="tag danger">超收</span>` : ""}</div>
         <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${d.reject_reason}` : ""}</div>
         ${checklists.get(d.id)?.ok ? `<div class="meta">必传资料 ${(checklists.get(d.id) as any).data.received_count}/${(checklists.get(d.id) as any).data.required_count} ${(checklists.get(d.id) as any).data.complete ? "✓" : ""}</div>` : ""}
         ${mortgages.get(d.id)?.ok && (mortgages.get(d.id) as any).data ? `<div class="meta">按揭 ${(mortgages.get(d.id) as any).data.bank} · ${(mortgages.get(d.id) as any).data.amount} · ${(mortgages.get(d.id) as any).data.status}</div>` : ""}
       </div>
       <div class="ops">
+        <button class="btn ghost" data-detail="${d.id}">收付详情</button>
         ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
         <button class="btn ghost" data-mortgage="${d.id}">按揭</button>
         <button class="btn ghost" data-preview-contract="${d.id}">合同预览</button>
@@ -2102,6 +2103,40 @@ async function renderDeals(main: HTMLElement) {
                ? ` · 未填充：${escapeHtml(preview.placeholders_missing.join("、"))}`
                : ""
            }</div>`
+        );
+      })
+    );
+    list.querySelectorAll("[data-detail]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const dealId = (btn as HTMLElement).dataset.detail!;
+        const result = await api("deal.get", { id: dealId });
+        if (!result.ok) return toast(result.message, "error");
+        const d = result.data as any;
+        const statusLabel: Record<string, string> = {
+          pending: "待确认",
+          confirmed: "已确认",
+          rejected: "已驳回",
+        };
+        const directionLabel: Record<string, string> = {
+          in: "收款",
+          out: "退款",
+        };
+        const payments = (d.payments as any[]) || [];
+        const paymentHtml = payments.length
+          ? payments
+              .map(
+                (p) =>
+                  `<div class="row"><div><span class="tag ${p.status === "confirmed" ? "ok" : p.status === "rejected" ? "danger" : "warn"}">${statusLabel[p.status] || p.status}</span>
+                  <strong>${directionLabel[p.direction] || p.direction}</strong> ¥${money(p.amount)}
+                  <div class="meta">${escapeHtml(p.method_label || p.method || "")}${p.payer_side ? ` · ${escapeHtml(p.payer_side)}` : ""}${p.paid_at ? ` · ${escapeHtml(String(p.paid_at).slice(0, 19).replace("T", " "))}` : ""}${p.remark ? ` · ${escapeHtml(p.remark)}` : ""}</div>
+                  </div></div>`
+              )
+              .join("")
+          : `<div class="empty">暂无收付款记录</div>`;
+        openInfoDialog(
+          `成交收付 · ${dealId}`,
+          `<div class="meta">应收 ¥${money(d.receivable_amount ?? d.commission_total)} · 已收 ¥${money(d.paid_amount)} · 未收 ¥${money(d.unpaid_amount)} · 待确认 ¥${money(d.pending_amount || 0)}${d.overpaid ? " · 已超收" : ""}</div>
+           <div class="list" style="margin-top:12px">${paymentHtml}</div>`
         );
       })
     );
@@ -2286,6 +2321,7 @@ async function renderDeals(main: HTMLElement) {
   });
   await draw();
 }
+
 
 async function renderEarnest(main: HTMLElement) {
   const mayCreate = ["admin", "store_manager", "agent"].includes(state.user.role);

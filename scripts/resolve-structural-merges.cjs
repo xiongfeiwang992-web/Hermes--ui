@@ -50,6 +50,20 @@ function textMerge(base, ours, theirs) {
     }
     if (!ancestor.trim()) {
       const l = parse(left), r = parse(right);
+      const selector = node => {
+        let found;
+        const visit = current => {
+          if (found) return;
+          if (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression) && ['querySelector', 'querySelectorAll'].includes(current.expression.name.text) && current.arguments[0] && ts.isStringLiteral(current.arguments[0])) found = current.arguments[0].text;
+          else ts.forEachChild(current, visit);
+        };
+        visit(node);
+        return found;
+      };
+      if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && [...l.statements, ...r.statements].every(ts.isExpressionStatement)) {
+        const a = l.statements.map(selector), b = r.statements.map(selector);
+        if (a.length && b.length && [...a, ...b].every(Boolean) && !a.some(value => b.includes(value))) return left + right;
+      }
       const variables = s => s.statements.filter(ts.isVariableStatement).flatMap(n => n.declarationList.declarations.map(d => d.name.getText()));
       if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && [...l.statements, ...r.statements].every(n => ts.isVariableStatement(n) || ts.isIfStatement(n)) && variables(l).length + variables(r).length > 0 && !variables(l).some(name => variables(r).includes(name))) return left + right;
       const propertyNames = text => {
