@@ -1,0 +1,1 @@
+ALTER TABLE settings ADD COLUMN customer_hold_limit INTEGER NOT NULL DEFAULT 20;

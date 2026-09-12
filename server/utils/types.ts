@@ -30,6 +30,7 @@ export const CUSTOMER_STATUSES = [
   "new",
   "following",
   "viewing",
+  "suspended",
   "deal_pending",
   "closed",
   "invalid",
