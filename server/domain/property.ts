@@ -1,9 +1,15 @@
 import type { Db } from "../db/database";
+
 import { canWriteListing, houseVisibleTo } from "../auth/policy";
+
 import { writeAudit } from "./audit";
+
 import { createMessage } from "./message";
+
 import { nextId, nowIso } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
+
 import { ensureHouseRole, roleAllowsOperation } from "./house";
 
 function canOperateStore(user: SessionUser, storeId: string): boolean {
@@ -492,13 +498,14 @@ function notifyKeyClose(
   const recipients = new Set<string>();
   if (key.keeper_user_id) recipients.add(key.keeper_user_id);
   if (house?.agent_id) recipients.add(house.agent_id);
+  recipients.delete(user.id);
   for (const userId of recipients) {
     createMessage(db, {
       company_id: user.company_id,
       store_id: key.store_id,
       user_id: userId,
       title,
-      body,
+      body: `${house?.title || "房源"} · ${body}`,
       kind,
       ref_type: "house_key",
       ref_id: key.id,
@@ -560,6 +567,7 @@ export function invalidateKey(db: Db, user: SessionUser, payload: any): ApiResul
     kind: "key_invalidate",
   });
 }
+
 
 export function returnKeyToOwner(db: Db, user: SessionUser, payload: any): ApiResult {
   return closeStoredKey(db, user, payload, "returned_owner", {
