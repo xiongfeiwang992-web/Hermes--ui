@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
-const receiptPath = path.resolve("/tmp", "cashbook-payment-methods-receipt.txt");
+const receiptPath = path.join(os.tmpdir(), "cashbook-payment-methods-receipt.txt");
 fs.writeFileSync(receiptPath, "expense receipt for payment method dict");
 
 const app = createApp(

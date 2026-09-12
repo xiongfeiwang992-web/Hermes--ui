@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const seeded = seedDatabase(path.resolve("data", "rental-workorder-cancel-notify-smoke.db"));
 const app = createApp(seeded.dbPath);
-const fixture = path.resolve("/tmp", "rental-workorder-cancel-notify.txt");
+const fixture = path.join(os.tmpdir(), "rental-workorder-cancel-notify.txt");
 fs.writeFileSync(fixture, "rental workorder cancel notify fixture");
 
 let passed = 0;

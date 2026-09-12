@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const app = createApp(seedDatabase(path.resolve("data", "expense-cancel-notify-smoke.db")).dbPath);
-const receiptPath = path.resolve("/tmp", "expense-cancel-notify-receipt.txt");
+const receiptPath = path.join(os.tmpdir(), "expense-cancel-notify-receipt.txt");
 fs.writeFileSync(receiptPath, "expense cancel notify receipt");
 
 let passed = 0;

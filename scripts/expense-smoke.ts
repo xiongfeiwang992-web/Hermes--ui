@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const app = createApp(seedDatabase(path.resolve("data", "expense-smoke.db")).dbPath);
-const receiptPath = path.resolve("/tmp", "expense-receipt.txt");
-const voucherPath = path.resolve("/tmp", "expense-payment-voucher.txt");
+const receiptPath = path.join(os.tmpdir(), "expense-receipt.txt");
+const voucherPath = path.join(os.tmpdir(), "expense-payment-voucher.txt");
 fs.writeFileSync(receiptPath, "local expense receipt");
 fs.writeFileSync(voucherPath, "local payment voucher");
 let passed = 0;

@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 import { todayDate } from "../server/utils/id";
 
 const app = createApp(seedDatabase(path.resolve("data", "employee-contract-smoke.db")).dbPath);
-const signedPath = path.resolve("/tmp", "signed-employee-contract.txt");
-const renewalPath = path.resolve("/tmp", "employee-contract-renewal.txt");
+const signedPath = path.join(os.tmpdir(), "signed-employee-contract.txt");
+const renewalPath = path.join(os.tmpdir(), "employee-contract-renewal.txt");
 fs.writeFileSync(signedPath, "local signed employee contract");
 fs.writeFileSync(renewalPath, "local employee contract renewal");
 let passed = 0;

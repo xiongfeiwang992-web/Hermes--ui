@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const app = createApp(seedDatabase(path.resolve("data", "recruitment-smoke.db")).dbPath);
-const resumePath = path.resolve("/tmp", "candidate-resume.txt");
+const resumePath = path.join(os.tmpdir(), "candidate-resume.txt");
 fs.writeFileSync(resumePath, "local candidate resume");
 let passed = 0;
 let failed = 0;

@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const app = createApp(seedDatabase(path.resolve("data", "cashbook-smoke.db")).dbPath);
-const voucherPath = path.resolve("/tmp", "cashbook-voucher.txt");
+const voucherPath = path.join(os.tmpdir(), "cashbook-voucher.txt");
 fs.writeFileSync(voucherPath, "local cashbook voucher");
 let passed = 0;
 let failed = 0;

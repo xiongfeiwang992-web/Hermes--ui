@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const app = createApp(
   seedDatabase(path.resolve("data", "recruitment-onboard-notify-smoke.db")).dbPath
 );
-const resumePath = path.resolve("/tmp", "recruitment-onboard-notify-resume.txt");
+const resumePath = path.join(os.tmpdir(), "recruitment-onboard-notify-resume.txt");
 fs.writeFileSync(resumePath, "recruitment onboard notify resume");
 
 let passed = 0;

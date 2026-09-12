@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { seedDatabase } from "./seed";
 import { createApp } from "../server/createApp";
 
 const app = createApp(
   seedDatabase(path.resolve("data", "employee-contract-expire-notify-smoke.db")).dbPath
 );
-const signedPath = path.resolve("/tmp", "employee-contract-expire-notify.txt");
+const signedPath = path.join(os.tmpdir(), "employee-contract-expire-notify.txt");
 fs.writeFileSync(signedPath, "signed contract for expire notify");
 
 let passed = 0;
