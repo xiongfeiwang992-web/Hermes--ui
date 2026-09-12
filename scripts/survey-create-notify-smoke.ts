@@ -24,8 +24,8 @@ const login = (account: string) => {
 const surveyMsgs = (token: string) =>
   data<any[]>(app.call("message.list", {}, token)).filter(
     (m) =>
-      m.kind === "business_record_status" &&
-      (m.title === "实勘已完成" || m.title === "空看已完成")
+      m.kind === "house_survey" &&
+      (m.title === "实勘记录已登记" || m.title === "空看记录已登记")
   );
 
 const manager = login("manager");
@@ -76,7 +76,7 @@ assert(
   surveyMsgs(agent).some(
     (m) =>
       m.ref_id === surveyId &&
-      m.title === "实勘已完成" &&
+      m.title === "实勘记录已登记" &&
       String(m.body).includes("实勘通知房源") &&
       String(m.body).includes("采光良好")
   ),
@@ -95,7 +95,7 @@ const vacant = app.call(
 assert(vacant.ok, "manager creates vacant view");
 assert(
   surveyMsgs(agent).some(
-    (m) => m.ref_id === data<any>(vacant).id && m.title === "空看已完成"
+    (m) => m.ref_id === data<any>(vacant).id && m.title === "空看记录已登记"
   ),
   "vacant view title"
 );

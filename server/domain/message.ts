@@ -37,7 +37,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "house",
     label: "房源协作",
-    description: "角色人、合作盘、钥匙、验真、委托、过户、按揭",
+    description: "角色人、合作盘、钥匙、实勘空看、验真、委托、过户、按揭",
     kinds: [
       "house_role",
       "house_agent",
@@ -46,6 +46,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
       "key_invalidate",
       "key_return_owner",
       "key_external",
+      "house_survey",
       "verification_pending",
       "verification_review",
       "entrustment_terminated",
