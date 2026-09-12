@@ -133,7 +133,8 @@
     "smoke:care-task-cancel-notify": "tsx scripts/care-task-cancel-notify-smoke.ts",
     "smoke:care-task-complete-notify": "tsx scripts/care-task-complete-notify-smoke.ts",
     "smoke:cashbook-create-notify": "tsx scripts/cashbook-create-notify-smoke.ts",
-    "smoke:cashbook-void-notify": "tsx scripts/cashbook-void-notify-smoke.ts"
+    "smoke:cashbook-void-notify": "tsx scripts/cashbook-void-notify-smoke.ts",
+    "smoke:circle-create-notify": "tsx scripts/circle-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
