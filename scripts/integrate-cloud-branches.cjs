@@ -57,8 +57,12 @@ for (const ref of refs) {
   save();
   const result = cp.spawnSync('git', ['apply', '--3way', '--index', patchFile], { encoding: 'utf8' });
   if (result.status !== 0) {
-    console.log(JSON.stringify({ integrated: record.integrated.length, pending: ref, conflicts: git('diff', '--name-only', '--diff-filter=U').trim(), detail: result.stderr }));
-    process.exit(1);
+    cp.spawnSync(process.execPath, ['scripts/resolve-structural-merges.cjs'], { stdio: 'inherit' });
+    const unresolved = git('diff', '--name-only', '--diff-filter=U').trim();
+    if (unresolved || !git('diff', '--cached', '--name-only').trim()) {
+      console.log(JSON.stringify({ integrated: record.integrated.length, pending: ref, conflicts: unresolved, detail: result.stderr.slice(-1500) }));
+      process.exit(1);
+    }
   }
   finish(ref);
   if (record.integrated.length % 10 === 0) console.log(`Integrated ${record.integrated.length}/${refs.length}`);
