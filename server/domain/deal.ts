@@ -782,6 +782,19 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
     amount,
     status: "pending",
   });
+  for (const uid of parseJson<string[]>(deal.agent_ids, [])) {
+    if (uid === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: deal.store_id,
+      user_id: uid,
+      title: "佣金收款待确认",
+      body: `成交单 ${deal.id} 收款 ¥${amount} 待出纳确认${warning ? "（将超应收）" : ""}`,
+      kind: "payment",
+      ref_type: "payment",
+      ref_id: id,
+    });
+  }
   return {
     ok: true,
     data: {
@@ -791,6 +804,7 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
     },
   };
 }
+
 
 export function confirmPayment(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
@@ -986,7 +1000,6 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
   }
   return { ok: true, data: { id } };
 }
-
 
 function presentCommission(db: Db, companyId: string, row: any) {
   const member = db
