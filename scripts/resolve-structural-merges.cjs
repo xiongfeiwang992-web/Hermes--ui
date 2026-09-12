@@ -9,6 +9,24 @@ let conflicts = 0;
 const parse = text => ts.createSourceFile('merge.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const clean = value => (value || '').replace(/\r\n/g, '\n').trim();
 
+function normalizeImports(source) {
+  const groups = new Map();
+  for (const node of source.statements) {
+    if (!ts.isImportDeclaration(node) || !node.importClause?.namedBindings || !ts.isNamedImports(node.importClause.namedBindings)) continue;
+    const groupKey = `${node.moduleSpecifier.text}:${node.importClause.isTypeOnly}:${node.importClause.name?.text || ''}`;
+    groups.set(groupKey, [...(groups.get(groupKey) || []), node]);
+  }
+  const replacement = new Map(), skip = new Set();
+  for (const nodes of groups.values()) {
+    if (nodes.length < 2) continue;
+    const first = nodes[0], clause = first.importClause;
+    const imports = [...new Set(nodes.flatMap(n => n.importClause.namedBindings.elements.map(el => el.getText())))];
+    replacement.set(first, `import ${clause.isTypeOnly ? 'type ' : ''}${clause.name ? clause.name.text + ', ' : ''}{ ${imports.join(', ')} } from ${first.moduleSpecifier.getText()};`);
+    nodes.slice(1).forEach(node => skip.add(node));
+  }
+  return parse(source.statements.filter(n => !skip.has(n)).map(n => replacement.get(n) || n.getFullText()).join('\n'));
+}
+
 function key(node) {
   if (ts.isImportDeclaration(node)) return 'import:' + node.moduleSpecifier.text;
   if (ts.isVariableStatement(node)) return 'var:' + node.declarationList.declarations.map(d => d.name.getText()).join(',');
@@ -32,22 +50,48 @@ function textMerge(base, ours, theirs) {
     }
     if (!ancestor.trim()) {
       const l = parse(left), r = parse(right);
+      const variables = s => s.statements.filter(ts.isVariableStatement).flatMap(n => n.declarationList.declarations.map(d => d.name.getText()));
+      if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && [...l.statements, ...r.statements].every(n => ts.isVariableStatement(n) || ts.isIfStatement(n)) && variables(l).length && variables(r).length && !variables(l).some(name => variables(r).includes(name))) return left + right;
+      const propertyNames = text => {
+        const source = parse(`const merged = { ${text} };`);
+        if (source.parseDiagnostics.length) return null;
+        const props = source.statements[0].declarationList.declarations[0].initializer.properties;
+        if (!props.length || !props.every(ts.isPropertyAssignment)) return null;
+        return props.map(p => p.name.getText());
+      };
+      const lp = propertyNames(left), rp = propertyNames(right);
+      if (lp && rp && !lp.some(name => rp.includes(name))) return left + right;
       if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && l.statements.length === 1 && r.statements.length === 1 && ts.isIfStatement(l.statements[0]) && ts.isIfStatement(r.statements[0])) {
         const x = l.statements[0].expression.getText(), y = r.statements[0].expression.getText();
         if (x === '!' + y || y === '!' + x) return left + right;
       }
     }
+    const tokens = tokenMerge(ancestor, left, right);
+    if (tokens !== null) return tokens;
     return whole;
   });
-  if (/^<<<<<<< ours$/m.test(output)) conflicts++;
+  if (/^<<<<<<< ours$/m.test(output)) {
+    const tokenize = s => (s.match(/\r?\n|[^\S\r\n]+|[\p{L}\p{N}_$]+|./gu) || []).map(t => JSON.stringify(t)).join('\n') + '\n';
+    for (const [name, content] of [['base', base], ['ours', ours], ['theirs', theirs]]) fs.writeFileSync(path.join(scratch, name + '-tokens'), tokenize(content));
+    const tokens = cp.spawnSync('git', ['merge-file', '-p', path.join(scratch, 'ours-tokens'), path.join(scratch, 'base-tokens'), path.join(scratch, 'theirs-tokens')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+    if (tokens.status === 0) return tokens.stdout.trimEnd().split('\n').map(line => JSON.parse(line)).join('');
+    conflicts++;
+  }
   return output;
+}
+
+function tokenMerge(base, ours, theirs) {
+  const tokenize = s => (s.match(/\r?\n|[^\S\r\n]+|[\p{L}\p{N}_$]+|./gu) || []).map(t => JSON.stringify(t)).join('\n') + '\n';
+  for (const [name, text] of [['base', base], ['ours', ours], ['theirs', theirs]]) fs.writeFileSync(path.join(scratch, name + '-fragment'), tokenize(text));
+  const run = cp.spawnSync('git', ['merge-file', '-p', path.join(scratch, 'ours-fragment'), path.join(scratch, 'base-fragment'), path.join(scratch, 'theirs-fragment')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  return run.status === 0 ? run.stdout.trimEnd().split('\n').filter(Boolean).map(line => JSON.parse(line)).join('') : null;
 }
 
 function mergeImport(base, ours, theirs) {
   const clauses = [base, ours, theirs].map(n => n?.importClause);
-  if (clauses.some(c => !c || !c.namedBindings || !ts.isNamedImports(c.namedBindings))) return null;
-  if (new Set(clauses.map(c => `${c.isTypeOnly}:${c.name?.text || ''}`)).size !== 1) return null;
-  const lists = clauses.map(c => c.namedBindings.elements);
+  if (clauses.filter(Boolean).some(c => !c.namedBindings || !ts.isNamedImports(c.namedBindings))) return null;
+  if (new Set(clauses.filter(Boolean).map(c => `${c.isTypeOnly}:${c.name?.text || ''}`)).size !== 1) return null;
+  const lists = clauses.map(c => c ? c.namedBindings.elements : []);
   const merged = mergeList(...lists, n => n.name.text);
   return `import ${clauses[1].isTypeOnly ? 'type ' : ''}${clauses[1].name ? clauses[1].name.text + ', ' : ''}{ ${merged.join(', ')} } from ${ours.moduleSpecifier.getText()};`;
 }
@@ -56,7 +100,7 @@ function mergeNode(base, ours, theirs) {
   const b = clean(base?.getFullText()), o = clean(ours?.getFullText()), t = clean(theirs?.getFullText());
   if (o === t || t === b) return o;
   if (o === b) return t;
-  if (base && ours && theirs && ts.isImportDeclaration(base)) {
+  if (ours && theirs && ts.isImportDeclaration(ours) && ts.isImportDeclaration(theirs)) {
     const result = mergeImport(base, ours, theirs);
     if (result !== null) return result;
   }
@@ -88,7 +132,7 @@ function mergeList(base, ours, theirs, keyFn = key) {
 for (const file of git('diff', '--name-only', '--diff-filter=U').trim().split('\n').filter(Boolean)) {
   if (!file.endsWith('.ts')) continue;
   const texts = [1, 2, 3].map(stage => git('show', `:${stage}:${file}`).replace(/\r\n/g, '\n'));
-  const sources = texts.map(parse);
+  const sources = texts.map(parse).map(normalizeImports);
   if (sources.some(source => source.parseDiagnostics.length)) throw new Error(`Invalid source before merge: ${file}`);
   const before = conflicts;
   const merged = mergeList(...sources.map(source => source.statements)).join('\n\n') + '\n';

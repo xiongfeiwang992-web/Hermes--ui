@@ -822,6 +822,8 @@ case "config.dealModes":
       return config.listDealModes(db, user!);
 case "config.expenseCategories":
       return config.listExpenseCategories(db, user!);
+case "config.houseSources":
+      return config.listHouseSources(db, user!);
 case "config.settings.get":
       return config.getSettings(db, user!);
 case "config.settings.save":

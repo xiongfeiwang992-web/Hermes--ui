@@ -1,26 +1,30 @@
 import type { Db } from "../db/database";
+
 import {
   canSeeOwnerPhone,
   canWriteListing,
   houseVisibleTo,
   maskPhone,
 } from "../auth/policy";
+
 import {
   buildModificationSummary,
   buildPriceChangeSummary,
   recordModificationFollow,
 } from "./activity";
+
 import { writeAudit } from "./audit";
-import {
-  isAllowedDealMode,
-  labelDealMode,
-  normalizeDealMode,
-} from "./config";
+
+import { isAllowedDealMode, labelDealMode, normalizeDealMode, holdLimitForDealType, isAllowedHouseSource, labelHouseSource, normalizeHouseSource } from "./config";
+
 import { resolvePhoneVisibility } from "./contactGate";
-import { holdLimitForDealType } from "./config";
+
 import { createMessage } from "./message";
+
 import { setLock as setPropertyLock } from "./propertyExt";
+
 import { nextId, nowIso } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 const ALLOWED: Record<string, string[]> = {
@@ -51,6 +55,7 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
     owner_phone_masked: !gate.showFull,
     force_follow_required: gate.forceFollowRequired,
     deal_mode_label: labelDealMode(db, user.company_id, row.deal_mode),
+    source_label: labelHouseSource(db, user.company_id, row.source),
   };
 }
 
@@ -90,6 +95,10 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
       String(h.community).includes(String(q.community))
     );
   if (q.agent_id) rows = rows.filter((h) => h.agent_id === q.agent_id);
+  if (q.source) {
+    const source = normalizeHouseSource(q.source);
+    rows = rows.filter((h) => normalizeHouseSource(h.source) === source);
+  }
   if (q.keyword) {
     const k = String(q.keyword);
     rows = rows.filter(
@@ -128,6 +137,10 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   const dealMode = normalizeDealMode(payload.deal_mode);
   if (!isAllowedDealMode(db, user.company_id, dealMode)) {
     return { ok: false, message: "交易模式不在当前字典中" };
+  }
+  const source = normalizeHouseSource(payload.source);
+  if (source && !isAllowedHouseSource(db, user.company_id, source)) {
+    return { ok: false, message: "房源来源不在当前字典中" };
   }
   if (user.role === "agent") {
     const hold = agentHoldExceeded(db, user.company_id, user.id, payload.deal_type);
@@ -189,7 +202,7 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     user.id,
     agentId,
     payload.is_private ? 1 : 0,
-    payload.source || null,
+    source,
     payload.remark || null,
     payload.cover_image || null,
     payload.property_type || "residential",
@@ -213,6 +226,7 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   return created;
 }
 
+
 export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -229,6 +243,11 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   const nextDealMode = dealModeProvided ? normalizeDealMode(payload.deal_mode) : null;
   if (dealModeProvided && nextDealMode && !isAllowedDealMode(db, user.company_id, nextDealMode)) {
     return { ok: false, message: "交易模式不在当前字典中" };
+  }
+  const sourceProvided = Object.prototype.hasOwnProperty.call(payload, "source");
+  const nextSource = sourceProvided ? normalizeHouseSource(payload.source) : null;
+  if (sourceProvided && nextSource && !isAllowedHouseSource(db, user.company_id, nextSource)) {
+    return { ok: false, message: "房源来源不在当前字典中" };
   }
   const priceSummary =
     payload.price != null ? buildPriceChangeSummary(current.price, nextPrice) : null;
@@ -275,7 +294,12 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
       next: nextPrivate,
       bool: true,
     },
-    { label: "来源", provided: payload.source != null, prev: current.source, next: payload.source },
+    {
+      label: "来源",
+      provided: sourceProvided,
+      prev: current.source,
+      next: nextSource,
+    },
     { label: "备注", provided: payload.remark != null, prev: current.remark, next: payload.remark },
     {
       label: "封面",
@@ -336,7 +360,7 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
     payload.owner_name ?? null,
     payload.owner_phone ?? null,
     nextPrivate,
-    payload.source ?? null,
+    sourceProvided ? nextSource : null,
     payload.remark ?? null,
     payload.cover_image ?? null,
     payload.property_type ?? null,
@@ -363,6 +387,7 @@ export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   return getHouse(db, user, payload.id);
 }
+
 
 function resolveStoreAgent(
   db: Db,

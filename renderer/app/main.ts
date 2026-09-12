@@ -175,6 +175,29 @@ async function expenseCategorySelectHtml(selected = "transport") {
     .join("");
 }
 
+async function houseSourceSelectHtml(selected = "", includeEmpty = true) {
+  const result = await api("config.houseSources", {});
+  const sources = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "门店到访", label: "门店到访" },
+        { value: "转介", label: "转介" },
+        { value: "官网", label: "官网" },
+        { value: "来电", label: "来电" },
+        { value: "小程序", label: "小程序" },
+        { value: "其他", label: "其他" },
+      ];
+  const options = sources
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+  return includeEmpty
+    ? `<option value="">未填写</option>${options}`
+    : options;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -497,6 +520,7 @@ async function renderHouses(main: HTMLElement) {
       <select data-f="property_type"><option value="">全部物业</option><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select>
       <select data-f="deal_mode"><option value="">全部模式</option></select>
       <select data-f="status"><option value="">全部状态</option><option value="available">在售/待租</option><option value="draft">草稿</option><option value="suspended">暂缓</option><option value="closed">已成交</option></select>
+      <select data-f="source"><option value="">全部来源</option></select>
       <input data-f="keyword" placeholder="搜索小区/标题" />
     </div>
     <div class="list" data-list></div>
@@ -549,7 +573,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.is_private ? `<span class="tag warn">保密盘</span>` : ""}
           ${h.is_locked ? `<span class="tag warn">已锁定</span>` : ""}
           <strong>${h.title}</strong></div>
-          <div class="meta">${h.community}${h.deal_mode_label && h.deal_mode !== "normal" ? ` · ${escapeHtml(h.deal_mode_label)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}</div>
+          <div class="meta">${h.community}${h.deal_mode_label && h.deal_mode !== "normal" ? ` · ${escapeHtml(h.deal_mode_label)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${h.owner_name} ${h.owner_phone}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}${h.source_label ? ` · 来源 ${escapeHtml(h.source_label)}` : ""}</div>
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -898,6 +922,7 @@ async function renderHouses(main: HTMLElement) {
   };
   main.querySelector("[data-new]")!.addEventListener("click", async () => {
     const dealModeOptions = await dealModeSelectHtml("normal");
+    const sourceOptions = await houseSourceSelectHtml("");
     openDialog(
       "新建房源",
       `
@@ -905,6 +930,7 @@ async function renderHouses(main: HTMLElement) {
       <label>类型<select name="deal_type"><option value="sale">出售</option><option value="rent">出租</option></select></label>
       <label>物业<select name="property_type"><option value="residential">住宅</option><option value="shop">商铺</option><option value="office">写字楼</option><option value="parking">车位</option><option value="villa">别墅</option></select></label>
       <label>交易模式<select name="deal_mode">${dealModeOptions}</select></label>
+      <label>来源<select name="source">${sourceOptions}</select></label>
       <label>小区<input name="community" required /></label>
       <label>价格<input name="price" type="number" step="0.01" required /></label>
       <label>业主姓名<input name="owner_name" required /></label>
@@ -921,6 +947,7 @@ async function renderHouses(main: HTMLElement) {
           deal_type: fd.get("deal_type"),
           property_type: fd.get("property_type"),
           deal_mode: fd.get("deal_mode"),
+          source: fd.get("source") || null,
           community: fd.get("community"),
           price: Number(fd.get("price")),
           owner_name: fd.get("owner_name"),
@@ -940,12 +967,17 @@ async function renderHouses(main: HTMLElement) {
       }
     );
   });
+  const sourceFilter = main.querySelector("[data-f=source]") as HTMLSelectElement;
+  if (sourceFilter) {
+    sourceFilter.innerHTML = `<option value="">全部来源</option>${await houseSourceSelectHtml("", false)}`;
+  }
   main.querySelectorAll("[data-f]").forEach((input) =>
     input.addEventListener("change", draw)
   );
   main.querySelector("[data-f=keyword]")!.addEventListener("input", draw);
   await draw();
 }
+
 
 async function renderCommunities(main: HTMLElement) {
   const districts = await api("property.districts.list", {});
@@ -7239,7 +7271,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category / house_source" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>
