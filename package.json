@@ -192,7 +192,8 @@
     "smoke:finance-voucher-void-notify": "tsx scripts/finance-voucher-void-notify-smoke.ts",
     "smoke:follow-create-notify": "tsx scripts/follow-create-notify-smoke.ts",
     "smoke:house-agent-notify": "tsx scripts/house-agent-notify-smoke.ts",
-    "smoke:house-create-notify": "tsx scripts/house-create-notify-smoke.ts"
+    "smoke:house-create-notify": "tsx scripts/house-create-notify-smoke.ts",
+    "smoke:house-lock-notify": "tsx scripts/house-lock-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
