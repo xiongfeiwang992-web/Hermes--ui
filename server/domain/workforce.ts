@@ -194,6 +194,18 @@ export function assignJobGrade(db: Db, user: SessionUser, payload: any): ApiResu
     to_grade_id: grade.id,
     reason,
   });
+  if (employee.id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: employee.store_id,
+      user_id: employee.id,
+      title: "职级已调整",
+      body: `${grade.name}（${grade.code}）· ${reason}`,
+      kind: "business_record_status",
+      ref_type: "job_grade",
+      ref_id: grade.id,
+    });
+  }
   return { ok: true, data: { user_id: employee.id, job_grade_id: grade.id } };
 }
 
