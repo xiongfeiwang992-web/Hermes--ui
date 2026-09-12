@@ -871,13 +871,13 @@ export function createCall(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!Date.parse(calledAt)) return { ok: false, message: "通话时间无效" };
   const customer = db
     .prepare(
-      `SELECT id FROM customers WHERE company_id=? AND phone=? AND store_id=?
+      `SELECT id, agent_id, name FROM customers WHERE company_id=? AND phone=? AND store_id=?
        ORDER BY updated_at DESC LIMIT 1`
     )
     .get(user.company_id, phone, user.store_id) as any;
   const house = db
     .prepare(
-      `SELECT id FROM houses WHERE company_id=? AND owner_phone=? AND store_id=?
+      `SELECT id, agent_id, title FROM houses WHERE company_id=? AND owner_phone=? AND store_id=?
        AND status NOT IN ('closed','withdrawn')
        ORDER BY updated_at DESC LIMIT 1`
     )
@@ -908,6 +908,33 @@ export function createCall(db: Db, user: SessionUser, payload: any): ApiResult {
     matched_customer_id: customer?.id || null,
   });
   writeAudit(db, user, "officeCollab.call.create", "office_call_record", id);
+  const directionLabel = payload.direction === "in" ? "来电" : "去电";
+  const recipients = new Map<string, { title: string; body: string }>();
+  if (customer?.agent_id) {
+    recipients.set(customer.agent_id, {
+      title: `${directionLabel}匹配到客源`,
+      body: `${phone} · ${customer.name}`,
+    });
+  }
+  if (house?.agent_id) {
+    recipients.set(house.agent_id, {
+      title: `${directionLabel}匹配到房源`,
+      body: `${phone} · ${house.title}`,
+    });
+  }
+  recipients.delete(user.id);
+  for (const [userId, message] of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: userId,
+      title: message.title,
+      body: message.body,
+      kind: "business_record_status",
+      ref_type: "office_call_record",
+      ref_id: id,
+    });
+  }
   return {
     ok: true,
     data: {
