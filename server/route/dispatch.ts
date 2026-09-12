@@ -874,7 +874,7 @@ case "message.subscriptions.save":
 case "mortgageCalc.compute":
       return mortgageCalc.computeMortgage(db, user!, payload);
 case "audit.list":
-      return { ok: true, data: listAudit(db, user!, payload) };
+      return listAudit(db, user!, payload);
 default:
       return { ok: false, message: `未知动作：${action}`, code: 404 };
   }
