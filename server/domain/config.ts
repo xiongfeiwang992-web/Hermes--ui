@@ -119,6 +119,7 @@ export function listCustomerSources(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerSources(db, user.company_id) };
 }
 
+<<<<<<< HEAD
 export const DEFAULT_CUSTOMER_LEVELS = [
   { value: "A", label: "A级", sort_order: 1 },
   { value: "B", label: "B级", sort_order: 2 },
@@ -166,6 +167,8 @@ export function listCustomerLevels(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveCustomerLevels(db, user.company_id) };
 }
 
+=======
+>>>>>>> origin/cursor/payment-method-dictionary-5bdb
 export const DEFAULT_PAYMENT_METHODS = [
   { value: "transfer", label: "转账", sort_order: 1 },
   { value: "cash", label: "现金", sort_order: 2 },
@@ -216,6 +219,7 @@ export function listPaymentMethods(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolvePaymentMethods(db, user.company_id) };
 }
 
+<<<<<<< HEAD
 export const DEFAULT_DEAL_MODES = [
   { value: "normal", label: "普通", sort_order: 1 },
   { value: "auction", label: "拍卖", sort_order: 2 },
@@ -707,6 +711,8 @@ export function listHouseWithdrawReasons(db: Db, user: SessionUser): ApiResult {
   return { ok: true, data: resolveHouseWithdrawReasons(db, user.company_id) };
 }
 
+=======
+>>>>>>> origin/cursor/payment-method-dictionary-5bdb
 export function listDictionary(db: Db, user: SessionUser, p: any): ApiResult {
   return {
     ok: true,

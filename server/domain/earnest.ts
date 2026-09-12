@@ -33,6 +33,7 @@ export function listEarnest(db: Db, user: SessionUser, query: any = {}): ApiResu
   if (query.customer_id) rows = rows.filter((row) => row.customer_id === query.customer_id);
   if (query.house_id) rows = rows.filter((row) => row.house_id === query.house_id);
   if (query.deal_id) rows = rows.filter((row) => row.deal_id === query.deal_id);
+<<<<<<< HEAD
   if (query.method) {
     const method = normalizePaymentMethod(query.method);
     rows = rows.filter((row) => normalizePaymentMethod(row.method) === method);
@@ -49,6 +50,8 @@ export function listEarnest(db: Db, user: SessionUser, query: any = {}): ApiResu
         String(row.refund_reason || "").toLowerCase().includes(k)
     );
   }
+=======
+>>>>>>> origin/cursor/payment-method-dictionary-5bdb
   return {
     ok: true,
     data: rows.map((row) => ({
@@ -56,6 +59,7 @@ export function listEarnest(db: Db, user: SessionUser, query: any = {}): ApiResu
       method_label: labelPaymentMethod(db, user.company_id, row.method),
     })),
   };
+<<<<<<< HEAD
 }
 
 function csvCell(value: unknown): string {
@@ -123,6 +127,8 @@ export function exportEarnest(db: Db, user: SessionUser, query: any = {}): ApiRe
       rows: rows.length,
     },
   };
+=======
+>>>>>>> origin/cursor/payment-method-dictionary-5bdb
 }
 
 export function createEarnest(db: Db, user: SessionUser, payload: any): ApiResult {
