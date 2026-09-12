@@ -522,6 +522,18 @@ export function postVoucher(db: Db, user: SessionUser, payload: any): ApiResult 
   ).run(user.id, now, now, row.id);
   addEvent(db, user, "voucher", row.id, "posted");
   writeAudit(db, user, "finance.voucher.post", "finance_voucher", row.id);
+  if (row.created_by && row.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title: "财务凭证已过账",
+      body: `${row.voucher_no} · ${row.summary}`,
+      kind: "business_record_status",
+      ref_type: "finance_voucher",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "posted" } };
 }
 
