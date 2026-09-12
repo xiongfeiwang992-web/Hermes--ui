@@ -60,7 +60,8 @@
     "smoke:customer-hold-limit": "tsx scripts/customer-hold-limit-smoke.ts",
     "smoke:customer-levels": "tsx scripts/customer-levels-smoke.ts",
     "smoke:deal-modes": "tsx scripts/deal-modes-smoke.ts",
-    "smoke:dictionary-update-notify": "tsx scripts/dictionary-update-notify-smoke.ts"
+    "smoke:dictionary-update-notify": "tsx scripts/dictionary-update-notify-smoke.ts",
+    "smoke:dictionary-upsert-notify": "tsx scripts/dictionary-upsert-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

@@ -315,8 +315,31 @@ export function upsertDictionary(db: Db, user: SessionUser, p: any): ApiResult {
       });
     }
   }
+  if (!existing) {
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const body = `${p.dict_type} · ${p.label}（${p.value}）`;
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: recipient.store_id,
+        user_id: recipient.id,
+        title: "数据字典已新增",
+        body,
+        kind: "business_record_status",
+        ref_type: "dictionary",
+        ref_id: id,
+      });
+    }
+  }
   return { ok: true, data: { id } };
 }
+
 
 export function getSettings(db: Db, user: SessionUser): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager"))
