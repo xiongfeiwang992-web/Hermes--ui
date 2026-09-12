@@ -216,7 +216,8 @@
     "smoke:leave-cancel-notify": "tsx scripts/leave-cancel-notify-smoke.ts",
     "smoke:leave-create-notify": "tsx scripts/leave-create-notify-smoke.ts",
     "smoke:leave-review-notify": "tsx scripts/leave-review-notify-smoke.ts",
-    "smoke:mortgage-create-notify": "tsx scripts/mortgage-create-notify-smoke.ts"
+    "smoke:mortgage-create-notify": "tsx scripts/mortgage-create-notify-smoke.ts",
+    "smoke:mortgage-update-notify": "tsx scripts/mortgage-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

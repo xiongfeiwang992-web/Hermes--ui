@@ -91,6 +91,23 @@ export function upsertMortgage(db: Db, user: SessionUser, payload: any): ApiResu
       deal.id
     );
     writeAudit(db, user, "mortgage.update", "mortgage", current.id);
+    const recipients = new Set<string>([
+      deal.created_by,
+      ...(JSON.parse(deal.agent_ids || "[]") as string[]),
+    ]);
+    for (const userId of recipients) {
+      if (!userId || userId === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: deal.store_id,
+        user_id: userId,
+        title: "按揭记录已更新",
+        body: `${bank} · ${amount}`,
+        kind: "mortgage_status",
+        ref_type: "deal",
+        ref_id: deal.id,
+      });
+    }
     return getMortgage(db, user, { deal_id: deal.id });
   }
   const id = nextId("MTG");
