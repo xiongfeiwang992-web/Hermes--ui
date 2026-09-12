@@ -809,6 +809,12 @@ case "system.backup.create":
       return system.createBackup(db, user!);
 case "system.backup.list":
       return system.listBackups(user!);
+case "system.backup.restore":
+      return {
+        ok: false,
+        message: "请通过应用入口执行恢复",
+        code: 400,
+      };
 case "attachment.list":
       return attachment.listAttachments(db, user!, payload);
 case "attachment.add":

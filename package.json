@@ -72,7 +72,8 @@
     "smoke:property-types": "tsx scripts/property-types-smoke.ts",
     "smoke:system-settings": "tsx scripts/system-settings-smoke.ts",
     "smoke:view-feedbacks": "tsx scripts/view-feedbacks-smoke.ts",
-    "smoke:audit-filters": "tsx scripts/audit-filters-smoke.ts"
+    "smoke:audit-filters": "tsx scripts/audit-filters-smoke.ts",
+    "smoke:backup-restore": "tsx scripts/backup-restore-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

@@ -69,6 +69,8 @@ export function seedDatabase(dbPath?: string) {
     ).run(nextId("DIC"), companyId, value, label, sortOrder, adminId, now, now);
   }
 
+  // Close the seeder connection so later createApp/restore can open the same file.
+  app.db.close();
   return { dbPath: resolved, companyId, storeA, storeB };
 }
 
