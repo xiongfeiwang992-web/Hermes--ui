@@ -11,5 +11,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["server/**/*", "scripts/**/*"]
+  "include": ["server/**/*", "scripts/**/*"],
+  "exclude": ["scripts/import-real-data.ts", "scripts/check-import.ts"]
 }

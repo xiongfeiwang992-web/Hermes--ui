@@ -7,14 +7,12 @@ import https from "node:https";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { createShellStore, evaluateUpdateFeed, ensureDir } = require("./shell-state.cjs");
 
-const renderer =
-  process.env.WEILAIJIA_RENDERER ||
-  path.join(__dirname, "..", "dist-renderer", "index.html");
 const api = process.env.WEILAIJIA_API || "http://127.0.0.1:8787";
+const renderer = process.env.WEILAIJIA_RENDERER || api;
 
 const store = createShellStore({
   rootDir: path.join(app.getPath("userData"), "shell"),
-  defaultDownloadDir: path.join(app.getPath("downloads"), "未来家下载"),
+  defaultDownloadDir: path.join(app.getPath("downloads"), "Open-Real-Estate-Downloads"),
   updateFeedUrl: process.env.WEILAIJIA_UPDATE_URL || "",
 });
 
@@ -25,7 +23,7 @@ function loadRenderer(win: BrowserWindow) {
   else win.loadFile(renderer);
 }
 
-function createWindow(title = "未来家本地", opts: { asInitial?: boolean } = {}) {
+function createWindow(title = "Open Real Estate Brokerage System", opts: { asInitial?: boolean } = {}) {
   const tab = opts.asInitial ? store.resetTabs(title) : store.openTab(title);
   const win = new BrowserWindow({
     width: 1280,

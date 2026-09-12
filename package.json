@@ -1,16 +1,23 @@
 {
-  "name": "weilaijia-local",
+  "name": "open-real-estate-brokerage-system",
   "version": "0.1.0",
   "private": true,
-  "description": "自研房产中介业务系统（MVP）— Electron + TypeScript + SQLite",
+  "description": "Open Real Estate Brokerage System - 中文房产中介业务系统",
+  "license": "MIT",
+  "engines": { "node": "22.x" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiongfeiwang992-web/Open-Real-Estate-Brokerage-System.git"
+  },
   "main": "dist-electron/main.js",
   "scripts": {
     "build:server": "tsc -p tsconfig.server.json",
     "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('electron/shell-state.cjs','dist-electron/shell-state.cjs')\"",
-    "build:renderer": "vite build",
+    "build:renderer": "tsc --noEmit -p tsconfig.json && vite build",
     "build": "npm run build:server && npm run build:electron && npm run build:renderer",
     "dev:server": "tsx watch server/http.ts",
     "dev:renderer": "vite",
+    "start:web": "node dist-server/server/http.js",
     "dev": "tsx scripts/dev.ts",
     "start": "npm run build && node scripts/start.cjs",
     "seed": "tsx scripts/seed.ts",

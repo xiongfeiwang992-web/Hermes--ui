@@ -1,10 +1,14 @@
 type ApiResult<T = any> = { ok: true; data: T } | { ok: false; message: string; code?: number };
 
+function apiRows(result: ApiResult): any[] {
+  return result.ok && Array.isArray(result.data) ? result.data : [];
+}
+
 const state = {
   token: localStorage.getItem("weilaijia.token") || "",
   user: null as any,
   tab: "dashboard",
-  apiBase: "http://127.0.0.1:8787",
+  apiBase: window.location.protocol === "file:" ? "http://127.0.0.1:8787" : window.location.origin,
   cache: {} as Record<string, any>,
 };
 
@@ -403,8 +407,8 @@ function renderLogin() {
   const node = el(`
     <div class="login-wrap">
       <form class="login-card">
-        <h1>未来家本地</h1>
-        <p>自研中介业务系统 · MVP 演示</p>
+        <h1>Open Real Estate Brokerage System</h1>
+        <p>房产中介系统</p>
         <label>账号</label>
         <input name="account" value="agent_a" autocomplete="username" />
         <label>密码</label>
@@ -514,8 +518,8 @@ function renderSide(side: HTMLElement) {
 
   side.innerHTML = `
     <div class="brand">
-      <div class="logo">未</div>
-      <div><strong>未来家本地</strong><span>门店主链路 MVP</span></div>
+      <div class="logo">RE</div>
+      <div><strong>Open Real Estate Brokerage System</strong><span>房产中介系统</span></div>
     </div>
     <div class="user-box">
       <div>${state.user.display_name}</div>
@@ -662,6 +666,7 @@ function openInfoDialog(title: string, bodyHtml: string) {
   `);
   document.body.appendChild(backdrop);
   backdrop.querySelector("[data-close]")!.addEventListener("click", () => backdrop.remove());
+  return backdrop;
 }
 
 function timelineKindLabel(kind: string) {
@@ -1568,7 +1573,7 @@ async function renderKeys(main: HTMLElement) {
     );
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
-    const options = ((houses.data as any[]) || [])
+    const options = (apiRows(houses))
       .map((house) => `<option value="${house.id}">${house.title}</option>`)
       .join("");
     openDialog(
@@ -1620,7 +1625,7 @@ async function renderSurveys(main: HTMLElement) {
         .join("") || `<div class="empty">暂无实勘记录</div>`;
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
-    const options = ((houses.data as any[]) || [])
+    const options = (apiRows(houses))
       .map((house) => `<option value="${house.id}">${house.title}</option>`)
       .join("");
     openDialog(
@@ -1699,7 +1704,7 @@ async function renderVerifications(main: HTMLElement) {
     );
   };
   main.querySelector("[data-new]")!.addEventListener("click", () => {
-    const options = ((houses.data as any[]) || [])
+    const options = (apiRows(houses))
       .map((house) => `<option value="${house.id}">${house.title}</option>`)
       .join("");
     openDialog(
@@ -2245,10 +2250,10 @@ async function renderFollows(main: HTMLElement) {
     );
   };
   main.querySelector("[data-new]")!.addEventListener("click", async () => {
-    const houseOpts = ((houses.data as any[]) || [])
+    const houseOpts = (apiRows(houses))
       .map((h) => `<option value="house:${h.id}">房 · ${h.title}</option>`)
       .join("");
-    const cusOpts = ((customers.data as any[]) || [])
+    const cusOpts = (apiRows(customers))
       .map((c) => `<option value="customer:${c.id}">客 · ${c.name}</option>`)
       .join("");
     const methodOptions = await followMethodSelectHtml("phone");
@@ -2324,7 +2329,7 @@ async function renderViews(main: HTMLElement) {
   const houses = await api("house.list", { status: "available" });
   const customers = await api("customer.list", {});
   const storeUsers = await api("org.users.store", {});
-  const agentOpts = ((storeUsers.data as any[]) || [])
+  const agentOpts = (apiRows(storeUsers))
     .map((u) => `<option value="${u.id}">${escapeHtml(u.display_name)}</option>`)
     .join("");
   const statusLabel = (status: string) =>
@@ -2363,10 +2368,10 @@ async function renderViews(main: HTMLElement) {
     if (!r.ok) return (list.innerHTML = `<div class="error">${r.message}</div>`);
     const rows = r.data as any[];
     if (!rows.length) return (list.innerHTML = `<div class="empty">暂无带看</div>`);
-    const houseMap = Object.fromEntries(((houses.data as any[]) || []).map((h) => [h.id, h.title]));
-    const cusMap = Object.fromEntries(((customers.data as any[]) || []).map((c) => [c.id, c.name]));
+    const houseMap = Object.fromEntries((apiRows(houses)).map((h) => [h.id, h.title]));
+    const cusMap = Object.fromEntries((apiRows(customers)).map((c) => [c.id, c.name]));
     const agentMap = Object.fromEntries(
-      ((storeUsers.data as any[]) || []).map((u) => [u.id, u.display_name])
+      (apiRows(storeUsers)).map((u) => [u.id, u.display_name])
     );
     list.innerHTML = rows
       .map(
@@ -2438,13 +2443,13 @@ async function renderViews(main: HTMLElement) {
     await downloadApiCsv(await api("report.viewsCsv", currentQuery()));
   });
   main.querySelector("[data-new]")!.addEventListener("click", () => {
-    const houseOpts = ((houses.data as any[]) || [])
+    const houseOpts = (apiRows(houses))
       .map((h) => `<option value="${h.id}">${h.title}</option>`)
       .join("");
-    const cusOpts = ((customers.data as any[]) || [])
+    const cusOpts = (apiRows(customers))
       .map((c) => `<option value="${c.id}">${c.name}</option>`)
       .join("");
-    const userOpts = ((storeUsers.data as any[]) || [])
+    const userOpts = (apiRows(storeUsers))
       .filter((u) => u.id !== state.user.id && ["agent", "store_manager", "admin"].includes(u.role))
       .map((u) => `<option value="${u.id}">${escapeHtml(u.display_name)} · ${roleLabel(u.role)}</option>`)
       .join("");
@@ -2621,13 +2626,13 @@ async function renderDeals(main: HTMLElement) {
         const got = await api("deal.get", { id: dealId });
         if (!got.ok) return toast(got.message, "error");
         const d = got.data as any;
-        const houseOpts = ((houses.data as any[]) || [])
+        const houseOpts = (apiRows(houses))
           .map(
             (h) =>
               `<option value="${h.id}" ${h.id === d.house_id ? "selected" : ""}>${escapeHtml(h.title)}</option>`
           )
           .join("");
-        const cusOpts = ((customers.data as any[]) || [])
+        const cusOpts = (apiRows(customers))
           .map(
             (c) =>
               `<option value="${c.id}" ${c.id === d.customer_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`
@@ -2833,8 +2838,8 @@ async function renderDeals(main: HTMLElement) {
     );
   };
   const openNewDealDialog = () => {
-    const houseRows = (houses.data as any[]) || [];
-    const customerRows = (customers.data as any[]) || [];
+    const houseRows = apiRows(houses);
+    const customerRows = apiRows(customers);
     const locked = Boolean(prefill.view_id);
     const selectedHouse =
       houseRows.find((h) => h.id === prefill.house_id) || houseRows[0] || null;
@@ -2982,7 +2987,7 @@ async function renderEarnest(main: HTMLElement) {
         .join("") || `<div class="empty">暂无意向金记录</div>`;
     list.querySelectorAll("[data-apply]").forEach((button) =>
       button.addEventListener("click", () => {
-        const dealOptions = ((deals.data as any[]) || [])
+        const dealOptions = (apiRows(deals))
           .filter((deal) => deal.status === "approved")
           .map(
             (deal) =>
@@ -3032,10 +3037,10 @@ async function renderEarnest(main: HTMLElement) {
   const createButton = main.querySelector("[data-new]");
   if (createButton) {
     createButton.addEventListener("click", async () => {
-      const houseOptions = ((houses.data as any[]) || [])
+      const houseOptions = (apiRows(houses))
         .map((house) => `<option value="${house.id}">${house.title}</option>`)
         .join("");
-      const customerOptions = ((customers.data as any[]) || [])
+      const customerOptions = (apiRows(customers))
         .map((customer) => `<option value="${customer.id}">${customer.name}</option>`)
         .join("");
       const methodOptions = await paymentMethodSelectHtml("transfer");
@@ -3132,7 +3137,7 @@ async function renderTransfer(main: HTMLElement) {
   const createButton = main.querySelector("[data-new]");
   if (createButton) {
     createButton.addEventListener("click", () => {
-      const options = ((deals.data as any[]) || [])
+      const options = (apiRows(deals))
         .filter((deal) => deal.status === "approved")
         .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
         .join("");
@@ -3162,7 +3167,7 @@ async function renderTransfer(main: HTMLElement) {
   const seedButton = main.querySelector("[data-seed]");
   if (seedButton) {
     seedButton.addEventListener("click", () => {
-      const options = ((deals.data as any[]) || [])
+      const options = (apiRows(deals))
         .filter((deal) => deal.status === "approved")
         .map((deal) => `<option value="${deal.id}">${deal.id}</option>`)
         .join("");
@@ -3319,7 +3324,7 @@ async function renderPayments(main: HTMLElement) {
   const btn = main.querySelector("[data-new]");
   if (btn) {
     btn.addEventListener("click", async () => {
-      const opts = ((deals.data as any[]) || [])
+      const opts = (apiRows(deals))
         .filter((d) => d.status === "approved")
         .map(
           (d) =>
@@ -5439,6 +5444,7 @@ async function renderPayroll(main: HTMLElement) {
 }
 
 async function renderOfficeContent(main: HTMLElement) {
+  const desktopShell = (window as any).weilaijia?.shell;
   const canCreate = ["admin", "store_manager"].includes(state.user.role);
   const optionsResult = await api("officeContent.options");
   const stores = optionsResult.ok ? (optionsResult.data as any).stores : [];
@@ -5659,6 +5665,7 @@ async function renderOfficeContent(main: HTMLElement) {
 }
 
 async function renderRental(main: HTMLElement) {
+  const desktopShell = (window as any).weilaijia?.shell;
   const isAdmin = state.user.role === "admin";
   const isFinance = state.user.role === "finance";
   const isManagerial = isAdmin || state.user.role === "store_manager";
@@ -6020,6 +6027,7 @@ async function renderRental(main: HTMLElement) {
 }
 
 async function renderCustomerCare(main: HTMLElement) {
+  const desktopShell = (window as any).weilaijia?.shell;
   const isManagerial = ["admin", "store_manager"].includes(state.user.role);
   const optionsResult = await api("customerCare.options");
   const options = optionsResult.ok
@@ -8846,7 +8854,7 @@ async function renderOrg(main: HTMLElement) {
     ]
       .filter(Boolean)
       .join(" · ") || "无人";
-  main.querySelector("[data-stores]")!.innerHTML = ((stores.data as any[]) || [])
+  main.querySelector("[data-stores]")!.innerHTML = (apiRows(stores))
     .map(
       (s) =>
         `<div class="row"><div><strong>${escapeHtml(s.name)}</strong>
@@ -8855,7 +8863,7 @@ async function renderOrg(main: HTMLElement) {
         </div></div>`
     )
     .join("") || `<div class="empty">无门店</div>`;
-  main.querySelector("[data-users]")!.innerHTML = ((users.data as any[]) || [])
+  main.querySelector("[data-users]")!.innerHTML = (apiRows(users))
     .map(
       (u) =>
         `<div class="row"><div><strong>${u.display_name}</strong> (${u.account})
@@ -8876,7 +8884,7 @@ async function renderOrg(main: HTMLElement) {
     );
   });
   main.querySelector("[data-user]")!.addEventListener("click", () => {
-    const opts = ((stores.data as any[]) || [])
+    const opts = (apiRows(stores))
       .map((s) => `<option value="${s.id}">${s.name}</option>`)
       .join("");
     openDialog(

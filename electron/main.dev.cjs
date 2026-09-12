@@ -10,7 +10,7 @@ const api = process.env.WEILAIJIA_API || "http://127.0.0.1:8787";
 
 const store = createShellStore({
   rootDir: path.join(app.getPath("userData"), "shell"),
-  defaultDownloadDir: path.join(app.getPath("downloads"), "未来家下载"),
+  defaultDownloadDir: path.join(app.getPath("downloads"), "Open-Real-Estate-Downloads"),
   updateFeedUrl: process.env.WEILAIJIA_UPDATE_URL || "",
 });
 
@@ -21,7 +21,7 @@ function loadRenderer(win) {
   else win.loadFile(renderer);
 }
 
-function createWindow(title = "未来家本地", opts = {}) {
+function createWindow(title = "Open Real Estate Brokerage System", opts = {}) {
   const tab = opts.asInitial ? store.resetTabs(title) : store.openTab(title);
   const win = new BrowserWindow({
     width: 1280,

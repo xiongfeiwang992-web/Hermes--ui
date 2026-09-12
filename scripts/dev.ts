@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import path from "node:path";
 
 const children: ReturnType<typeof spawn>[] = [];
 
@@ -18,8 +17,6 @@ async function wait(ms: number) {
 }
 
 async function main() {
-  run("npx", ["tsx", "scripts/seed.ts"]);
-  await wait(1500);
   run("npx", ["tsx", "server/http.ts"], { PORT: "8787" });
   await wait(800);
   run("npx", ["vite", "--port", "5173"]);

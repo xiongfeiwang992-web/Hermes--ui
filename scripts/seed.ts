@@ -75,7 +75,12 @@ export function seedDatabase(dbPath?: string) {
 }
 
 if (require.main === module) {
-  const result = seedDatabase();
+  const target = path.resolve(process.env.WEILAIJIA_DB || path.join("data", "app.db"));
+  if ([target, target + "-wal", target + "-shm"].some((file) => fs.existsSync(file))) {
+    console.error("数据库已存在，拒绝覆盖。请备份数据，或通过 WEILAIJIA_DB 指定新的演示数据库路径。");
+    process.exit(1);
+  }
+  const result = seedDatabase(target);
   console.log("Seed completed:", result.dbPath);
   console.log(
     "Demo accounts (password: 123456): admin / manager / agent_a / agent_b / finance / agent_c"

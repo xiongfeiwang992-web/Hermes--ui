@@ -7,4 +7,19 @@ data/
 *.log
 .DS_Store
 .env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+*.pfx
+.weilaijia-shell/
 .vscode/
+
+# Machine-specific business-data import utilities are not part of the release.
+/scripts/import-real-data.ts
+/scripts/check-import.ts
