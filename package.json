@@ -181,7 +181,8 @@
     "smoke:exclusive-end-notify": "tsx scripts/exclusive-end-notify-smoke.ts",
     "smoke:exclusive-update-notify": "tsx scripts/exclusive-update-notify-smoke.ts",
     "smoke:expense-cancel-notify": "tsx scripts/expense-cancel-notify-smoke.ts",
-    "smoke:expense-create-notify": "tsx scripts/expense-create-notify-smoke.ts"
+    "smoke:expense-create-notify": "tsx scripts/expense-create-notify-smoke.ts",
+    "smoke:expense-update-notify": "tsx scripts/expense-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
