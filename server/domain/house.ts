@@ -110,8 +110,8 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
         (h.address || "").includes(k)
     );
   }
-  if (q.price_min != null) rows = rows.filter((h) => h.price >= Number(q.price_min));
-  if (q.price_max != null) rows = rows.filter((h) => h.price <= Number(q.price_max));
+  if (q.price_min != null && q.price_min !== "") rows = rows.filter((h) => h.price >= Number(q.price_min));
+  if (q.price_max != null && q.price_max !== "") rows = rows.filter((h) => h.price <= Number(q.price_max));
   if (q.pool === "private") rows = rows.filter((h) => Boolean(h.is_private));
   if (q.pool === "public") rows = rows.filter((h) => !Boolean(h.is_private));
   if (q.is_locked === "1" || q.is_locked === 1 || q.is_locked === true)
@@ -193,8 +193,24 @@ export function listHouses(db: Db, user: SessionUser, q: any = {}): ApiResult {
       cooperation_as_partner: asPartner,
     };
   });
+  if (q.page != null && q.page !== "") {
+    const pageSize = Math.min(Math.max(Number(q.page_size) || 20, 1), 100);
+    const page = Math.max(Number(q.page) || 1, 1);
+    const total = presented.length;
+    const start = (page - 1) * pageSize;
+    return {
+      ok: true,
+      data: {
+        items: presented.slice(start, start + pageSize),
+        total,
+        page,
+        page_size: pageSize,
+      },
+    };
+  }
   return { ok: true, data: presented };
 }
+
 
 export function getHouse(db: Db, user: SessionUser, id: string): ApiResult {
   const row = db
@@ -325,7 +341,6 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   }
   return created;
 }
-
 
 export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
