@@ -40,7 +40,10 @@ function localParts(iso: string, offsetMinutes: number) {
   const shifted = new Date(Date.parse(iso) + offsetMinutes * 60000);
   return {
     date: shifted.toISOString().slice(0, 10),
-    minutes: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
+    minutes:
+      shifted.getUTCHours() * 60 +
+      shifted.getUTCMinutes() +
+      shifted.getUTCSeconds() / 60,
   };
 }
 
