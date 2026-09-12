@@ -28,6 +28,8 @@ const agentC = login("agent_c");
 const agentAUser = data<any>(app.call("auth.me", {}, agentA));
 const agentBUser = data<any>(app.call("auth.me", {}, agentB));
 const managerUser = data<any>(app.call("auth.me", {}, manager));
+const now = new Date();
+const dividendMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
 check(
   data<any>(app.call("performance.options", {}, finance)).rules.length === 0,
@@ -344,14 +346,14 @@ check(
 check(
   !app.call(
     "performance.dividend.create",
-    { period_month: "2026-08", pool_amount: 1500 },
+    { period_month: dividendMonth, pool_amount: 1500 },
     finance
   ).ok,
   "only admin can create dividend batch"
 );
 const dividend = app.call(
   "performance.dividend.create",
-  { period_month: "2026-08", pool_amount: 1500 },
+  { period_month: dividendMonth, pool_amount: 1500 },
   admin
 );
 check(
