@@ -207,7 +207,8 @@
     "smoke:job-grade-create-notify": "tsx scripts/job-grade-create-notify-smoke.ts",
     "smoke:job-grade-update-notify": "tsx scripts/job-grade-update-notify-smoke.ts",
     "smoke:key-borrow-notify": "tsx scripts/key-borrow-notify-smoke.ts",
-    "smoke:key-invalidate-notify": "tsx scripts/key-invalidate-notify-smoke.ts"
+    "smoke:key-invalidate-notify": "tsx scripts/key-invalidate-notify-smoke.ts",
+    "smoke:key-register-notify": "tsx scripts/key-register-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
