@@ -873,6 +873,8 @@ case "config.viewFeedbacks":
       return config.listViewFeedbacks(db, user!);
 case "config.houseSuspendReasons":
       return config.listHouseSuspendReasons(db, user!);
+case "config.houseWithdrawReasons":
+      return config.listHouseWithdrawReasons(db, user!);
 case "config.settings.get":
       return config.getSettings(db, user!);
 case "config.settings.save":

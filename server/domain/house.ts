@@ -15,7 +15,7 @@ import {
 
 import { writeAudit } from "./audit";
 
-import { isAllowedDealMode, labelDealMode, normalizeDealMode, holdLimitForDealType, isAllowedHouseSource, labelHouseSource, normalizeHouseSource, isAllowedPropertyType, labelPropertyType, normalizePropertyType, isAllowedHouseSuspendReason, labelHouseSuspendReason, normalizeHouseSuspendReason } from "./config";
+import { isAllowedDealMode, labelDealMode, normalizeDealMode, holdLimitForDealType, isAllowedHouseSource, labelHouseSource, normalizeHouseSource, isAllowedPropertyType, labelPropertyType, normalizePropertyType, isAllowedHouseSuspendReason, labelHouseSuspendReason, normalizeHouseSuspendReason, isAllowedHouseWithdrawReason, labelHouseWithdrawReason, normalizeHouseWithdrawReason } from "./config";
 
 import { isBlacklistedPhone } from "./blacklist";
 
@@ -123,6 +123,11 @@ function presentHouse(db: Db, user: SessionUser, row: any) {
       db,
       user.company_id,
       row.suspend_reason
+    ),
+    withdraw_reason_label: labelHouseWithdrawReason(
+      db,
+      user.company_id,
+      row.withdraw_reason
     ),
   };
 }
@@ -666,8 +671,14 @@ export function changeHouseStatus(
     }
     suspendReason = reason;
   }
-  if (payload.status === "withdrawn" && !payload.reason) {
-    return { ok: false, message: "撤盘须填写原因" };
+  let withdrawReason: string | null = current.withdraw_reason || null;
+  if (payload.status === "withdrawn") {
+    const reason = normalizeHouseWithdrawReason(payload.reason, "");
+    if (!reason) return { ok: false, message: "撤盘须填写原因" };
+    if (!isAllowedHouseWithdrawReason(db, user.company_id, reason)) {
+      return { ok: false, message: "撤盘原因不在当前字典中" };
+    }
+    withdrawReason = reason;
   }
   let nextAgentId = current.agent_id;
   if (
@@ -708,16 +719,16 @@ export function changeHouseStatus(
       ? null
       : payload.reason || null;
   db.prepare(
-    `UPDATE houses SET status = ?, agent_id = ?, suspend_reason = ?,
+    `UPDATE houses SET status = ?, agent_id = ?, suspend_reason = ?, withdraw_reason = ?,
        remark = COALESCE(?, remark), updated_at = ? WHERE id = ?`
-  ).run(payload.status, nextAgentId, suspendReason, remarkArg, now, payload.id);
+  ).run(payload.status, nextAgentId, suspendReason, withdrawReason, remarkArg, now, payload.id);
   writeAudit(db, user, "house.status", "house", payload.id, {
     from: current.status,
     to: payload.status,
     reason:
       payload.status === "suspended"
         ? suspendReason
-        : payload.reason,
+        : payload.status === "withdrawn" ? withdrawReason : payload.reason,
     agent_from: current.agent_id,
     agent_to: nextAgentId,
   });
