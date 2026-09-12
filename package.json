@@ -84,7 +84,8 @@
     "smoke:customers-page-export": "tsx scripts/customers-page-export-smoke.ts",
     "smoke:deal-amounts": "tsx scripts/deal-amounts-smoke.ts",
     "smoke:deal-split": "tsx scripts/deal-split-smoke.ts",
-    "smoke:deal-update": "tsx scripts/deal-update-smoke.ts"
+    "smoke:deal-update": "tsx scripts/deal-update-smoke.ts",
+    "smoke:deal-void": "tsx scripts/deal-void-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
