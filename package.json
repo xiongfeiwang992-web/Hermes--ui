@@ -236,7 +236,8 @@
     "smoke:payroll-calculate-notify": "tsx scripts/payroll-calculate-notify-smoke.ts",
     "smoke:permission-set-notify": "tsx scripts/permission-set-notify-smoke.ts",
     "smoke:point-rule-create-notify": "tsx scripts/point-rule-create-notify-smoke.ts",
-    "smoke:point-rule-update-notify": "tsx scripts/point-rule-update-notify-smoke.ts"
+    "smoke:point-rule-update-notify": "tsx scripts/point-rule-update-notify-smoke.ts",
+    "smoke:public-pool-settings-notify": "tsx scripts/public-pool-settings-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
