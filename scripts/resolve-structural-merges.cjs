@@ -43,6 +43,23 @@ function textMerge(base, ours, theirs) {
   const result = cp.spawnSync('git', ['merge-file', '-p', '--diff3', '-L', 'ours', '-L', 'base', '-L', 'theirs', path.join(scratch, 'ours'), path.join(scratch, 'base'), path.join(scratch, 'theirs')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
   if (result.status < 0 || result.status === null) throw new Error(result.stderr || 'merge-file failed');
   const output = result.stdout.replace(/^<<<<<<< ours\n([\s\S]*?)^\|\|\|\|\|\|\| base\n([\s\S]*?)^=======\n([\s\S]*?)^>>>>>>> theirs\n/gm, (whole, left, ancestor, right) => {
+    const category = text => {
+      const source = parse(`const category = { ${text} };`);
+      if (source.parseDiagnostics.length) return null;
+      const props = source.statements[0].declarationList.declarations[0].initializer.properties;
+      if (props.length !== 3 || !props.every(ts.isPropertyAssignment)) return null;
+      const fields = Object.fromEntries(props.map(p => [p.name.getText(), p.initializer]));
+      if (!fields.label || !fields.description || !fields.kinds || !ts.isStringLiteral(fields.label) || !ts.isStringLiteral(fields.description) || !ts.isArrayLiteralExpression(fields.kinds) || !fields.kinds.elements.every(ts.isStringLiteral)) return null;
+      return { label: fields.label.text, description: fields.description.text, kinds: fields.kinds.elements.map(el => el.text) };
+    };
+    const lc = category(left), rc = category(right);
+    if (lc && rc && lc.label === rc.label) {
+      const suffix = '\u76f8\u5173\u63d0\u9192';
+      if (lc.description.endsWith(suffix) && rc.description.endsWith(suffix)) {
+        const topics = [...new Set([lc, rc].flatMap(c => c.description.slice(0, -suffix.length).split('\u3001')))];
+        return `    label: ${JSON.stringify(lc.label)},\n    description: ${JSON.stringify(topics.join('\u3001') + suffix)},\n    kinds: ${JSON.stringify([...new Set([...lc.kinds, ...rc.kinds])])},\n`;
+      }
+    }
     const field = /^([ \t]*<label>字典类型<input name="dict_type" placeholder=")([^"\n]+)(" required \/><\/label>)\s*$/;
     const a = left.match(field), b = right.match(field);
     if (a && b && a[1] === b[1] && a[3] === b[3]) {
