@@ -265,6 +265,19 @@ export function upsertUser(
       account: payload.account,
       role: payload.role,
     });
+    if (payload.id !== user.id) {
+      const passwordNote = payload.password ? " · 密码已重置" : "";
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: payload.store_id,
+        user_id: payload.id,
+        title: "员工资料已更新",
+        body: `${payload.display_name}（${payload.account}）· ${payload.role}${passwordNote}`,
+        kind: "business_record_status",
+        ref_type: "user",
+        ref_id: payload.id,
+      });
+    }
     return { ok: true, data: { id: payload.id } };
   }
   if (!payload.password) return { ok: false, message: "新建员工须设置密码" };
