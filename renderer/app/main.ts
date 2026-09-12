@@ -2033,6 +2033,13 @@ async function renderViews(main: HTMLElement) {
 async function renderDeals(main: HTMLElement) {
   const houses = await api("house.list", {});
   const customers = await api("customer.list", {});
+  const storeUsersResult =
+    state.user.role === "finance"
+      ? { ok: false, data: [] as any[] }
+      : await api("org.users.store", {});
+  const splitUsers = ((storeUsersResult.ok ? storeUsersResult.data : []) as any[]).filter((user) =>
+    ["agent", "store_manager", "admin"].includes(user.role)
+  );
   const desktopShell = (window as any).weilaijia?.shell;
   const prefill = state.cache.prefillDeal || {};
   main.innerHTML = `
@@ -2060,6 +2067,7 @@ async function renderDeals(main: HTMLElement) {
         <strong>${d.id}</strong>
         应收 ¥${money(d.receivable_amount ?? d.commission_total)} · 已收 ¥${money(d.paid_amount)} · 未收 ¥${money(d.unpaid_amount)}${d.overpaid ? ` <span class="tag danger">超收</span>` : ""}</div>
         <div class="meta">房 ${d.house_id} · 客 ${d.customer_id} · 成交价 ${d.contract_price}${d.reject_reason ? ` · 驳回：${d.reject_reason}` : ""}</div>
+        ${d.split_summary ? `<div class="meta">分成 ${escapeHtml(d.split_summary)}</div>` : ""}
         ${checklists.get(d.id)?.ok ? `<div class="meta">必传资料 ${(checklists.get(d.id) as any).data.received_count}/${(checklists.get(d.id) as any).data.required_count} ${(checklists.get(d.id) as any).data.complete ? "✓" : ""}</div>` : ""}
         ${mortgages.get(d.id)?.ok && (mortgages.get(d.id) as any).data ? `<div class="meta">按揭 ${(mortgages.get(d.id) as any).data.bank} · ${(mortgages.get(d.id) as any).data.amount} · ${(mortgages.get(d.id) as any).data.status}</div>` : ""}
       </div>
@@ -2286,6 +2294,18 @@ async function renderDeals(main: HTMLElement) {
           `<option value="${c.id}" ${prefill.customer_id === c.id ? "selected" : ""}>${c.name}</option>`
       )
       .join("");
+    const splitRows =
+      splitUsers.length > 0
+        ? splitUsers
+            .map((user) => {
+              const checked = user.id === state.user.id ? "checked" : "";
+              const ratio = user.id === state.user.id ? "100" : "0";
+              return `<label class="full"><span><input type="checkbox" name="agent_ids" value="${user.id}" ${checked} /> ${escapeHtml(user.display_name)} · ${roleLabel(user.role)}</span>
+                <input name="ratio_${user.id}" type="number" min="0" max="100" step="0.01" value="${ratio}" title="分成%" /></label>`;
+            })
+            .join("")
+        : `<label class="full"><span><input type="checkbox" name="agent_ids" value="${state.user.id}" checked /> ${escapeHtml(state.user.display_name || "本人")}</span>
+           <input name="ratio_${state.user.id}" type="number" min="0" max="100" step="0.01" value="100" title="分成%" /></label>`;
     openDialog(
       "新建成交单",
       `
@@ -2298,8 +2318,19 @@ async function renderDeals(main: HTMLElement) {
       <label>贷款金额<input name="loan_amount" type="number" step="0.01" /></label>
       <label>贷款银行<input name="loan_bank" /></label>
       <label class="full">备注<input name="remark" /></label>
+      <div class="full meta">分成经纪人（勾选并填写比例，合计须为 100%）</div>
+      ${splitRows}
       `,
       async (fd) => {
+        const agentIds = fd.getAll("agent_ids").map(String);
+        const splitRatios: Record<string, number> = {};
+        for (const id of agentIds) {
+          splitRatios[id] = Number(fd.get(`ratio_${id}`) || 0);
+        }
+        if (!agentIds.length) {
+          toast("请至少选择一名分成经纪人", "error");
+          return;
+        }
         const res = await api("deal.create", {
           house_id: fd.get("house_id"),
           customer_id: fd.get("customer_id"),
@@ -2311,11 +2342,12 @@ async function renderDeals(main: HTMLElement) {
           loan_amount: fd.get("loan_amount") ? Number(fd.get("loan_amount")) : null,
           loan_bank: fd.get("loan_bank"),
           remark: fd.get("remark"),
-          agent_ids: [state.user.id],
-          split_ratios: { [state.user.id]: 100 },
+          agent_ids: agentIds,
+          split_ratios: splitRatios,
         });
         state.cache.prefillDeal = null;
         toast(res.ok ? "成交单已创建" : res.message, res.ok ? "ok" : "error");
+        if (res.ok) draw();
       }
     );
   });
