@@ -254,7 +254,8 @@
     "smoke:rental-workorder-create-notify": "tsx scripts/rental-workorder-create-notify-smoke.ts",
     "smoke:rental-workorder-status-notify": "tsx scripts/rental-workorder-status-notify-smoke.ts",
     "smoke:salary-profile-notify": "tsx scripts/salary-profile-notify-smoke.ts",
-    "smoke:sales-report-create-notify": "tsx scripts/sales-report-create-notify-smoke.ts"
+    "smoke:sales-report-create-notify": "tsx scripts/sales-report-create-notify-smoke.ts",
+    "smoke:sales-report-update-notify": "tsx scripts/sales-report-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
