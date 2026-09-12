@@ -66,6 +66,14 @@ function textMerge(base, ours, theirs) {
       return a[1] + [...new Set([...a[2].split(' / '), ...b[2].split(' / ')])].join(' / ') + a[3] + '\n';
     }
     if (!ancestor.trim()) {
+      const stringItems = text => {
+        const source = parse(`const items = [ ${text} ];`);
+        if (source.parseDiagnostics.length) return null;
+        const elements = source.statements[0].declarationList.declarations[0].initializer.elements;
+        return elements.length && elements.every(ts.isStringLiteral) ? elements.map(el => el.text) : null;
+      };
+      const la = stringItems(left), ra = stringItems(right);
+      if (la && ra) return [...new Set([...la, ...ra])].map(s => `      ${JSON.stringify(s)},\n`).join('');
       const l = parse(left), r = parse(right);
       const selector = node => {
         let found;
