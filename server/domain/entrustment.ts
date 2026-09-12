@@ -95,6 +95,18 @@ export function registerEntrustment(db: Db, user: SessionUser, payload: any): Ap
     entrust_type: payload.entrust_type,
     end_at: end.toISOString(),
   });
+  if (house.agent_id && house.agent_id !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: house.agent_id,
+      title: "业主委托已登记",
+      body: `${house.title || "房源"} · ${payload.entrust_type} · 至 ${end.toISOString().slice(0, 10)}`,
+      kind: "entrustment_terminated",
+      ref_type: "house_entrustment",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 

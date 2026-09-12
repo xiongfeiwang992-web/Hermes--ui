@@ -166,7 +166,8 @@
     "smoke:employee-contract-expire-notify": "tsx scripts/employee-contract-expire-notify-smoke.ts",
     "smoke:employee-contract-sign-notify": "tsx scripts/employee-contract-sign-notify-smoke.ts",
     "smoke:employee-create-notify": "tsx scripts/employee-create-notify-smoke.ts",
-    "smoke:employee-update-notify": "tsx scripts/employee-update-notify-smoke.ts"
+    "smoke:employee-update-notify": "tsx scripts/employee-update-notify-smoke.ts",
+    "smoke:entrustment-register-notify": "tsx scripts/entrustment-register-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
