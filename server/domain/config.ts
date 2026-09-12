@@ -914,8 +914,29 @@ export function saveSettings(db: Db, user: SessionUser, p: any): ApiResult {
     agent_pool_rate: agentPoolRate,
     public_pool_days: publicPoolDays,
   });
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  const body = `持盘上限 ${hold} · 管理奖 ${award} · 密码最短 ${min} · 角色保护 ${protectionDays} 天`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id,
+      user_id: recipient.id,
+      title: "业务参数已更新",
+      body,
+      kind: "business_record_status",
+      ref_type: "settings",
+      ref_id: user.company_id,
+    });
+  }
   return getSettings(db, user);
 }
+
 
 export function listCommissionTiers(db: Db, user: SessionUser): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager"))
