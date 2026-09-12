@@ -1807,6 +1807,7 @@ async function renderCustomers(main: HTMLElement) {
       <div class="ops">
         ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
         <button class="btn ghost" data-timeline="${c.id}" data-title="${escapeHtml(c.name)}">详情</button>
+        ${state.user.role !== "finance" && !["invalid", "closed"].includes(c.status) && (state.user.role !== "agent" || c.agent_id === state.user.id) ? `<button class="btn ghost" data-edit-customer="${c.id}">编辑</button>` : ""}
         <button class="btn ghost" data-match="${c.id}">匹配房源</button>
         <button class="btn ghost" data-contacts="${c.id}">联系人</button>
         ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-merge="${c.id}">合并</button>` : ""}
@@ -1849,6 +1850,45 @@ async function renderCustomers(main: HTMLElement) {
         );
       });
     });
+    list.querySelectorAll("[data-edit-customer]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const customerId = (btn as HTMLElement).dataset.editCustomer!;
+        const customer = rows.find((c) => c.id === customerId);
+        if (!customer) return;
+        const sourceOptions = await customerSourceSelectHtml(customer.source || "");
+        const levelOptions = await customerLevelSelectHtml(customer.level || "B");
+        openDialog(
+          "编辑客源",
+          `
+          <label>姓名<input name="name" required value="${escapeHtml(customer.name)}" /></label>
+          <label>电话<input name="phone" required value="${escapeHtml(customer.phone)}" /></label>
+          <label>意图<select name="intent"><option value="buy" ${customer.intent === "buy" ? "selected" : ""}>求购</option><option value="rent" ${customer.intent === "rent" ? "selected" : ""}>求租</option></select></label>
+          <label>等级<select name="level">${levelOptions}</select></label>
+          <label>来源<select name="source">${sourceOptions}</select></label>
+          <label>预算下限<input name="budget_min" type="number" step="0.01" value="${customer.budget_min ?? ""}" /></label>
+          <label>预算上限<input name="budget_max" type="number" step="0.01" value="${customer.budget_max ?? ""}" /></label>
+          <label><span><input name="is_confidential" type="checkbox" ${customer.is_confidential ? "checked" : ""} /> 保密客</span></label>
+          <label class="full">需求<textarea name="need" rows="3">${escapeHtml(customer.need ?? "")}</textarea></label>
+          `,
+          async (fd) => {
+            const res = await api("customer.update", {
+              id: customerId,
+              name: fd.get("name"),
+              phone: fd.get("phone"),
+              intent: fd.get("intent"),
+              level: fd.get("level"),
+              source: fd.get("source") || null,
+              budget_min: fd.get("budget_min") ? Number(fd.get("budget_min")) : null,
+              budget_max: fd.get("budget_max") ? Number(fd.get("budget_max")) : null,
+              is_confidential: fd.get("is_confidential") === "on",
+              need: fd.get("need"),
+            });
+            toast(res.ok ? "客源已更新" : res.message, res.ok ? "ok" : "error");
+            if (res.ok) draw();
+          }
+        );
+      })
+    );
     list.querySelectorAll("[data-public]").forEach((btn) =>
       btn.addEventListener("click", async () => {
         const reason = prompt("转公客原因") || "转公";
@@ -4081,8 +4121,9 @@ async function renderExpenses(main: HTMLElement) {
     });
     const list = main.querySelector("[data-list]")!;
     if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const rows = result.data as any[];
     list.innerHTML =
-      (result.data as any[])
+      rows
         .map((expense) => {
           const own = expense.applicant_user_id === state.user.id;
           const canReview =
@@ -4105,6 +4146,7 @@ async function renderExpenses(main: HTMLElement) {
           </div><div class="ops">
             ${canReceipt ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="expense_receipt">上传票据</button>` : ""}
             ${canVoucher ? `<button class="btn ghost" data-expense-file="${expense.id}" data-file-category="payment_voucher">上传付款凭证</button>` : ""}
+            ${own && ["draft", "rejected"].includes(expense.status) ? `<button class="btn ghost" data-edit-expense="${expense.id}">编辑</button>` : ""}
             ${own && ["draft", "rejected"].includes(expense.status) ? `<button class="btn" data-submit-expense="${expense.id}">提交</button>` : ""}
             ${canReview ? `<button class="btn" data-review-expense="${expense.id}" data-review-status="approved">通过</button><button class="btn danger" data-review-expense="${expense.id}" data-review-status="rejected">驳回</button>` : ""}
             ${canPay ? `<button class="btn" data-pay-expense="${expense.id}">登记付款</button>` : ""}
@@ -4129,6 +4171,36 @@ async function renderExpenses(main: HTMLElement) {
         }
         toast(paths.length ? `已上传 ${paths.length} 个附件` : "未选择文件");
         if (paths.length) draw();
+      })
+    );
+    list.querySelectorAll("[data-edit-expense]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const expenseId = (button as HTMLElement).dataset.editExpense!;
+        const expense = rows.find((e) => e.id === expenseId);
+        if (!expense) return;
+        const categoryOptions = await expenseCategorySelectHtml(expense.category || "transport");
+        openDialog(
+          "编辑费用报销",
+          `
+          <label>报销事由<input name="title" required value="${escapeHtml(expense.title)}" /></label>
+          <label>费用类别<select name="category">${categoryOptions}</select></label>
+          <label>金额<input name="amount" type="number" min="0.01" step="0.01" required value="${expense.amount}" /></label>
+          <label>费用日期<input name="expense_date" type="date" required value="${expense.expense_date}" /></label>
+          <label class="full">说明<textarea name="description" rows="3">${escapeHtml(expense.description ?? "")}</textarea></label>
+          `,
+          async (fd) => {
+            const result = await api("expense.update", {
+              id: expenseId,
+              title: fd.get("title"),
+              category: fd.get("category"),
+              amount: Number(fd.get("amount")),
+              expense_date: fd.get("expense_date"),
+              description: fd.get("description"),
+            });
+            toast(result.ok ? "报销单已更新" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) draw();
+          }
+        );
       })
     );
     list.querySelectorAll("[data-submit-expense]").forEach((button) =>
