@@ -230,7 +230,8 @@
     "smoke:office-ticket-create-notify": "tsx scripts/office-ticket-create-notify-smoke.ts",
     "smoke:office-ticket-return-notify": "tsx scripts/office-ticket-return-notify-smoke.ts",
     "smoke:online-entrust-reject-notify": "tsx scripts/online-entrust-reject-notify-smoke.ts",
-    "smoke:payment-create-notify": "tsx scripts/payment-create-notify-smoke.ts"
+    "smoke:payment-create-notify": "tsx scripts/payment-create-notify-smoke.ts",
+    "smoke:payroll-adjust-notify": "tsx scripts/payroll-adjust-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
