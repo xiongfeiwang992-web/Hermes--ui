@@ -213,7 +213,8 @@
     "smoke:knowledge-publish-notify": "tsx scripts/knowledge-publish-notify-smoke.ts",
     "smoke:lead-create-notify": "tsx scripts/lead-create-notify-smoke.ts",
     "smoke:lead-status-notify": "tsx scripts/lead-status-notify-smoke.ts",
-    "smoke:leave-cancel-notify": "tsx scripts/leave-cancel-notify-smoke.ts"
+    "smoke:leave-cancel-notify": "tsx scripts/leave-cancel-notify-smoke.ts",
+    "smoke:leave-create-notify": "tsx scripts/leave-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
