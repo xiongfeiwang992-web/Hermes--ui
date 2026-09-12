@@ -113,7 +113,8 @@
     "smoke:view-list-filters": "tsx scripts/view-list-filters-smoke.ts",
     "smoke:attachment-add-notify": "tsx scripts/attachment-add-notify-smoke.ts",
     "smoke:attachment-delete-notify": "tsx scripts/attachment-delete-notify-smoke.ts",
-    "smoke:attendance-correct-notify": "tsx scripts/attendance-correct-notify-smoke.ts"
+    "smoke:attendance-correct-notify": "tsx scripts/attendance-correct-notify-smoke.ts",
+    "smoke:attendance-late-notify": "tsx scripts/attendance-late-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
