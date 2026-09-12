@@ -149,7 +149,8 @@
     "smoke:customer-to-public-notify": "tsx scripts/customer-to-public-notify-smoke.ts",
     "smoke:customer-update-notify": "tsx scripts/customer-update-notify-smoke.ts",
     "smoke:deal-complaint-withdraw-notify": "tsx scripts/deal-complaint-withdraw-notify-smoke.ts",
-    "smoke:deal-create-notify": "tsx scripts/deal-create-notify-smoke.ts"
+    "smoke:deal-create-notify": "tsx scripts/deal-create-notify-smoke.ts",
+    "smoke:deal-doc-template-notify": "tsx scripts/deal-doc-template-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

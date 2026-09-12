@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -59,6 +60,28 @@ export function saveTemplate(db: Db, user: SessionUser, payload: any): ApiResult
     now
   );
   writeAudit(db, user, "deal_document.template", "deal_doc_template", id, payload);
+  if (!current) {
+    const recipients = db
+      .prepare(
+        `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+         AND role IN ('admin', 'store_manager')`
+      )
+      .all(user.company_id) as any[];
+    const body = `${payload.label} · ${payload.deal_type}/${String(payload.category).trim()}`;
+    for (const recipient of recipients) {
+      if (recipient.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: recipient.store_id,
+        user_id: recipient.id,
+        title: "成交资料模板已创建",
+        body,
+        kind: "business_record_status",
+        ref_type: "deal_doc_template",
+        ref_id: id,
+      });
+    }
+  }
   return { ok: true, data: { id } };
 }
 
