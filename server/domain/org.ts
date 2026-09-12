@@ -169,6 +169,25 @@ export function upsertStore(
     `INSERT INTO stores(id, company_id, name, address, status, created_at) VALUES (?, ?, ?, ?, 'active', ?)`
   ).run(id, user.company_id, payload.name.trim(), payload.address || null, nowIso());
   writeAudit(db, user, "store.create", "store", id, payload);
+  const recipients = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: id,
+      user_id: recipient.id,
+      title: "新门店已创建",
+      body: payload.name.trim(),
+      kind: "business_record_status",
+      ref_type: "store",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
