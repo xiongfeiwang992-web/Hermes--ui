@@ -400,7 +400,6 @@ export function listDeals(db: Db, user: SessionUser, q: any = {}): ApiResult {
   };
 }
 
-
 export function submitDeal(db: Db, user: SessionUser, payload: { id: string }): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -861,6 +860,7 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
   }
   if (q.deal_id) rows = rows.filter((p) => p.deal_id === q.deal_id);
   if (q.status) rows = rows.filter((p) => p.status === q.status);
+  if (q.direction) rows = rows.filter((p) => (p.direction || "in") === q.direction);
   if (q.method) {
     const method = normalizePaymentMethod(q.method);
     rows = rows.filter((p) => normalizePaymentMethod(p.method) === method);
@@ -868,6 +868,15 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
   if (q.pay_type) {
     const payType = normalizePayType(q.pay_type);
     rows = rows.filter((p) => normalizePayType(p.pay_type) === payType);
+  }
+  if (q.keyword) {
+    const k = String(q.keyword).trim().toLowerCase();
+    rows = rows.filter(
+      (p) =>
+        String(p.id).toLowerCase().includes(k) ||
+        String(p.deal_id).toLowerCase().includes(k) ||
+        String(p.remark || "").toLowerCase().includes(k)
+    );
   }
   return {
     ok: true,
@@ -878,6 +887,7 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
     })),
   };
 }
+
 
 export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };

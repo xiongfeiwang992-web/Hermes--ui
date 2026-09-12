@@ -102,7 +102,8 @@
     "smoke:keys-lifecycle": "tsx scripts/keys-lifecycle-smoke.ts",
     "smoke:masked-phone-display": "tsx scripts/masked-phone-display-smoke.ts",
     "smoke:offboarding-deal-escalate": "tsx scripts/offboarding-deal-escalate-smoke.ts",
-    "smoke:org-store-stats": "tsx scripts/org-store-stats-smoke.ts"
+    "smoke:org-store-stats": "tsx scripts/org-store-stats-smoke.ts",
+    "smoke:payments-page-export": "tsx scripts/payments-page-export-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
