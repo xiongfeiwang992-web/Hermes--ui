@@ -157,7 +157,8 @@
     "smoke:deal-signoff-notify": "tsx scripts/deal-signoff-notify-smoke.ts",
     "smoke:distribution-company-create-notify": "tsx scripts/distribution-company-create-notify-smoke.ts",
     "smoke:distribution-company-update-notify": "tsx scripts/distribution-company-update-notify-smoke.ts",
-    "smoke:distribution-status-notify": "tsx scripts/distribution-status-notify-smoke.ts"
+    "smoke:distribution-status-notify": "tsx scripts/distribution-status-notify-smoke.ts",
+    "smoke:dividend-calculated-notify": "tsx scripts/dividend-calculated-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
