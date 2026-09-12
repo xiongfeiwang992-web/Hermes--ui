@@ -175,7 +175,8 @@
     "smoke:exam-attempt-notify": "tsx scripts/exam-attempt-notify-smoke.ts",
     "smoke:exam-create-notify": "tsx scripts/exam-create-notify-smoke.ts",
     "smoke:exam-publish-notify": "tsx scripts/exam-publish-notify-smoke.ts",
-    "smoke:exam-update-notify": "tsx scripts/exam-update-notify-smoke.ts"
+    "smoke:exam-update-notify": "tsx scripts/exam-update-notify-smoke.ts",
+    "smoke:exclusive-activate-notify": "tsx scripts/exclusive-activate-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
