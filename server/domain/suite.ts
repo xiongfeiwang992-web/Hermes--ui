@@ -253,6 +253,25 @@ export function addBlacklist(db: Db, user: SessionUser, payload: any): ApiResult
     return { ok: false, message: "该条目已在黑名单", code: 409 };
   }
   writeAudit(db, user, "blacklist.add", "blacklist", id, { kind: payload.kind });
+  const managers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND (role='admin' OR role='store_manager')`
+    )
+    .all(user.company_id) as any[];
+  for (const manager of managers) {
+    if (manager.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: user.store_id,
+      user_id: manager.id,
+      title: "黑名单已登记",
+      body: `${payload.kind} · ${display} · ${reason}`,
+      kind: "business_record_status",
+      ref_type: "blacklist",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
