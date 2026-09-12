@@ -824,6 +824,8 @@ case "config.expenseCategories":
       return config.listExpenseCategories(db, user!);
 case "config.houseSources":
       return config.listHouseSources(db, user!);
+case "config.leaveTypes":
+      return config.listLeaveTypes(db, user!);
 case "config.settings.get":
       return config.getSettings(db, user!);
 case "config.settings.save":
