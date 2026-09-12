@@ -773,9 +773,21 @@ export function changeHouseStatus(
         ref_id: current.id,
       });
     }
+  } else if (nextAgentId && nextAgentId !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: current.store_id,
+      user_id: nextAgentId,
+      title: "房源状态已更新",
+      body: `房源「${current.title}」：${current.status} → ${payload.status}`,
+      kind: "house_agent",
+      ref_type: "house",
+      ref_id: current.id,
+    });
   }
   return getHouse(db, user, payload.id);
 }
+
 
 export function changeHouseAgent(
   db: Db,
