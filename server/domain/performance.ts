@@ -179,6 +179,25 @@ export function savePointRule(db: Db, user: SessionUser, payload: any): ApiResul
   }
   addEvent(db, user, "point_rule", id, "created");
   writeAudit(db, user, "performance.point_rule.create", "performance_point_rule", id);
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id || user.store_id,
+      user_id: recipient.id,
+      title: "积分规则已创建",
+      body: `${name}（${code}）· ${points} 分`,
+      kind: "performance",
+      ref_type: "performance_point_rule",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
 
