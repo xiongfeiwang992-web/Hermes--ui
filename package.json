@@ -94,7 +94,8 @@
     "smoke:house-coop-filters": "tsx scripts/house-coop-filters-smoke.ts",
     "smoke:house-dedupe": "tsx scripts/house-dedupe-smoke.ts",
     "smoke:house-list-filters": "tsx scripts/house-list-filters-smoke.ts",
-    "smoke:house-orientation-decoration": "tsx scripts/house-orientation-decoration-smoke.ts"
+    "smoke:house-orientation-decoration": "tsx scripts/house-orientation-decoration-smoke.ts",
+    "smoke:house-rooms-floor": "tsx scripts/house-rooms-floor-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
