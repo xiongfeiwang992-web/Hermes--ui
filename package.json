@@ -125,7 +125,8 @@
     "smoke:bonus-calculated-notify": "tsx scripts/bonus-calculated-notify-smoke.ts",
     "smoke:call-match-notify": "tsx scripts/call-match-notify-smoke.ts",
     "smoke:call-unmatched-notify": "tsx scripts/call-unmatched-notify-smoke.ts",
-    "smoke:campaign-create-notify": "tsx scripts/campaign-create-notify-smoke.ts"
+    "smoke:campaign-create-notify": "tsx scripts/campaign-create-notify-smoke.ts",
+    "smoke:campaign-status-notify": "tsx scripts/campaign-status-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
