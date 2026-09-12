@@ -1,11 +1,17 @@
 import type { Db } from "../db/database";
+
 import { writeAudit } from "./audit";
+
 import { createMessage } from "./message";
+
 import { hashPassword } from "../utils/password";
+
 import { nextId, nowIso } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 const JOB_ROLES = new Set(["store_manager", "agent", "finance"]);
+
 const TRANSITIONS: Record<string, string[]> = {
   new: ["screening", "rejected", "withdrawn"],
   screening: ["interview", "rejected", "withdrawn"],
@@ -452,5 +458,27 @@ export function onboardCandidate(db: Db, user: SessionUser, payload: any): ApiRe
       .get(candidate.job_id, user.company_id) as any;
     if (job) notifyJobClosed(db, user, job, "招聘人数已满");
   }
+  if (candidate.created_by && candidate.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: candidate.store_id,
+      user_id: candidate.created_by,
+      title: "候选人已入职",
+      body: `${candidate.name} 已入职为 ${displayName}（账号 ${account}）`,
+      kind: "recruitment",
+      ref_type: "recruitment_candidate",
+      ref_id: candidate.id,
+    });
+  }
+  createMessage(db, {
+    company_id: user.company_id,
+    store_id: candidate.store_id,
+    user_id: id,
+    title: "欢迎入职",
+    body: `账号 ${account} 已开通，角色 ${candidate.target_role}`,
+    kind: "recruitment",
+    ref_type: "recruitment_candidate",
+    ref_id: candidate.id,
+  });
   return { ok: true, data: { id: candidate.id, user_id: id, status: "hired" } };
 }
