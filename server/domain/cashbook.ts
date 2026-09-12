@@ -170,7 +170,6 @@ export function createCashbook(db: Db, user: SessionUser, payload: any): ApiResu
   return { ok: true, data: { id, status: "confirmed" } };
 }
 
-
 export function voidCashbook(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!(user.role === "admin" || user.role === "finance"))
     return { ok: false, message: "无作废权限", code: 403 };
@@ -192,6 +191,18 @@ export function voidCashbook(db: Db, user: SessionUser, payload: any): ApiResult
     direction: row.direction,
     amount: row.amount,
   });
+  if (row.created_by && row.created_by !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: row.created_by,
+      title: "收支流水已作废",
+      body: `${row.direction === "income" ? "收入" : "支出"} ¥${Number(row.amount).toFixed(2)}${row.counterparty ? ` · ${row.counterparty}` : ""}：${reason}`,
+      kind: "business_record_status",
+      ref_type: "cashbook_entry",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "voided" } };
 }
 
