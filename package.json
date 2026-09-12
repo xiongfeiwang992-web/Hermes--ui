@@ -211,7 +211,8 @@
     "smoke:key-register-notify": "tsx scripts/key-register-notify-smoke.ts",
     "smoke:key-return-notify": "tsx scripts/key-return-notify-smoke.ts",
     "smoke:knowledge-publish-notify": "tsx scripts/knowledge-publish-notify-smoke.ts",
-    "smoke:lead-create-notify": "tsx scripts/lead-create-notify-smoke.ts"
+    "smoke:lead-create-notify": "tsx scripts/lead-create-notify-smoke.ts",
+    "smoke:lead-status-notify": "tsx scripts/lead-status-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
