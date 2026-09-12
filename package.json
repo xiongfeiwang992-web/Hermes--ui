@@ -74,7 +74,8 @@
     "smoke:view-feedbacks": "tsx scripts/view-feedbacks-smoke.ts",
     "smoke:audit-filters": "tsx scripts/audit-filters-smoke.ts",
     "smoke:backup-restore": "tsx scripts/backup-restore-smoke.ts",
-    "smoke:blacklist-listing": "tsx scripts/blacklist-listing-smoke.ts"
+    "smoke:blacklist-listing": "tsx scripts/blacklist-listing-smoke.ts",
+    "smoke:cashbook-payment-methods": "tsx scripts/cashbook-payment-methods-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
