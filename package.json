@@ -185,7 +185,8 @@
     "smoke:expense-update-notify": "tsx scripts/expense-update-notify-smoke.ts",
     "smoke:finance-asset-create-notify": "tsx scripts/finance-asset-create-notify-smoke.ts",
     "smoke:finance-asset-dispose-notify": "tsx scripts/finance-asset-dispose-notify-smoke.ts",
-    "smoke:finance-asset-update-notify": "tsx scripts/finance-asset-update-notify-smoke.ts"
+    "smoke:finance-asset-update-notify": "tsx scripts/finance-asset-update-notify-smoke.ts",
+    "smoke:finance-voucher-create-notify": "tsx scripts/finance-voucher-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
