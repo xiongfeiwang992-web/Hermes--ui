@@ -35,6 +35,14 @@ npm run dev:renderer  # UI  :5173
 npm run dev
 ```
 
+一键生产启动（构建 + 启动 API 服务与 Electron 桌面壳）：
+
+```bash
+npm run start
+```
+
+（首次运行前先 `npm run seed` 初始化演示数据。）
+
 ## 演示账号
 
 密码均为 `123456`：

@@ -12,7 +12,7 @@
     "dev:server": "tsx watch server/http.ts",
     "dev:renderer": "vite",
     "dev": "tsx scripts/dev.ts",
-    "start": "npm run build && electron .",
+    "start": "npm run build && node scripts/start.cjs",
     "seed": "tsx scripts/seed.ts",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:p2": "tsx scripts/p2-smoke.ts",
