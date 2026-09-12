@@ -263,7 +263,8 @@
     "smoke:survey-create-notify": "tsx scripts/survey-create-notify-smoke.ts",
     "smoke:survey-notify": "tsx scripts/survey-notify-smoke.ts",
     "smoke:target-create-notify": "tsx scripts/target-create-notify-smoke.ts",
-    "smoke:transfer-cancel-notify": "tsx scripts/transfer-cancel-notify-smoke.ts"
+    "smoke:transfer-cancel-notify": "tsx scripts/transfer-cancel-notify-smoke.ts",
+    "smoke:transfer-node-cancel-notify": "tsx scripts/transfer-node-cancel-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
