@@ -1,6 +1,11 @@
 import type { Db } from "../db/database";
+
 import { writeAudit } from "./audit";
+
+import { createMessage } from "./message";
+
 import { nextId, nowIso } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 function canAccessDeal(user: SessionUser, deal: any): boolean {
@@ -91,8 +96,29 @@ export function saveTemplate(db: Db, user: SessionUser, p: any): ApiResult {
     name: p.name,
     deal_type: p.deal_type,
   });
+  const recipients = db
+    .prepare(
+      `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'store_manager')`
+    )
+    .all(user.company_id) as any[];
+  const body = `${p.name} · ${p.deal_type}`;
+  for (const recipient of recipients) {
+    if (recipient.id === user.id) continue;
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: recipient.store_id,
+      user_id: recipient.id,
+      title: "合同模板已创建",
+      body,
+      kind: "business_record_status",
+      ref_type: "contract_template",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id } };
 }
+
 
 export function preview(db: Db, user: SessionUser, p: any): ApiResult {
   if (!p.deal_id) return { ok: false, message: "成交单必填" };

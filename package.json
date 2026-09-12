@@ -139,7 +139,8 @@
     "smoke:commission-paid-notify": "tsx scripts/commission-paid-notify-smoke.ts",
     "smoke:commission-tier-create-notify": "tsx scripts/commission-tier-create-notify-smoke.ts",
     "smoke:community-create-notify": "tsx scripts/community-create-notify-smoke.ts",
-    "smoke:community-update-notify": "tsx scripts/community-update-notify-smoke.ts"
+    "smoke:community-update-notify": "tsx scripts/community-update-notify-smoke.ts",
+    "smoke:contract-template-notify": "tsx scripts/contract-template-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
