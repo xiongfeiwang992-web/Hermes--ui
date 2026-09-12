@@ -152,7 +152,13 @@ export function changeTransferStatus(db: Db, user: SessionUser, payload: any): A
     to: payload.status,
     reason: payload.reason,
   });
-  if (payload.status === "cancelled") {
+  const notifyTitles: Record<string, string> = {
+    in_progress: "过户节点已开始",
+    completed: "过户节点已完成",
+    cancelled: "过户节点已取消",
+  };
+  const notifyTitle = notifyTitles[payload.status];
+  if (notifyTitle) {
     const reason = String(payload.reason || "").trim();
     const recipients = new Set<string>();
     if (node.assignee_user_id) recipients.add(node.assignee_user_id);
@@ -166,29 +172,11 @@ export function changeTransferStatus(db: Db, user: SessionUser, payload: any): A
         company_id: user.company_id,
         store_id: node.store_id,
         user_id: userId,
-        title: "过户节点已取消",
-        body: `${node.title} · ${reason}`,
-        kind: "transfer_node",
-        ref_type: "deal",
-        ref_id: node.deal_id,
-      });
-    }
-  }
-  if (payload.status === "completed") {
-    const recipients = new Set<string>();
-    if (node.assignee_user_id) recipients.add(node.assignee_user_id);
-    if (node.deal_created_by) recipients.add(node.deal_created_by);
-    for (const agentId of JSON.parse(node.agent_ids || "[]") as string[]) {
-      recipients.add(agentId);
-    }
-    recipients.delete(user.id);
-    for (const userId of recipients) {
-      createMessage(db, {
-        company_id: user.company_id,
-        store_id: node.store_id,
-        user_id: userId,
-        title: "过户节点已完成",
-        body: `${node.title}（成交单 ${node.deal_id}）`,
+        title: notifyTitle,
+        body:
+          payload.status === "cancelled"
+            ? `${node.title} · ${reason}`
+            : `${node.title}（成交单 ${node.deal_id}）`,
         kind: "transfer_node",
         ref_type: "deal",
         ref_id: node.deal_id,
