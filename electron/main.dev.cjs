@@ -1,22 +1,75 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const https = require("https");
+const { createShellStore, evaluateUpdateFeed, ensureDir } = require("./shell-state.cjs");
 
 const renderer =
   process.env.WEILAIJIA_RENDERER || "http://127.0.0.1:5173";
 const api = process.env.WEILAIJIA_API || "http://127.0.0.1:8787";
 
-function createWindow() {
+const store = createShellStore({
+  rootDir: path.join(app.getPath("userData"), "shell"),
+  defaultDownloadDir: path.join(app.getPath("downloads"), "未来家下载"),
+  updateFeedUrl: process.env.WEILAIJIA_UPDATE_URL || "",
+});
+
+const tabWindows = new Map();
+
+function loadRenderer(win) {
+  if (renderer.startsWith("http")) win.loadURL(renderer);
+  else win.loadFile(renderer);
+}
+
+function createWindow(title = "未来家本地", opts = {}) {
+  const tab = opts.asInitial ? store.resetTabs(title) : store.openTab(title);
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
+    title,
     webPreferences: {
       preload: path.join(__dirname, "preload.dev.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
-  win.loadURL(renderer);
+  tabWindows.set(tab.id, win);
+  win.on("closed", () => {
+    tabWindows.delete(tab.id);
+    try {
+      const { tabs } = store.listTabs();
+      if (tabs.some((item) => item.id === tab.id) && tabs.length > 1) {
+        store.closeTab(tab.id);
+      }
+    } catch {
+      /* keep last tab record */
+    }
+  });
+  loadRenderer(win);
+  return { win, tab };
+}
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    https
+      .get(url, (res) => {
+        if ((res.statusCode || 0) >= 400) {
+          reject(new Error(`更新源 HTTP ${res.statusCode}`));
+          res.resume();
+          return;
+        }
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      })
+      .on("error", reject);
+  });
 }
 
 app.whenReady().then(() => {
@@ -25,6 +78,8 @@ app.whenReady().then(() => {
     version: app.getVersion(),
     platform: process.platform,
     electron: process.versions.electron,
+    downloadDir: store.getDownloadDir(),
+    updateFeedConfigured: Boolean(store.getUpdateFeedUrl()),
   }));
   ipcMain.handle("shell:zoom", (_event, value) => {
     const window = BrowserWindow.getFocusedWindow();
@@ -48,12 +103,17 @@ app.whenReady().then(() => {
     const window = BrowserWindow.getFocusedWindow();
     if (!window) throw new Error("没有活动窗口");
     const image = await window.webContents.capturePage();
-    const directory = path.join(app.getPath("pictures"), "未来家截图");
-    fs.mkdirSync(directory, { recursive: true });
+    const directory = path.join(store.getDownloadDir(), "screenshots");
+    ensureDir(directory);
     const filename = `截图-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
     const target = path.join(directory, filename);
     fs.writeFileSync(target, image.toPNG());
-    return { path: target, filename };
+    const recorded = store.recordDownload({
+      filename,
+      path: target,
+      source: "screenshot",
+    });
+    return { path: target, filename, download: recorded };
   });
   ipcMain.handle("shell:chooseFiles", async () => {
     const result = await dialog.showOpenDialog({
@@ -66,7 +126,77 @@ app.whenReady().then(() => {
     if (!path.isAbsolute(target)) throw new Error("附件路径无效");
     return shell.openPath(target);
   });
-  createWindow();
+  ipcMain.handle("shell:downloads.get", () => ({
+    directory: store.getDownloadDir(),
+    items: store.listDownloads(),
+  }));
+  ipcMain.handle("shell:downloads.chooseDir", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择下载目录",
+      properties: ["openDirectory", "createDirectory"],
+      defaultPath: store.getDownloadDir(),
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      return { directory: store.getDownloadDir(), canceled: true };
+    }
+    store.setDownloadDir(result.filePaths[0]);
+    return { directory: store.getDownloadDir(), canceled: false };
+  });
+  ipcMain.handle("shell:downloads.clear", () => {
+    store.clearDownloads();
+    return { ok: true, items: [] };
+  });
+  ipcMain.handle("shell:downloads.openDir", async () => {
+    const directory = store.getDownloadDir();
+    return shell.openPath(directory);
+  });
+  ipcMain.handle("shell:tabs.list", () => store.listTabs());
+  ipcMain.handle("shell:tabs.open", (_event, title) => {
+    createWindow(title || `标签 ${store.listTabs().tabs.length + 1}`);
+    return store.listTabs();
+  });
+  ipcMain.handle("shell:tabs.focus", (_event, tabId) => {
+    store.focusTab(tabId);
+    const win = tabWindows.get(tabId);
+    if (win) {
+      win.show();
+      win.focus();
+    }
+    return store.listTabs();
+  });
+  ipcMain.handle("shell:tabs.close", (_event, tabId) => {
+    const win = tabWindows.get(tabId);
+    store.closeTab(tabId);
+    if (win && !win.isDestroyed()) win.close();
+    return store.listTabs();
+  });
+  ipcMain.handle("shell:update.check", async () => {
+    const feedUrl = store.getUpdateFeedUrl();
+    const base = evaluateUpdateFeed({
+      currentVersion: app.getVersion(),
+      feedUrl,
+    });
+    if (base.reason !== "pending_fetch" || !feedUrl) return base;
+    try {
+      const remote = await fetchJson(feedUrl);
+      return evaluateUpdateFeed({
+        currentVersion: app.getVersion(),
+        feedUrl,
+        remote,
+      });
+    } catch (err) {
+      return {
+        available: false,
+        checked: true,
+        reason: "fetch_failed",
+        message: (err && err.message) || "更新源不可用",
+        currentVersion: app.getVersion(),
+        feedUrl,
+      };
+    }
+  });
+
+  createWindow("主页面", { asInitial: true });
 });
 
 app.on("window-all-closed", () => {
