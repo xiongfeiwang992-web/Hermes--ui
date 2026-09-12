@@ -195,7 +195,8 @@
     "smoke:house-create-notify": "tsx scripts/house-create-notify-smoke.ts",
     "smoke:house-lock-notify": "tsx scripts/house-lock-notify-smoke.ts",
     "smoke:house-media-add-notify": "tsx scripts/house-media-add-notify-smoke.ts",
-    "smoke:house-media-archive-notify": "tsx scripts/house-media-archive-notify-smoke.ts"
+    "smoke:house-media-archive-notify": "tsx scripts/house-media-archive-notify-smoke.ts",
+    "smoke:house-role-assign-notify": "tsx scripts/house-role-assign-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

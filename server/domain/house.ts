@@ -439,7 +439,6 @@ export function createHouse(db: Db, user: SessionUser, payload: any): ApiResult 
   return created;
 }
 
-
 export function updateHouse(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   const current = db
@@ -966,16 +965,30 @@ export function assignHouseRole(db: Db, user: SessionUser, payload: any): ApiRes
     user.id,
     protectedUntil
   );
-  createMessage(db, {
-    company_id: user.company_id,
-    store_id: house.store_id,
-    user_id: holder.id,
-    title: "房源角色已指派",
-    body: `${house.title}：${payload.role_type}${protectedUntil ? `，保护至 ${protectedUntil.slice(0, 10)}` : ""}`,
-    kind: "house_role",
-    ref_type: "house",
-    ref_id: house.id,
-  });
+  if (holder.id !== user.id) {
+    const roleLabel =
+      payload.role_type === "surveyor"
+        ? "实勘人"
+        : payload.role_type === "verifier"
+          ? "核验人"
+          : payload.role_type === "photographer"
+            ? "摄影师"
+            : payload.role_type === "floorplan"
+              ? "户型人"
+              : payload.role_type === "key_keeper"
+                ? "钥匙人"
+                : "委托人";
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: holder.id,
+      title: "房源角色已指派",
+      body: `${house.title}：${roleLabel}${protectedUntil ? `，保护至 ${protectedUntil.slice(0, 10)}` : ""}`,
+      kind: "house_role",
+      ref_type: "house",
+      ref_id: house.id,
+    });
+  }
   writeAudit(db, user, "house.role.assign", "house_role_holder", id, {
     house_id: house.id,
     role_type: payload.role_type,
