@@ -216,6 +216,26 @@ async function leaveTypeSelectHtml(selected = "annual") {
     .join("");
 }
 
+async function payTypeSelectHtml(selected = "commission", excludeRefund = true) {
+  const result = await api("config.payTypes", {});
+  const types = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "commission", label: "佣金" },
+        { value: "deposit", label: "定金" },
+        { value: "earnest_apply", label: "意向金冲抵" },
+        { value: "refund", label: "退款" },
+        { value: "other", label: "其他" },
+      ];
+  return types
+    .filter((item) => !(excludeRefund && item.value === "refund"))
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2324,7 +2344,7 @@ async function renderPayments(main: HTMLElement) {
         (p) => `<div class="row"><div>
         <div>
           <span class="tag ${p.status === "confirmed" ? "ok" : p.status === "rejected" ? "danger" : "warn"}">${p.direction === "out" ? "退款" : statusLabel[p.status] || p.status}</span>
-          <strong>¥${money(p.amount)}</strong> · ${escapeHtml(p.method_label || p.method)} · ${p.payer_side}
+          <strong>¥${money(p.amount)}</strong> · ${escapeHtml(p.pay_type_label || p.pay_type)} · ${escapeHtml(p.method_label || p.method)} · ${p.payer_side}
         </div>
         <div class="meta">成交单 ${p.deal_id} · ${p.paid_at}${p.reject_reason ? ` · 驳回：${escapeHtml(p.reject_reason)}` : ""}</div>
       </div><div class="ops">
@@ -2390,11 +2410,13 @@ async function renderPayments(main: HTMLElement) {
         )
         .join("");
       const methodOptions = await paymentMethodSelectHtml("transfer");
+      const payTypeOptions = await payTypeSelectHtml("commission", true);
       openDialog(
         "登记收款（待出纳确认）",
         `
         <label class="full">成交单<select name="deal_id">${opts}</select></label>
         <label>金额<input name="amount" type="number" step="0.01" required /></label>
+        <label>收款类型<select name="pay_type">${payTypeOptions}</select></label>
         <label>方式<select name="method">${methodOptions}</select></label>
         <label>付款方<select name="payer_side"><option value="customer">客户</option><option value="owner">业主</option><option value="other">其他</option></select></label>
         `,
@@ -2402,6 +2424,7 @@ async function renderPayments(main: HTMLElement) {
           const res = await api("payment.create", {
             deal_id: fd.get("deal_id"),
             amount: Number(fd.get("amount")),
+            pay_type: fd.get("pay_type"),
             method: fd.get("method"),
             payer_side: fd.get("payer_side"),
           });
@@ -2413,6 +2436,7 @@ async function renderPayments(main: HTMLElement) {
     });
   }
 }
+
 
 async function renderCommissions(main: HTMLElement) {
   const r = await api("commission.list");
@@ -7330,7 +7354,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category / house_source / leave_type" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category / house_source / leave_type / pay_type" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>

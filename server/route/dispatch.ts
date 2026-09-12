@@ -839,6 +839,8 @@ case "config.houseSources":
       return config.listHouseSources(db, user!);
 case "config.leaveTypes":
       return config.listLeaveTypes(db, user!);
+case "config.payTypes":
+      return config.listPayTypes(db, user!);
 case "config.settings.get":
       return config.getSettings(db, user!);
 case "config.settings.save":

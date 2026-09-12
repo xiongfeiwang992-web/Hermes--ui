@@ -1,21 +1,26 @@
 import type { Db } from "../db/database";
+
 import {
   canApproveDeal,
   canRegisterPayment,
   canSeeCommissions,
   canWriteListing,
 } from "../auth/policy";
+
 import { writeAudit } from "./audit";
-import {
-  isAllowedPaymentMethod,
-  labelPaymentMethod,
-  normalizePaymentMethod,
-} from "./config";
+
+import { isAllowedPaymentMethod, labelPaymentMethod, normalizePaymentMethod, isAllowedPayType, labelPayType, normalizePayType } from "./config";
+
 import { createMessage } from "./message";
+
 import { initForDeal, readiness } from "./dealDocuments";
+
 import { seedNodesForDeal } from "./transfer";
+
 import { initializeMortgage } from "./mortgage";
+
 import { nextId, nowIso } from "../utils/id";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 function parseJson<T>(raw: string, fallback: T): T {
@@ -395,6 +400,13 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
   if (!isAllowedPaymentMethod(db, user.company_id, method)) {
     return { ok: false, message: "收款方式不在当前字典中" };
   }
+  const payType = normalizePayType(payload.pay_type);
+  if (!isAllowedPayType(db, user.company_id, payType)) {
+    return { ok: false, message: "收款类型不在当前字典中" };
+  }
+  if (payType === "refund") {
+    return { ok: false, message: "退款请使用退款登记" };
+  }
   const paid = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s FROM payments WHERE deal_id = ? AND status = 'confirmed'`
@@ -419,7 +431,7 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
     deal.store_id,
     deal.id,
     amount,
-    payload.pay_type || "commission",
+    payType,
     method,
     payload.paid_at || nowIso(),
     payload.payer_side || "customer",
@@ -441,6 +453,7 @@ export function createPayment(db: Db, user: SessionUser, payload: any): ApiResul
     },
   };
 }
+
 
 export function confirmPayment(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
@@ -553,14 +566,20 @@ export function listPayments(db: Db, user: SessionUser, q: any = {}): ApiResult 
     const method = normalizePaymentMethod(q.method);
     rows = rows.filter((p) => normalizePaymentMethod(p.method) === method);
   }
+  if (q.pay_type) {
+    const payType = normalizePayType(q.pay_type);
+    rows = rows.filter((p) => normalizePayType(p.pay_type) === payType);
+  }
   return {
     ok: true,
     data: rows.map((row) => ({
       ...row,
       method_label: labelPaymentMethod(db, user.company_id, row.method),
+      pay_type_label: labelPayType(db, user.company_id, row.pay_type),
     })),
   };
 }
+
 
 export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canRegisterPayment(user)) return { ok: false, message: "无权限", code: 403 };
@@ -574,6 +593,11 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
   if (!isAllowedPaymentMethod(db, user.company_id, method)) {
     return { ok: false, message: "收款方式不在当前字典中" };
   }
+  const payType = normalizePayType(payload.pay_type ?? "refund", "refund");
+  if (payType !== "refund") return { ok: false, message: "退款类型须为 refund" };
+  if (!isAllowedPayType(db, user.company_id, payType)) {
+    return { ok: false, message: "收款类型不在当前字典中" };
+  }
   const paid = db
     .prepare(
       `SELECT COALESCE(SUM(CASE WHEN direction='out' THEN -amount ELSE amount END),0) AS s
@@ -585,13 +609,14 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
   db.prepare(
     `INSERT INTO payments(id, company_id, store_id, deal_id, amount, pay_type, method,
      paid_at, payer_side, status, remark, created_by, created_at, direction, confirmation_status)
-     VALUES (?, ?, ?, ?, ?, 'refund', ?, ?, ?, 'confirmed', ?, ?, ?, 'out', 'confirmed')`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, 'out', 'confirmed')`
   ).run(
     id,
     user.company_id,
     deal.store_id,
     deal.id,
     amount,
+    payType,
     method,
     payload.paid_at || nowIso(),
     payload.payer_side || "customer",
@@ -602,6 +627,7 @@ export function createRefund(db: Db, user: SessionUser, payload: any): ApiResult
   writeAudit(db, user, "payment.refund", "payment", id, { deal_id: deal.id, amount });
   return { ok: true, data: { id } };
 }
+
 
 export function listCommissions(db: Db, user: SessionUser): ApiResult {
   const scope = canSeeCommissions(user);
