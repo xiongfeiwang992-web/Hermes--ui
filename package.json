@@ -242,7 +242,8 @@
     "smoke:recruitment-job-close-notify": "tsx scripts/recruitment-job-close-notify-smoke.ts",
     "smoke:recruitment-job-create-notify": "tsx scripts/recruitment-job-create-notify-smoke.ts",
     "smoke:recruitment-job-update-notify": "tsx scripts/recruitment-job-update-notify-smoke.ts",
-    "smoke:recruitment-onboard-notify": "tsx scripts/recruitment-onboard-notify-smoke.ts"
+    "smoke:recruitment-onboard-notify": "tsx scripts/recruitment-onboard-notify-smoke.ts",
+    "smoke:rename-create-notify": "tsx scripts/rename-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
