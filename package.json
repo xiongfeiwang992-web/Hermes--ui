@@ -121,7 +121,8 @@
     "smoke:auction-create-notify": "tsx scripts/auction-create-notify-smoke.ts",
     "smoke:auction-update-notify": "tsx scripts/auction-update-notify-smoke.ts",
     "smoke:backup-create-notify": "tsx scripts/backup-create-notify-smoke.ts",
-    "smoke:blacklist-create-notify": "tsx scripts/blacklist-create-notify-smoke.ts"
+    "smoke:blacklist-create-notify": "tsx scripts/blacklist-create-notify-smoke.ts",
+    "smoke:bonus-calculated-notify": "tsx scripts/bonus-calculated-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
