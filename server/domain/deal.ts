@@ -196,7 +196,6 @@ export function createDeal(db: Db, user: SessionUser, payload: any): ApiResult {
   return getDeal(db, user, id);
 }
 
-
 export function updateDeal(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!canWriteListing(user)) return { ok: false, message: "无权限", code: 403 };
   if (!payload?.id) return { ok: false, message: "缺少成交单编号" };
@@ -1008,7 +1007,7 @@ export function markCommissionPaid(
     deal_id: current.deal_id,
     amount: current.amount,
   });
-  createMessage(db, {
+  if (current.user_id && current.user_id !== user.id) createMessage(db, {
     company_id: user.company_id,
     store_id: current.store_id,
     user_id: current.user_id,
