@@ -97,7 +97,8 @@
     "smoke:house-orientation-decoration": "tsx scripts/house-orientation-decoration-smoke.ts",
     "smoke:house-rooms-floor": "tsx scripts/house-rooms-floor-smoke.ts",
     "smoke:house-suspend-reason": "tsx scripts/house-suspend-reason-smoke.ts",
-    "smoke:house-withdraw-reason": "tsx scripts/house-withdraw-reason-smoke.ts"
+    "smoke:house-withdraw-reason": "tsx scripts/house-withdraw-reason-smoke.ts",
+    "smoke:houses-page-export": "tsx scripts/houses-page-export-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
