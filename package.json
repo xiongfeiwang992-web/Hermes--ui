@@ -160,7 +160,8 @@
     "smoke:distribution-status-notify": "tsx scripts/distribution-status-notify-smoke.ts",
     "smoke:dividend-calculated-notify": "tsx scripts/dividend-calculated-notify-smoke.ts",
     "smoke:document-create-notify": "tsx scripts/document-create-notify-smoke.ts",
-    "smoke:document-update-notify": "tsx scripts/document-update-notify-smoke.ts"
+    "smoke:document-update-notify": "tsx scripts/document-update-notify-smoke.ts",
+    "smoke:earnest-create-notify": "tsx scripts/earnest-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
