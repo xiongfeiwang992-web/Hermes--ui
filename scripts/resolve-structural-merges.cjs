@@ -23,9 +23,24 @@ function textMerge(base, ours, theirs) {
   fs.writeFileSync(path.join(scratch, 'ours'), ours);
   fs.writeFileSync(path.join(scratch, 'theirs'), theirs);
   const result = cp.spawnSync('git', ['merge-file', '-p', '--diff3', '-L', 'ours', '-L', 'base', '-L', 'theirs', path.join(scratch, 'ours'), path.join(scratch, 'base'), path.join(scratch, 'theirs')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  if (result.status > 0) conflicts++;
   if (result.status < 0 || result.status === null) throw new Error(result.stderr || 'merge-file failed');
-  return result.stdout;
+  const output = result.stdout.replace(/^<<<<<<< ours\n([\s\S]*?)^\|\|\|\|\|\|\| base\n([\s\S]*?)^=======\n([\s\S]*?)^>>>>>>> theirs\n/gm, (whole, left, ancestor, right) => {
+    const field = /^([ \t]*<label>字典类型<input name="dict_type" placeholder=")([^"\n]+)(" required \/><\/label>)\s*$/;
+    const a = left.match(field), b = right.match(field);
+    if (a && b && a[1] === b[1] && a[3] === b[3]) {
+      return a[1] + [...new Set([...a[2].split(' / '), ...b[2].split(' / ')])].join(' / ') + a[3] + '\n';
+    }
+    if (!ancestor.trim()) {
+      const l = parse(left), r = parse(right);
+      if (!l.parseDiagnostics.length && !r.parseDiagnostics.length && l.statements.length === 1 && r.statements.length === 1 && ts.isIfStatement(l.statements[0]) && ts.isIfStatement(r.statements[0])) {
+        const x = l.statements[0].expression.getText(), y = r.statements[0].expression.getText();
+        if (x === '!' + y || y === '!' + x) return left + right;
+      }
+    }
+    return whole;
+  });
+  if (/^<<<<<<< ours$/m.test(output)) conflicts++;
+  return output;
 }
 
 function mergeImport(base, ours, theirs) {

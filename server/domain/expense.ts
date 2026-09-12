@@ -1,17 +1,13 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import {
+  isAllowedExpenseCategory,
+  labelExpenseCategory,
+  normalizeExpenseCategory,
+} from "./config";
 import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
-
-const CATEGORIES = new Set([
-  "transport",
-  "travel",
-  "office",
-  "marketing",
-  "hospitality",
-  "other",
-]);
 
 function visible(user: SessionUser, row: any): boolean {
   if (user.role === "admin" || user.role === "finance") return true;
@@ -26,9 +22,12 @@ function getRequest(db: Db, user: SessionUser, id: string): any | null {
   return row && visible(user, row) ? row : null;
 }
 
-function validateInput(payload: any): string | null {
+function validateInput(db: Db, user: SessionUser, payload: any): string | null {
   if (!String(payload.title || "").trim()) return "报销事由必填";
-  if (!CATEGORIES.has(payload.category)) return "费用类别无效";
+  const category = normalizeExpenseCategory(payload.category);
+  if (!category || !isAllowedExpenseCategory(db, user.company_id, category)) {
+    return "费用类别无效";
+  }
   if (!Number.isFinite(Number(payload.amount)) || Number(payload.amount) <= 0)
     return "报销金额须大于 0";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(payload.expense_date || "")))
@@ -56,15 +55,25 @@ export function listExpenses(db: Db, user: SessionUser, payload: any = {}): ApiR
     .all(user.company_id) as any[];
   rows = rows.filter((row) => visible(user, row));
   if (payload.status) rows = rows.filter((row) => row.status === payload.status);
-  if (payload.category) rows = rows.filter((row) => row.category === payload.category);
+  if (payload.category) {
+    const category = normalizeExpenseCategory(payload.category);
+    rows = rows.filter((row) => normalizeExpenseCategory(row.category) === category);
+  }
   if (payload.applicant_user_id)
     rows = rows.filter((row) => row.applicant_user_id === payload.applicant_user_id);
-  return { ok: true, data: rows };
+  return {
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      category_label: labelExpenseCategory(db, user.company_id, row.category),
+    })),
+  };
 }
 
 export function createExpense(db: Db, user: SessionUser, payload: any): ApiResult {
-  const error = validateInput(payload);
+  const error = validateInput(db, user, payload);
   if (error) return { ok: false, message: error };
+  const category = normalizeExpenseCategory(payload.category);
   const id = nextId("EXP");
   const now = nowIso();
   db.prepare(
@@ -78,7 +87,7 @@ export function createExpense(db: Db, user: SessionUser, payload: any): ApiResul
     user.store_id,
     user.id,
     String(payload.title).trim(),
-    payload.category,
+    category,
     Number(payload.amount),
     payload.expense_date,
     String(payload.description || "").trim() || null,
@@ -87,7 +96,7 @@ export function createExpense(db: Db, user: SessionUser, payload: any): ApiResul
   );
   writeAudit(db, user, "expense.create", "expense_request", id, {
     amount: Number(payload.amount),
-    category: payload.category,
+    category,
   });
   return { ok: true, data: { id, status: "draft" } };
 }
@@ -105,14 +114,15 @@ export function updateExpense(db: Db, user: SessionUser, payload: any): ApiResul
     amount: payload.amount ?? row.amount,
     expense_date: payload.expense_date ?? row.expense_date,
   };
-  const error = validateInput(merged);
+  const error = validateInput(db, user, merged);
   if (error) return { ok: false, message: error };
+  const category = normalizeExpenseCategory(merged.category);
   db.prepare(
     `UPDATE expense_requests SET title=?, category=?, amount=?, expense_date=?,
      description=?, status='draft', reject_reason=NULL, updated_at=? WHERE id=?`
   ).run(
     String(merged.title).trim(),
-    merged.category,
+    category,
     Number(merged.amount),
     merged.expense_date,
     payload.description ?? row.description,
