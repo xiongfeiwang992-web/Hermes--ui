@@ -244,7 +244,12 @@ export function saveTransferTemplate(db: Db, user: SessionUser, payload: any): A
     now
   );
   writeAudit(db, user, "transfer_template.save", "transfer_template", id, payload);
+<<<<<<< HEAD
   if (!current) {
+=======
+  // 同键更新时提醒管理员/店长（首次创建由独立切片推送）
+  if (current) {
+>>>>>>> origin/cursor/transfer-template-update-notify-5bdb
     const recipients = db
       .prepare(
         `SELECT id, store_id FROM users WHERE company_id=? AND status='active'
@@ -258,7 +263,11 @@ export function saveTransferTemplate(db: Db, user: SessionUser, payload: any): A
         company_id: user.company_id,
         store_id: recipient.store_id,
         user_id: recipient.id,
+<<<<<<< HEAD
         title: "过户模板已创建",
+=======
+        title: "过户模板已更新",
+>>>>>>> origin/cursor/transfer-template-update-notify-5bdb
         body,
         kind: "business_record_status",
         ref_type: "transfer_template",
