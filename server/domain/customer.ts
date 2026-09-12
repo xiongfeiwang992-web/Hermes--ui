@@ -537,6 +537,18 @@ export function upsertContact(db: Db, user: SessionUser, payload: any): ApiResul
     );
     if (!result.changes) return { ok: false, message: "联系人不存在" };
     writeAudit(db, user, "customer_contact.update", "customer_contact", payload.id);
+    if (customer.agent_id && customer.agent_id !== user.id) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: customer.store_id,
+        user_id: customer.agent_id,
+        title: "客源联系人已更新",
+        body: `${customer.name} · ${name} · ${phone}`,
+        kind: "customer_contact",
+        ref_type: "customer_contact",
+        ref_id: payload.id,
+      });
+    }
     return { ok: true, data: { id: payload.id } };
   }
   const id = nextId("CON");
@@ -576,6 +588,7 @@ export function upsertContact(db: Db, user: SessionUser, payload: any): ApiResul
   }
   return { ok: true, data: { id } };
 }
+
 
 export function mergeCustomers(db: Db, user: SessionUser, payload: any): ApiResult {
   if (!(user.role === "admin" || user.role === "store_manager")) {
