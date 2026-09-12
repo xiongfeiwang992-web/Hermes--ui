@@ -291,6 +291,22 @@ export function resolveCase(db: Db, user: SessionUser, payload: any): ApiResult 
   ).run(resolution, now, now, row.id);
   addEvent(db, user, "case", row.id, "resolved", { resolution });
   writeAudit(db, user, "customer_care.case.resolve", "customer_care_case", row.id);
+  const recipients = new Set<string>();
+  if (row.created_by) recipients.add(row.created_by);
+  if (row.assignee_user_id) recipients.add(row.assignee_user_id);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: row.store_id,
+      user_id: userId,
+      title: row.case_type === "lawsuit" ? "诉讼案件已解决" : "客户投诉已解决",
+      body: `${row.title} · ${resolution}`,
+      kind: "customer_care",
+      ref_type: "customer_care_case",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "resolved" } };
 }
 
