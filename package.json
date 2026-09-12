@@ -76,7 +76,8 @@
     "smoke:backup-restore": "tsx scripts/backup-restore-smoke.ts",
     "smoke:blacklist-listing": "tsx scripts/blacklist-listing-smoke.ts",
     "smoke:cashbook-payment-methods": "tsx scripts/cashbook-payment-methods-smoke.ts",
-    "smoke:commission-paid": "tsx scripts/commission-paid-smoke.ts"
+    "smoke:commission-paid": "tsx scripts/commission-paid-smoke.ts",
+    "smoke:contract-preview": "tsx scripts/contract-preview-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"

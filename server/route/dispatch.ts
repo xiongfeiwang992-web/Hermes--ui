@@ -863,6 +863,8 @@ case "contract.templates":
       return contract.templates(db, user!);
 case "contract.template.save":
       return contract.saveTemplate(db, user!, payload);
+case "contract.preview":
+      return contract.preview(db, user!, payload);
 case "contract.sign":
       return contract.sign(db, user!, payload);
 case "contract.signoffs":
