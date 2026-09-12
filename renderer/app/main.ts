@@ -274,6 +274,25 @@ async function viewFeedbackSelectHtml(selected = "interested") {
     .join("");
 }
 
+async function houseSuspendReasonSelectHtml(selected = "owner_pause") {
+  const result = await api("config.houseSuspendReasons", {});
+  const reasons = result.ok
+    ? (result.data as Array<{ value: string; label: string }>)
+    : [
+        { value: "owner_pause", label: "业主暂缓出售/出租" },
+        { value: "price_adjust", label: "调价中" },
+        { value: "decoration", label: "装修/整理中" },
+        { value: "key_unavailable", label: "钥匙暂不可看" },
+        { value: "other", label: "其他" },
+      ];
+  return reasons
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`
+    )
+    .join("");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -770,6 +789,7 @@ async function renderHouses(main: HTMLElement) {
           ${h.cooperation_as_partner ? `<span class="tag warn">被合作</span>` : ""}
           <strong>${h.title}</strong></div>
           <div class="meta">${escapeHtml(h.community)}${h.district ? ` · ${escapeHtml(h.district)}` : ""}${h.property_type_label ? ` · ${escapeHtml(h.property_type_label)}` : ""}${h.deal_mode_label && h.deal_mode !== "normal" ? ` · ${escapeHtml(h.deal_mode_label)}` : ""} · ${h.price}${h.price_unit === "wan" ? " 万" : " 元/月"}${h.rooms ? ` · ${escapeHtml(h.rooms)}` : ""}${h.area_size != null ? ` · ${h.area_size}㎡` : ""}${h.floor ? ` · ${escapeHtml(h.floor)}层` : ""}${h.orientation_label ? ` · ${escapeHtml(h.orientation_label)}` : ""}${h.decoration_label ? ` · ${escapeHtml(h.decoration_label)}` : ""} · 接盘 ${escapeHtml(agentName(h.agent_id))} · 业主 ${escapeHtml(h.owner_name)} ${escapeHtml(h.owner_phone)}${h.owner_phone_masked ? "（已脱敏）" : ""}${h.force_follow_required ? " · 须写跟进后查看" : ""}${h.source_label ? ` · 来源 ${escapeHtml(h.source_label)}` : ""}</div>
+          ${h.status === "suspended" && h.suspend_reason_label ? `<div class="meta">暂缓：${escapeHtml(h.suspend_reason_label)}</div>` : ""}
           ${houseRoles.get(h.id)?.ok && (houseRoles.get(h.id) as any).data.length ? `<div class="meta">角色人 ${(houseRoles.get(h.id) as any).data.map((item: any) => `${roleLabels[item.role_type] || item.role_type}：${item.display_name}`).join(" · ")}</div>` : ""}
           ${entrustments.get(h.id)?.ok && (entrustments.get(h.id) as any).data[0] ? `<div class="meta">委托 ${(entrustments.get(h.id) as any).data[0].entrust_type} · ${(entrustments.get(h.id) as any).data[0].status} · 至 ${(entrustments.get(h.id) as any).data[0].end_at.slice(0, 10)}</div>` : ""}
         </div>
@@ -912,6 +932,23 @@ async function renderHouses(main: HTMLElement) {
       btn.addEventListener("click", async () => {
         const id = (btn as HTMLElement).dataset.status!;
         const to = (btn as HTMLElement).dataset.to!;
+        if (to === "suspended") {
+          const reasonOptions = await houseSuspendReasonSelectHtml("owner_pause");
+          openDialog(
+            "暂缓房源",
+            `<label class="full">暂缓原因<select name="reason" required>${reasonOptions}</select></label>`,
+            async (fd) => {
+              const r = await api("house.status", {
+                id,
+                status: "suspended",
+                reason: fd.get("reason"),
+              });
+              toast(r.ok ? "已暂缓" : r.message, r.ok ? "ok" : "error");
+              if (r.ok) draw();
+            }
+          );
+          return;
+        }
         const r = await api("house.status", { id, status: to });
         toast(r.ok ? "状态已更新" : r.message, r.ok ? "ok" : "error");
         if (r.ok) draw();
@@ -8001,7 +8038,7 @@ async function renderSystemCenter(main: HTMLElement) {
       openDialog(
         "新增数据字典项",
         `
-        <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category / house_source / leave_type / pay_type / property_type / view_feedback" required /></label>
+        <label>字典类型<input name="dict_type" placeholder="customer_source / customer_level / follow_method / payment_method / deal_mode / expense_category / house_source / leave_type / pay_type / property_type / view_feedback / house_suspend_reason" required /></label>
         <label>值<input name="value" required /></label>
         <label>显示名称<input name="label" required /></label>
         <label>排序<input name="sort_order" type="number" value="0" /></label>
@@ -8094,6 +8131,7 @@ async function renderSystemCenter(main: HTMLElement) {
     });
   }
 }
+
 
 async function renderMortgageCalc(main: HTMLElement) {
   main.innerHTML = `

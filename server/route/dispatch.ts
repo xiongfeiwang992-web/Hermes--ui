@@ -871,6 +871,8 @@ case "config.propertyTypes":
       return config.listPropertyTypes(db, user!);
 case "config.viewFeedbacks":
       return config.listViewFeedbacks(db, user!);
+case "config.houseSuspendReasons":
+      return config.listHouseSuspendReasons(db, user!);
 case "config.settings.get":
       return config.getSettings(db, user!);
 case "config.settings.save":

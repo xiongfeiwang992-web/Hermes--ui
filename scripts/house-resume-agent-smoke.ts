@@ -45,7 +45,8 @@ const houseId = data<any>(house).id;
 assert(data<any>(house).agent_id === agentAId, "creator is holder");
 
 assert(
-  app.call("house.status", { id: houseId, status: "suspended" }, agentA).ok,
+  app.call("house.status", { id: houseId, status: "suspended", reason: "owner_pause" }, agentA)
+    .ok,
   "agent suspends house"
 );
 assert(
@@ -66,7 +67,8 @@ assert(
   "agent can resume without holder change"
 );
 assert(
-  app.call("house.status", { id: houseId, status: "suspended" }, manager).ok,
+  app.call("house.status", { id: houseId, status: "suspended", reason: "price_adjust" }, manager)
+    .ok,
   "manager suspends again"
 );
 
