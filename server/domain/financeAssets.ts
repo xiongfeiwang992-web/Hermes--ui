@@ -171,6 +171,22 @@ export function saveAsset(db: Db, user: SessionUser, payload: any): ApiResult {
     }
     addEvent(db, user, "asset", row.id, "updated", { code, name });
     writeAudit(db, user, "finance.asset.update", "finance_asset", row.id);
+    const recipients = new Set<string>();
+    if (custodianId) recipients.add(custodianId);
+    if (row.custodian_user_id) recipients.add(row.custodian_user_id);
+    recipients.delete(user.id);
+    for (const userId of recipients) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: store.id,
+        user_id: userId,
+        title: "固定资产已更新",
+        body: `${code} · ${name}`,
+        kind: "business_record_status",
+        ref_type: "finance_asset",
+        ref_id: row.id,
+      });
+    }
     return { ok: true, data: { id: row.id } };
   }
   const id = nextId("FAS");
