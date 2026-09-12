@@ -68,6 +68,25 @@ export function upsertProject(db: Db, user: SessionUser, payload: any): ApiResul
       project.id
     );
     writeAudit(db, user, "newhome.project.update", "newhome_project", project.id);
+    const managers = db
+      .prepare(
+        `SELECT id FROM users WHERE company_id=? AND status='active'
+         AND (role='admin' OR (role='store_manager' AND store_id=?))`
+      )
+      .all(user.company_id, project.store_id) as any[];
+    for (const manager of managers) {
+      if (manager.id === user.id) continue;
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: project.store_id,
+        user_id: manager.id,
+        title: "新房项目已更新",
+        body: `${name} · ${address}`,
+        kind: "newhome_project",
+        ref_type: "newhome_project",
+        ref_id: project.id,
+      });
+    }
     return { ok: true, data: { id: project.id } };
   }
   const id = nextId("NHP");

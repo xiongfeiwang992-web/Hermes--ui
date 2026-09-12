@@ -219,7 +219,8 @@
     "smoke:mortgage-create-notify": "tsx scripts/mortgage-create-notify-smoke.ts",
     "smoke:mortgage-update-notify": "tsx scripts/mortgage-update-notify-smoke.ts",
     "smoke:newhome-arrival-notify": "tsx scripts/newhome-arrival-notify-smoke.ts",
-    "smoke:newhome-project-create-notify": "tsx scripts/newhome-project-create-notify-smoke.ts"
+    "smoke:newhome-project-create-notify": "tsx scripts/newhome-project-create-notify-smoke.ts",
+    "smoke:newhome-project-update-notify": "tsx scripts/newhome-project-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
