@@ -1,5 +1,6 @@
 import type { Db } from "../db/database";
 import { writeAudit } from "./audit";
+import { createMessage } from "./message";
 import { nextId, nowIso } from "../utils/id";
 import type { ApiResult, SessionUser } from "../utils/types";
 
@@ -204,6 +205,18 @@ export function saveAsset(db: Db, user: SessionUser, payload: any): ApiResult {
   }
   addEvent(db, user, "asset", id, "created", { code, name });
   writeAudit(db, user, "finance.asset.create", "finance_asset", id);
+  if (custodianId && custodianId !== user.id) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: store.id,
+      user_id: custodianId,
+      title: "固定资产已登记",
+      body: `${code} · ${name}`,
+      kind: "business_record_status",
+      ref_type: "finance_asset",
+      ref_id: id,
+    });
+  }
   return { ok: true, data: { id, status: "in_use" } };
 }
 
