@@ -152,7 +152,8 @@
     "smoke:deal-create-notify": "tsx scripts/deal-create-notify-smoke.ts",
     "smoke:deal-doc-template-notify": "tsx scripts/deal-doc-template-notify-smoke.ts",
     "smoke:deal-doc-template-update-notify": "tsx scripts/deal-doc-template-update-notify-smoke.ts",
-    "smoke:deal-refund-notify": "tsx scripts/deal-refund-notify-smoke.ts"
+    "smoke:deal-refund-notify": "tsx scripts/deal-refund-notify-smoke.ts",
+    "smoke:deal-rename-cancel-notify": "tsx scripts/deal-rename-cancel-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
