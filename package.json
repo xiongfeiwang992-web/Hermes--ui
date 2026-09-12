@@ -248,7 +248,8 @@
     "smoke:rental-bill-void-notify": "tsx scripts/rental-bill-void-notify-smoke.ts",
     "smoke:rental-lease-create-notify": "tsx scripts/rental-lease-create-notify-smoke.ts",
     "smoke:rental-lease-terminate-notify": "tsx scripts/rental-lease-terminate-notify-smoke.ts",
-    "smoke:rental-property-create-notify": "tsx scripts/rental-property-create-notify-smoke.ts"
+    "smoke:rental-property-create-notify": "tsx scripts/rental-property-create-notify-smoke.ts",
+    "smoke:rental-terminate-notify": "tsx scripts/rental-terminate-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
