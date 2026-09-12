@@ -232,7 +232,8 @@
     "smoke:online-entrust-reject-notify": "tsx scripts/online-entrust-reject-notify-smoke.ts",
     "smoke:payment-create-notify": "tsx scripts/payment-create-notify-smoke.ts",
     "smoke:payroll-adjust-notify": "tsx scripts/payroll-adjust-notify-smoke.ts",
-    "smoke:payroll-batch-create-notify": "tsx scripts/payroll-batch-create-notify-smoke.ts"
+    "smoke:payroll-batch-create-notify": "tsx scripts/payroll-batch-create-notify-smoke.ts",
+    "smoke:payroll-calculate-notify": "tsx scripts/payroll-calculate-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
