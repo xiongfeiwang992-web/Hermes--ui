@@ -110,7 +110,8 @@
     "smoke:view-accompany": "tsx scripts/view-accompany-smoke.ts",
     "smoke:view-deal-prefill": "tsx scripts/view-deal-prefill-smoke.ts",
     "smoke:view-export": "tsx scripts/view-export-smoke.ts",
-    "smoke:view-list-filters": "tsx scripts/view-list-filters-smoke.ts"
+    "smoke:view-list-filters": "tsx scripts/view-list-filters-smoke.ts",
+    "smoke:attachment-add-notify": "tsx scripts/attachment-add-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
