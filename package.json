@@ -136,7 +136,8 @@
     "smoke:cashbook-void-notify": "tsx scripts/cashbook-void-notify-smoke.ts",
     "smoke:circle-create-notify": "tsx scripts/circle-create-notify-smoke.ts",
     "smoke:circle-hide-notify": "tsx scripts/circle-hide-notify-smoke.ts",
-    "smoke:commission-paid-notify": "tsx scripts/commission-paid-notify-smoke.ts"
+    "smoke:commission-paid-notify": "tsx scripts/commission-paid-notify-smoke.ts",
+    "smoke:commission-tier-create-notify": "tsx scripts/commission-tier-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
