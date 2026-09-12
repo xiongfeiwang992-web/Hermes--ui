@@ -1466,9 +1466,10 @@ async function renderCustomers(main: HTMLElement) {
       viewing: "带看中",
       deal_pending: "成交中",
       closed: "已成交",
-      invalid: "无效",
+      invalid: "已作废",
       public_pool: "公客池",
-    }[status] || status);
+      suspended: "暂缓",
+    } as Record<string, string>)[status] || status;
   const agentFilterOpts = agentUsers
     .map((user) => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`)
     .join("");
@@ -1476,6 +1477,7 @@ async function renderCustomers(main: HTMLElement) {
     <div class="header"><h2>客源</h2><div class="ops">
       ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-run-pool>执行掉公</button>` : ""}
       ${state.user.role === "admin" ? `<button class="btn ghost" data-pool-settings>掉公设置</button>` : ""}
+      ${state.user.role === "admin" ? `<button class="btn ghost" data-void-keywords>作废关键字</button>` : ""}
       <button class="btn" data-new>新建客源</button>
     </div></div>
     <div class="filters">
@@ -1520,7 +1522,7 @@ async function renderCustomers(main: HTMLElement) {
         <span class="tag">${c.intent === "buy" ? "求购" : "求租"}</span>
         <span class="tag ${c.status === "suspended" ? "warn" : ""}">${c.status === "suspended" ? "暂缓" : escapeHtml(c.level_label || c.level)}</span>
         <strong>${c.name}</strong> ${c.phone}${c.phone_masked ? "（已脱敏）" : ""}${c.force_follow_required ? " · 须写跟进后查看" : ""}</div>
-        <div class="meta">${c.need || "无需求备注"} · ${formatBudget(c)} · 状态 ${customerStatusLabel(c.status)} · 维护 ${escapeHtml(agentName(c.agent_id))}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
+        <div class="meta">${c.need || "无需求备注"} · ${formatBudget(c)} · 状态 ${customerStatusLabel(c.status)} · 维护 ${escapeHtml(agentName(c.agent_id))}${c.invalid_reason ? ` · ${escapeHtml(c.invalid_reason)}` : ""}${c.source_label ? ` · 来源 ${escapeHtml(c.source_label)}` : ""}</div>
       </div>
       <div class="ops">
         ${c.force_follow_required ? `<button class="btn" data-reveal-customer="${c.id}">写跟进看电话</button>` : ""}
@@ -1529,7 +1531,8 @@ async function renderCustomers(main: HTMLElement) {
         ${["admin", "store_manager"].includes(state.user.role) ? `<button class="btn ghost" data-merge="${c.id}">合并</button>` : ""}
         ${c.visibility === "private" && !["closed", "invalid", "deal_pending", "suspended"].includes(c.status) ? `<button class="btn ghost" data-suspend="${c.id}">暂缓</button>` : ""}
         ${c.status === "suspended" ? `<button class="btn" data-resume="${c.id}">恢复跟进</button>` : ""}
-        ${c.visibility === "private" ? `<button class="btn ghost" data-public="${c.id}">转公客</button>` : `<button class="btn" data-claim="${c.id}">认领</button>`}
+        ${!["invalid", "closed"].includes(c.status) && (state.user.role !== "agent" || c.agent_id === state.user.id) ? `<button class="btn danger" data-invalidate="${c.id}">作废</button>` : ""}
+        ${c.visibility === "private" && c.status !== "invalid" ? `<button class="btn ghost" data-public="${c.id}">转公客</button>` : c.visibility === "public" && c.status !== "invalid" ? `<button class="btn" data-claim="${c.id}">认领</button>` : ""}
       </div></div>`
       )
       .join("");
@@ -1677,6 +1680,18 @@ async function renderCustomers(main: HTMLElement) {
         if (r.ok) draw();
       })
     );
+    list.querySelectorAll("[data-invalidate]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const reason = prompt("作废原因（必填）");
+        if (reason == null) return;
+        const r = await api("customer.invalidate", {
+          id: (btn as HTMLElement).dataset.invalidate,
+          reason,
+        });
+        toast(r.ok ? "客源已作废" : r.message, r.ok ? "ok" : "error");
+        if (r.ok) draw();
+      })
+    );
   };
   main.querySelector("[data-new]")!.addEventListener("click", async () => {
     const sourceOptions = await customerSourceSelectHtml("");
@@ -1737,6 +1752,40 @@ async function renderCustomers(main: HTMLElement) {
             : "自动掉公已关闭"
           : result.message,
         result.ok ? "ok" : "error"
+      );
+    });
+  }
+  const voidKeywords = main.querySelector("[data-void-keywords]");
+  if (voidKeywords) {
+    voidKeywords.addEventListener("click", async () => {
+      const current = await api("customer.voidKeywords.settings");
+      if (!current.ok) return toast(current.message, "error");
+      const data = current.data as any;
+      openDialog(
+        "跟进关键字自动作废",
+        `
+        <label class="full">关键字（逗号分隔）<input name="keywords" value="${escapeHtml(
+          (data.keywords || []).join("，")
+        )}" placeholder="如：勿扰，骗子，无效" /></label>
+        <label>触发次数<input name="hit_count" type="number" min="0" max="20" value="${Number(
+          data.hit_count || 0
+        )}" /></label>
+        <p class="meta">普通跟进内容累计命中关键字达到次数后自动作废；次数 0 表示关闭。</p>
+        `,
+        async (fd) => {
+          const result = await api("customer.voidKeywords.update", {
+            keywords: String(fd.get("keywords") || ""),
+            hit_count: Number(fd.get("hit_count")),
+          });
+          toast(
+            result.ok
+              ? (result.data as any).enabled
+                ? `已启用：命中 ${(result.data as any).hit_count} 次自动作废`
+                : "关键字自动作废已关闭"
+              : result.message,
+            result.ok ? "ok" : "error"
+          );
+        }
       );
     });
   }
@@ -1824,7 +1873,13 @@ async function renderFollows(main: HTMLElement) {
           content: fd.get("content"),
           next_follow_at: next ? new Date(next).toISOString() : null,
         });
-        toast(res.ok ? "跟进已保存" : res.message, res.ok ? "ok" : "error");
+        if (!res.ok) return toast(res.message, "error");
+        toast(
+          (res.data as any)?.auto_voided
+            ? `跟进已保存，客源已自动作废：${(res.data as any).auto_void_reason || ""}`
+            : "跟进已保存",
+          (res.data as any)?.auto_voided ? "warn" : "ok"
+        );
         if (res.ok) draw();
       }
     );
