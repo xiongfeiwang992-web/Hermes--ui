@@ -215,6 +215,8 @@ case "view.cancel":
       return activity.cancelView(db, user!, payload);
 case "deal.create":
       return deal.createDeal(db, user!, payload);
+case "deal.update":
+      return deal.updateDeal(db, user!, payload);
 case "deal.list":
       return deal.listDeals(db, user!, payload);
 case "deal.get":

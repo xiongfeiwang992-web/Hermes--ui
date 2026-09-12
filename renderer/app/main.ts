@@ -2073,6 +2073,7 @@ async function renderDeals(main: HTMLElement) {
       </div>
       <div class="ops">
         <button class="btn ghost" data-detail="${d.id}">收付详情</button>
+        ${["draft", "rejected"].includes(d.status) ? `<button class="btn ghost" data-edit-deal="${d.id}">编辑</button>` : ""}
         ${desktopShell ? `<button class="btn ghost" data-files="${d.id}">附件</button>` : ""}
         <button class="btn ghost" data-mortgage="${d.id}">按揭</button>
         <button class="btn ghost" data-preview-contract="${d.id}">合同预览</button>
@@ -2145,6 +2146,58 @@ async function renderDeals(main: HTMLElement) {
           `成交收付 · ${dealId}`,
           `<div class="meta">应收 ¥${money(d.receivable_amount ?? d.commission_total)} · 已收 ¥${money(d.paid_amount)} · 未收 ¥${money(d.unpaid_amount)} · 待确认 ¥${money(d.pending_amount || 0)}${d.overpaid ? " · 已超收" : ""}</div>
            <div class="list" style="margin-top:12px">${paymentHtml}</div>`
+        );
+      })
+    );
+    list.querySelectorAll("[data-edit-deal]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const dealId = (btn as HTMLElement).dataset.editDeal!;
+        const got = await api("deal.get", { id: dealId });
+        if (!got.ok) return toast(got.message, "error");
+        const d = got.data as any;
+        const houseOpts = ((houses.data as any[]) || [])
+          .map(
+            (h) =>
+              `<option value="${h.id}" ${h.id === d.house_id ? "selected" : ""}>${escapeHtml(h.title)}</option>`
+          )
+          .join("");
+        const cusOpts = ((customers.data as any[]) || [])
+          .map(
+            (c) =>
+              `<option value="${c.id}" ${c.id === d.customer_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`
+          )
+          .join("");
+        openDialog(
+          "编辑成交单",
+          `
+          <label>房源<select name="house_id">${houseOpts}</select></label>
+          <label>客源<select name="customer_id">${cusOpts}</select></label>
+          <label>成交价<input name="contract_price" type="number" step="0.01" value="${d.contract_price ?? ""}" required /></label>
+          <label>业主佣(元)<input name="commission_owner" type="number" step="0.01" value="${d.commission_owner ?? 0}" /></label>
+          <label>客户佣(元)<input name="commission_customer" type="number" step="0.01" value="${d.commission_customer ?? 0}" /></label>
+          <label>成交日<input name="deal_date" type="date" value="${escapeHtml(String(d.deal_date || "").slice(0, 10))}" /></label>
+          <label>贷款金额<input name="loan_amount" type="number" step="0.01" value="${d.loan_amount ?? ""}" /></label>
+          <label>贷款银行<input name="loan_bank" value="${escapeHtml(d.loan_bank || "")}" /></label>
+          <label class="full">备注<input name="remark" value="${escapeHtml(d.remark || "")}" /></label>
+          `,
+          async (fd) => {
+            const res = await api("deal.update", {
+              id: dealId,
+              house_id: fd.get("house_id"),
+              customer_id: fd.get("customer_id"),
+              contract_price: Number(fd.get("contract_price")),
+              commission_owner: Number(fd.get("commission_owner") || 0),
+              commission_customer: Number(fd.get("commission_customer") || 0),
+              deal_date: fd.get("deal_date"),
+              loan_amount: fd.get("loan_amount") ? Number(fd.get("loan_amount")) : null,
+              loan_bank: fd.get("loan_bank"),
+              remark: fd.get("remark"),
+              agent_ids: d.agent_ids?.length ? d.agent_ids : [state.user.id],
+              split_ratios: d.split_ratios || { [state.user.id]: 100 },
+            });
+            toast(res.ok ? "成交单已更新" : res.message, res.ok ? "ok" : "error");
+            if (res.ok) draw();
+          }
         );
       })
     );
