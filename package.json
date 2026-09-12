@@ -199,7 +199,8 @@
     "smoke:house-role-assign-notify": "tsx scripts/house-role-assign-notify-smoke.ts",
     "smoke:house-role-remove-notify": "tsx scripts/house-role-remove-notify-smoke.ts",
     "smoke:house-status-notify": "tsx scripts/house-status-notify-smoke.ts",
-    "smoke:house-update-notify": "tsx scripts/house-update-notify-smoke.ts"
+    "smoke:house-update-notify": "tsx scripts/house-update-notify-smoke.ts",
+    "smoke:house-verification-review-notify": "tsx scripts/house-verification-review-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
