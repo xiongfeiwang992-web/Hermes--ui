@@ -8,6 +8,105 @@ function canManage(user: SessionUser, storeId: string): boolean {
   return user.role === "admin" || (user.role === "store_manager" && user.store_id === storeId);
 }
 
+function pendingDealsForUser(db: Db, companyId: string, userId: string) {
+  const rows = db
+    .prepare(
+      `SELECT id, status, store_id, house_id, customer_id, created_by, agent_ids, split_ratios,
+              commission_total, deal_date
+       FROM deals
+       WHERE company_id=? AND status IN ('draft','pending_approval','rejected')
+       ORDER BY updated_at DESC`
+    )
+    .all(companyId) as any[];
+  return rows.filter((row) => {
+    if (row.created_by === userId) return true;
+    const agents = JSON.parse(row.agent_ids || "[]") as string[];
+    return agents.includes(userId);
+  });
+}
+
+function storeManagers(db: Db, companyId: string, storeId: string) {
+  return db
+    .prepare(
+      `SELECT id, display_name FROM users
+       WHERE company_id=? AND store_id=? AND role='store_manager' AND status='active'`
+    )
+    .all(companyId, storeId) as Array<{ id: string; display_name: string }>;
+}
+
+function notifyDealEscalate(
+  db: Db,
+  params: {
+    companyId: string;
+    storeId: string;
+    employeeName: string;
+    targetName: string;
+    deals: any[];
+    taskId: string;
+    phase: "start" | "execute";
+  }
+) {
+  if (!params.deals.length) return;
+  const managers = storeManagers(db, params.companyId, params.storeId);
+  const dealSummary = params.deals
+    .slice(0, 5)
+    .map((deal) => `${deal.id}(${deal.status})`)
+    .join("、");
+  const more =
+    params.deals.length > 5 ? ` 等 ${params.deals.length} 单` : ` 共 ${params.deals.length} 单`;
+  const title =
+    params.phase === "start" ? "离职员工有待办成交单" : "离职成交单已转交接收人";
+  const body =
+    params.phase === "start"
+      ? `${params.employeeName} 离职交接启动，待办成交：${dealSummary}${more}，请上级关注`
+      : `${params.employeeName} 的待办成交已转给 ${params.targetName}：${dealSummary}${more}`;
+  for (const manager of managers) {
+    createMessage(db, {
+      company_id: params.companyId,
+      store_id: params.storeId,
+      user_id: manager.id,
+      title,
+      body,
+      kind: "offboarding_deal",
+      ref_type: "offboarding_task",
+      ref_id: params.taskId,
+    });
+  }
+}
+
+function transferPendingDeals(
+  db: Db,
+  companyId: string,
+  fromUserId: string,
+  toUserId: string
+): number {
+  const deals = pendingDealsForUser(db, companyId, fromUserId);
+  const now = nowIso();
+  for (const deal of deals) {
+    const agents = JSON.parse(deal.agent_ids || "[]") as string[];
+    const nextAgents = [...new Set(agents.map((id) => (id === fromUserId ? toUserId : id)))];
+    if (!nextAgents.includes(toUserId)) nextAgents.push(toUserId);
+
+    let nextSplits = deal.split_ratios;
+    try {
+      const ratios = JSON.parse(deal.split_ratios || "{}") as Record<string, number>;
+      if (Object.prototype.hasOwnProperty.call(ratios, fromUserId)) {
+        ratios[toUserId] = (ratios[toUserId] || 0) + ratios[fromUserId];
+        delete ratios[fromUserId];
+        nextSplits = JSON.stringify(ratios);
+      }
+    } catch {
+      /* keep original */
+    }
+
+    const nextCreatedBy = deal.created_by === fromUserId ? toUserId : deal.created_by;
+    db.prepare(
+      `UPDATE deals SET agent_ids=?, split_ratios=?, created_by=?, updated_at=? WHERE id=? AND company_id=?`
+    ).run(JSON.stringify(nextAgents), nextSplits, nextCreatedBy, now, deal.id, companyId);
+  }
+  return deals.length;
+}
+
 function assets(db: Db, companyId: string, userId: string) {
   const houses = db
     .prepare(
@@ -34,7 +133,13 @@ function assets(db: Db, companyId: string, userId: string) {
        WHERE r.company_id=? AND r.user_id=? ORDER BY r.role_type`
     )
     .all(companyId, userId) as any[];
-  return { houses, customers, keys, roles };
+  const deals = pendingDealsForUser(db, companyId, userId).map((deal) => ({
+    id: deal.id,
+    status: deal.status,
+    commission_total: deal.commission_total,
+    deal_date: deal.deal_date,
+  }));
+  return { houses, customers, keys, roles, deals };
 }
 
 export function previewOffboarding(db: Db, user: SessionUser, payload: any): ApiResult {
@@ -137,9 +242,19 @@ export function startOffboarding(db: Db, user: SessionUser, payload: any): ApiRe
     ref_type: "offboarding_task",
     ref_id: id,
   });
+  notifyDealEscalate(db, {
+    companyId: user.company_id,
+    storeId: employee.store_id,
+    employeeName: employee.display_name,
+    targetName: target.display_name,
+    deals: snapshot.deals,
+    taskId: id,
+    phase: "start",
+  });
   writeAudit(db, user, "offboarding.start", "offboarding_task", id, {
     user_id: employee.id,
     target_user_id: target.id,
+    deals: snapshot.deals.length,
   });
   return { ok: true, data: { id, snapshot } };
 }
@@ -159,7 +274,9 @@ export function executeOffboarding(db: Db, user: SessionUser, payload: any): Api
     return { ok: false, message: "接收人已失效" };
   const snapshot = assets(db, user.company_id, employee.id);
   const now = nowIso();
+  let dealCount = 0;
   const transaction = db.transaction(() => {
+    dealCount = transferPendingDeals(db, user.company_id, employee.id, target.id);
     db.prepare(
       `UPDATE houses SET agent_id=?, locked_by=CASE WHEN locked_by=? THEN ? ELSE locked_by END,
        updated_at=? WHERE company_id=? AND agent_id=? AND status NOT IN ('closed','withdrawn')`
@@ -244,10 +361,19 @@ export function executeOffboarding(db: Db, user: SessionUser, payload: any): Api
     store_id: task.store_id,
     user_id: target.id,
     title: "离职交接已完成",
-    body: `已接收房源 ${snapshot.houses.length}、客源 ${snapshot.customers.length}、钥匙 ${snapshot.keys.length}`,
+    body: `已接收房源 ${snapshot.houses.length}、客源 ${snapshot.customers.length}、钥匙 ${snapshot.keys.length}、待办成交 ${dealCount}`,
     kind: "offboarding",
     ref_type: "offboarding_task",
     ref_id: task.id,
+  });
+  notifyDealEscalate(db, {
+    companyId: user.company_id,
+    storeId: task.store_id,
+    employeeName: employee.display_name,
+    targetName: target.display_name,
+    deals: snapshot.deals,
+    taskId: task.id,
+    phase: "execute",
   });
   writeAudit(db, user, "offboarding.execute", "offboarding_task", task.id, {
     user_id: employee.id,
@@ -256,6 +382,7 @@ export function executeOffboarding(db: Db, user: SessionUser, payload: any): Api
     customers: snapshot.customers.length,
     keys: snapshot.keys.length,
     roles: snapshot.roles.length,
+    deals: dealCount,
   });
   return {
     ok: true,
@@ -265,6 +392,7 @@ export function executeOffboarding(db: Db, user: SessionUser, payload: any): Api
       customers: snapshot.customers.length,
       keys: snapshot.keys.length,
       roles: snapshot.roles.length,
+      deals: dealCount,
     },
   };
 }

@@ -98,6 +98,7 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
       "payroll",
       "employee_transfer",
       "offboarding",
+      "offboarding_deal",
     ],
   },
   {
