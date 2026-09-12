@@ -427,6 +427,18 @@ export function saveAuction(db: Db, user: SessionUser, payload: any): ApiResult 
     );
     addEvent(db, user, "auction", house.id, "updated");
     writeAudit(db, user, "propertyExt.auction.update", "house_auction_profile", house.id);
+    if (house.agent_id && house.agent_id !== user.id) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: house.store_id,
+        user_id: house.agent_id,
+        title: "拍卖资料已更新",
+        body: `${house.title} · 起拍价 ${startingPrice}`,
+        kind: "business_record_status",
+        ref_type: "house_auction_profile",
+        ref_id: house.id,
+      });
+    }
     return { ok: true, data: { house_id: house.id, status: existing.status } };
   }
   db.prepare(

@@ -118,7 +118,8 @@
     "smoke:attendance-settings-notify": "tsx scripts/attendance-settings-notify-smoke.ts",
     "smoke:auction-activate-notify": "tsx scripts/auction-activate-notify-smoke.ts",
     "smoke:auction-complete-notify": "tsx scripts/auction-complete-notify-smoke.ts",
-    "smoke:auction-create-notify": "tsx scripts/auction-create-notify-smoke.ts"
+    "smoke:auction-create-notify": "tsx scripts/auction-create-notify-smoke.ts",
+    "smoke:auction-update-notify": "tsx scripts/auction-update-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
