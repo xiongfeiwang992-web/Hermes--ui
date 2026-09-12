@@ -127,7 +127,8 @@
     "smoke:call-unmatched-notify": "tsx scripts/call-unmatched-notify-smoke.ts",
     "smoke:campaign-create-notify": "tsx scripts/campaign-create-notify-smoke.ts",
     "smoke:campaign-status-notify": "tsx scripts/campaign-status-notify-smoke.ts",
-    "smoke:care-case-resolve-notify": "tsx scripts/care-case-resolve-notify-smoke.ts"
+    "smoke:care-case-resolve-notify": "tsx scripts/care-case-resolve-notify-smoke.ts",
+    "smoke:care-case-withdraw-notify": "tsx scripts/care-case-withdraw-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
