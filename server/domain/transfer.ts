@@ -1,8 +1,13 @@
 import type { Db } from "../db/database";
+
 import { writeAudit } from "./audit";
+
 import { createMessage } from "./message";
+
 import { nextId, nowIso } from "../utils/id";
+
 import { canCompleteLoanNode, markMortgageDisbursed } from "./mortgage";
+
 import type { ApiResult, SessionUser } from "../utils/types";
 
 const TRANSITIONS: Record<string, string[]> = {
@@ -169,8 +174,30 @@ export function changeTransferStatus(db: Db, user: SessionUser, payload: any): A
       });
     }
   }
+  if (payload.status === "completed") {
+    const recipients = new Set<string>();
+    if (node.assignee_user_id) recipients.add(node.assignee_user_id);
+    if (node.deal_created_by) recipients.add(node.deal_created_by);
+    for (const agentId of JSON.parse(node.agent_ids || "[]") as string[]) {
+      recipients.add(agentId);
+    }
+    recipients.delete(user.id);
+    for (const userId of recipients) {
+      createMessage(db, {
+        company_id: user.company_id,
+        store_id: node.store_id,
+        user_id: userId,
+        title: "过户节点已完成",
+        body: `${node.title}（成交单 ${node.deal_id}）`,
+        kind: "transfer_node",
+        ref_type: "deal",
+        ref_id: node.deal_id,
+      });
+    }
+  }
   return { ok: true, data: { id: node.id, status: payload.status } };
 }
+
 
 export function listTransferTemplates(
   db: Db,
