@@ -259,7 +259,8 @@
     "smoke:settings-save-notify": "tsx scripts/settings-save-notify-smoke.ts",
     "smoke:store-create-notify": "tsx scripts/store-create-notify-smoke.ts",
     "smoke:store-update-notify": "tsx scripts/store-update-notify-smoke.ts",
-    "smoke:summary-create-notify": "tsx scripts/summary-create-notify-smoke.ts"
+    "smoke:summary-create-notify": "tsx scripts/summary-create-notify-smoke.ts",
+    "smoke:survey-create-notify": "tsx scripts/survey-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
