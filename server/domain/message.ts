@@ -112,8 +112,8 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "newhome",
     label: "新房业务",
-    description: "报备、销售报告与分销公司状态",
-    kinds: ["newhome_registration", "newhome_sales_report", "distribution_status"],
+    description: "报备、销售报告与分销公司状态、项目、报备与销售报告",
+    kinds: ["newhome_registration","newhome_sales_report","distribution_status","newhome_project"],
   },
   {
     key: "deal_ext",
