@@ -787,6 +787,10 @@ case "report.dealsListCsv":
       return report.exportDealsListCsv(db, user!, payload);
 case "report.paymentsCsv":
       return report.exportPaymentsCsv(db, user!, payload);
+case "report.commissionsCsv":
+      return report.exportCommissionsCsv(db, user!, payload);
+case "report.performanceCsv":
+      return report.exportPerformanceCsv(db, user!, payload);
 case "report.housesCsv":
       return report.exportHousesCsv(db, user!, payload);
 case "report.customersCsv":
