@@ -144,7 +144,8 @@
     "smoke:customer-claim-notify": "tsx scripts/customer-claim-notify-smoke.ts",
     "smoke:customer-contact-create-notify": "tsx scripts/customer-contact-create-notify-smoke.ts",
     "smoke:customer-contact-update-notify": "tsx scripts/customer-contact-update-notify-smoke.ts",
-    "smoke:customer-create-notify": "tsx scripts/customer-create-notify-smoke.ts"
+    "smoke:customer-create-notify": "tsx scripts/customer-create-notify-smoke.ts",
+    "smoke:customer-merge-notify": "tsx scripts/customer-merge-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
