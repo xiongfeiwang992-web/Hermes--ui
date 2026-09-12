@@ -108,7 +108,8 @@
     "smoke:rental-payment-methods": "tsx scripts/rental-payment-methods-smoke.ts",
     "smoke:store-rankings": "tsx scripts/store-rankings-smoke.ts",
     "smoke:view-accompany": "tsx scripts/view-accompany-smoke.ts",
-    "smoke:view-deal-prefill": "tsx scripts/view-deal-prefill-smoke.ts"
+    "smoke:view-deal-prefill": "tsx scripts/view-deal-prefill-smoke.ts",
+    "smoke:view-export": "tsx scripts/view-export-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
