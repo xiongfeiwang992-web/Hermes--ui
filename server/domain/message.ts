@@ -53,8 +53,8 @@ export const MESSAGE_CHANNELS: MessageChannel[] = [
   {
     key: "customer",
     label: "客源提醒",
-    description: "私客掉公、公客认领、联系人登记、客源登记、客源合并、手工转公相关提醒",
-    kinds: ["customer_public_pool","customer_claim","customer_contact","customer_create","customer_merge","customer_to_public"],
+    description: "私客掉公、公客认领、联系人登记、客源登记、客源合并、手工转公、客源更新相关提醒",
+    kinds: ["customer_public_pool","customer_claim","customer_contact","customer_create","customer_merge","customer_to_public","customer_update"],
   },
   {
     key: "office",
