@@ -47,18 +47,17 @@ function textMerge(base, ours, theirs) {
       const source = parse(`const category = { ${text} };`);
       if (source.parseDiagnostics.length) return null;
       const props = source.statements[0].declarationList.declarations[0].initializer.properties;
-      if (props.length !== 3 || !props.every(ts.isPropertyAssignment)) return null;
+      if (![2, 3].includes(props.length) || !props.every(ts.isPropertyAssignment)) return null;
       const fields = Object.fromEntries(props.map(p => [p.name.getText(), p.initializer]));
-      if (!fields.label || !fields.description || !fields.kinds || !ts.isStringLiteral(fields.label) || !ts.isStringLiteral(fields.description) || !ts.isArrayLiteralExpression(fields.kinds) || !fields.kinds.elements.every(ts.isStringLiteral)) return null;
-      return { label: fields.label.text, description: fields.description.text, kinds: fields.kinds.elements.map(el => el.text) };
+      if (!fields.description || !fields.kinds || (fields.label && !ts.isStringLiteral(fields.label)) || !ts.isStringLiteral(fields.description) || !ts.isArrayLiteralExpression(fields.kinds) || !fields.kinds.elements.every(ts.isStringLiteral)) return null;
+      return { label: fields.label?.text, description: fields.description.text, kinds: fields.kinds.elements.map(el => el.text) };
     };
     const lc = category(left), rc = category(right);
     if (lc && rc && lc.label === rc.label) {
-      const suffix = '\u76f8\u5173\u63d0\u9192';
-      if (lc.description.endsWith(suffix) && rc.description.endsWith(suffix)) {
-        const topics = [...new Set([lc, rc].flatMap(c => c.description.slice(0, -suffix.length).split('\u3001')))];
-        return `    label: ${JSON.stringify(lc.label)},\n    description: ${JSON.stringify(topics.join('\u3001') + suffix)},\n    kinds: ${JSON.stringify([...new Set([...lc.kinds, ...rc.kinds])])},\n`;
-      }
+      const ending = '\u76f8\u5173\u63d0\u9192';
+      const suffix = [lc, rc].every(c => c.description.endsWith(ending)) ? ending : '';
+      const topics = [...new Set([lc, rc].flatMap(c => (suffix ? c.description.slice(0, -suffix.length) : c.description).split('\u3001')))];
+      return `${lc.label ? `    label: ${JSON.stringify(lc.label)},\n` : ''}    description: ${JSON.stringify(topics.join('\u3001') + suffix)},\n    kinds: ${JSON.stringify([...new Set([...lc.kinds, ...rc.kinds])])},\n`;
     }
     const field = /^([ \t]*<label>字典类型<input name="dict_type" placeholder=")([^"\n]+)(" required \/><\/label>)\s*$/;
     const a = left.match(field), b = right.match(field);

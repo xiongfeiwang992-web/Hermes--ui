@@ -189,7 +189,8 @@
     "smoke:finance-voucher-create-notify": "tsx scripts/finance-voucher-create-notify-smoke.ts",
     "smoke:finance-voucher-post-notify": "tsx scripts/finance-voucher-post-notify-smoke.ts",
     "smoke:finance-voucher-update-notify": "tsx scripts/finance-voucher-update-notify-smoke.ts",
-    "smoke:finance-voucher-void-notify": "tsx scripts/finance-voucher-void-notify-smoke.ts"
+    "smoke:finance-voucher-void-notify": "tsx scripts/finance-voucher-void-notify-smoke.ts",
+    "smoke:follow-create-notify": "tsx scripts/follow-create-notify-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1"
