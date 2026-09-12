@@ -499,6 +499,24 @@ export function updateVoucher(db: Db, user: SessionUser, payload: any): ApiResul
   tx();
   addEvent(db, user, "voucher", row.id, "updated");
   writeAudit(db, user, "finance.voucher.update", "finance_voucher", row.id);
+  const peers = db
+    .prepare(
+      `SELECT id FROM users WHERE company_id=? AND status='active'
+       AND role IN ('admin', 'finance') AND id<>?`
+    )
+    .all(user.company_id, user.id) as { id: string }[];
+  for (const peer of peers) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: store.id,
+      user_id: peer.id,
+      title: "财务凭证已更新",
+      body: `${row.voucher_no} · ${summary}`,
+      kind: "business_record_status",
+      ref_type: "finance_voucher",
+      ref_id: row.id,
+    });
+  }
   return { ok: true, data: { id: row.id, status: "draft" } };
 }
 
