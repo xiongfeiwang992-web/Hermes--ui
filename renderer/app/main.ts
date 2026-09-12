@@ -2542,6 +2542,7 @@ async function renderDeals(main: HTMLElement) {
         <button class="btn ghost" data-mortgage="${d.id}">按揭</button>
         <button class="btn ghost" data-preview-contract="${d.id}">合同预览</button>
         ${["pending_approval", "approved"].includes(d.status) ? `<button class="btn ghost" data-sign="${d.id}">签署确认</button>` : ""}
+        <button class="btn ghost" data-signoffs="${d.id}">签署记录</button>
         ${["draft", "rejected"].includes(d.status) ? `<button class="btn" data-submit="${d.id}">提交审批</button>` : ""}
         ${d.status === "pending_approval" && ["admin", "store_manager"].includes(state.user.role) ? `<button class="btn" data-approve="${d.id}">通过</button><button class="btn danger" data-reject="${d.id}">驳回</button>` : ""}
         ${d.status === "approved" && state.user.role === "admin" ? `<button class="btn danger" data-void="${d.id}">作废</button>` : ""}
@@ -2753,6 +2754,26 @@ async function renderDeals(main: HTMLElement) {
           statement,
         });
         toast(result.ok ? "本地签署确认已记录" : result.message, result.ok ? "ok" : "error");
+      })
+    );
+    list.querySelectorAll("[data-signoffs]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const result = await api("contract.signoffs", {
+          deal_id: (btn as HTMLElement).dataset.signoffs,
+        });
+        if (!result.ok) return toast(result.message, "error");
+        const signoffs = result.data as any[];
+        openInfoDialog(
+          "签署记录",
+          signoffs.length
+            ? signoffs
+                .map(
+                  (s) =>
+                    `<div class="row"><div><strong>${escapeHtml(s.signer_name)}</strong> · ${s.status} · ${s.signed_at ? new Date(s.signed_at).toLocaleString("zh-CN") : ""}<div class="meta">${escapeHtml(s.statement)}</div></div></div>`
+                )
+                .join("")
+            : `<div class="empty">暂无签署记录</div>`
+        );
       })
     );
     list.querySelectorAll("[data-mortgage]").forEach((btn) =>
@@ -3724,14 +3745,15 @@ async function renderNewhome(main: HTMLElement) {
     const result = await api("newhome.sales.list", status ? { status } : {});
     const list = main.querySelector("[data-sales]")!;
     if (!result.ok) return (list.innerHTML = `<div class="error">${result.message}</div>`);
+    const salesRows = result.data as any[];
     list.innerHTML =
-      (result.data as any[])
+      salesRows
         .map(
           (sale) => `<div class="row"><div>
             <div><span class="tag ${sale.status === "settled" || sale.status === "approved" ? "ok" : sale.status === "rejected" || sale.status === "cancelled" ? "danger" : "warn"}">${sale.status}</span><strong>${sale.customer_name}</strong> · ${sale.project_name} · ${sale.unit_no}</div>
             <div class="meta">网签 ${sale.contract_price}${sale.settlement_amount != null ? ` · 结算 ${sale.settlement_amount}` : ""} · 附件 ${sale.attachment_count}${sale.distribution_company_name ? ` · 分销 ${sale.distribution_company_name}` : ""}${sale.reject_reason ? ` · ${sale.reject_reason}` : ""}</div>
           </div><div class="ops">
-            ${["draft", "rejected"].includes(sale.status) && canWriteSales ? `<button class="btn ghost" data-sale-attach="${sale.id}">上传合同</button><button class="btn" data-sale-submit="${sale.id}">提交</button><button class="btn danger" data-sale-cancel="${sale.id}">取消</button>` : ""}
+            ${["draft", "rejected"].includes(sale.status) && canWriteSales ? `<button class="btn ghost" data-sale-edit="${sale.id}">编辑</button><button class="btn ghost" data-sale-attach="${sale.id}">上传合同</button><button class="btn" data-sale-submit="${sale.id}">提交</button><button class="btn danger" data-sale-cancel="${sale.id}">取消</button>` : ""}
             ${sale.status === "submitted" && canManage ? `<button class="btn" data-sale-approve="${sale.id}">审批</button><button class="btn danger" data-sale-reject="${sale.id}">驳回</button>` : ""}
             ${sale.status === "approved" && canSettle ? `<button class="btn" data-sale-settle="${sale.id}">登记结算</button>` : ""}
           </div></div>`
@@ -3750,6 +3772,48 @@ async function renderNewhome(main: HTMLElement) {
         });
         toast(uploaded.ok ? "合同已上传" : uploaded.message, uploaded.ok ? "ok" : "error");
         if (uploaded.ok) drawSales();
+      })
+    );
+    list.querySelectorAll("[data-sale-edit]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const saleId = (button as HTMLElement).dataset.saleEdit!;
+        const sale = salesRows.find((s) => s.id === saleId);
+        if (!sale) return;
+        const opts = await api("newhome.options", {});
+        const partnerOptions = opts.ok
+          ? ((opts.data as any).distribution_companies || [])
+              .map(
+                (d: any) =>
+                  `<option value="${d.id}" ${d.id === sale.distribution_company_id ? "selected" : ""}>${escapeHtml(d.name)}</option>`
+              )
+              .join("")
+          : "";
+        openDialog(
+          "编辑销售报告",
+          `
+          <label>楼栋<input name="building" value="${escapeHtml(sale.building ?? "")}" /></label>
+          <label>房号<input name="unit_no" required value="${escapeHtml(sale.unit_no)}" /></label>
+          <label>面积<input name="area_size" type="number" min="0" step="0.01" value="${sale.area_size ?? ""}" /></label>
+          <label>网签总价<input name="contract_price" type="number" min="0" step="0.01" required value="${sale.contract_price}" /></label>
+          <label>签约日期<input name="signed_at" type="date" required value="${sale.signed_at ?? ""}" /></label>
+          <label>分销公司<select name="distribution_company_id"><option value="">无</option>${partnerOptions}</select></label>
+          <label class="full">备注<input name="remark" value="${escapeHtml(sale.remark ?? "")}" /></label>
+          `,
+          async (fd) => {
+            const result = await api("newhome.sales.update", {
+              id: saleId,
+              building: fd.get("building"),
+              unit_no: fd.get("unit_no"),
+              area_size: fd.get("area_size") ? Number(fd.get("area_size")) : null,
+              contract_price: Number(fd.get("contract_price")),
+              signed_at: fd.get("signed_at"),
+              distribution_company_id: fd.get("distribution_company_id") || null,
+              remark: fd.get("remark"),
+            });
+            toast(result.ok ? "销售报告已更新" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawSales();
+          }
+        );
       })
     );
     list.querySelectorAll("[data-sale-submit]").forEach((button) =>
@@ -6968,7 +7032,8 @@ async function renderFinanceAssets(main: HTMLElement) {
             <div><span class="tag ${item.status === "posted" ? "ok" : item.status === "voided" ? "danger" : "warn"}">${item.status}</span><strong>${item.voucher_no}</strong> · ${item.summary}</div>
             <div class="meta">${item.store_name} · ${item.voucher_date} · 借 ${item.debit_total} / 贷 ${item.credit_total} · ${item.line_count} 行${item.void_reason ? ` · ${item.void_reason}` : ""}</div>
           </div><div class="ops">
-            ${canWrite && item.status === "draft" ? `<button class="btn" data-post="${item.id}">过账</button><button class="btn danger" data-void="${item.id}">作废</button>` : ""}
+            <button class="btn ghost" data-voucher-detail="${item.id}">详情</button>
+            ${canWrite && item.status === "draft" ? `<button class="btn ghost" data-voucher-edit="${item.id}">编辑</button><button class="btn" data-post="${item.id}">过账</button><button class="btn danger" data-void="${item.id}">作废</button>` : ""}
             ${canWrite && item.status === "posted" ? `<button class="btn danger" data-void="${item.id}">作废</button>` : ""}
           </div></div>`
         )
@@ -6992,6 +7057,60 @@ async function renderFinanceAssets(main: HTMLElement) {
         });
         toast(updated.ok ? "凭证已作废" : updated.message, updated.ok ? "ok" : "error");
         if (updated.ok) drawVouchers();
+      })
+    );
+    list.querySelectorAll("[data-voucher-detail]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const detail = await api("finance.vouchers.get", {
+          id: (button as HTMLElement).dataset.voucherDetail,
+        });
+        if (!detail.ok) return toast(detail.message, "error");
+        const v = detail.data as any;
+        const lines = (v.lines || [])
+          .map(
+            (l: any) =>
+              `<div class="row"><div><strong>${l.line_no}. ${escapeHtml(l.account_name)}</strong> · ${l.direction === "debit" ? "借" : "贷"} ¥${money(l.amount)}${l.memo ? ` · ${escapeHtml(l.memo)}` : ""}</div></div>`
+          )
+          .join("");
+        openInfoDialog(
+          `凭证 ${v.voucher_no}`,
+          `<div class="meta">${escapeHtml(v.store_name)} · ${v.voucher_date} · ${v.status} · 摘要：${escapeHtml(v.summary)}</div>${lines || '<div class="empty">暂无分录</div>'}`
+        );
+      })
+    );
+    list.querySelectorAll("[data-voucher-edit]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const id = (button as HTMLElement).dataset.voucherEdit!;
+        const detail = await api("finance.vouchers.get", { id });
+        if (!detail.ok) return toast(detail.message, "error");
+        const v = detail.data as any;
+        const lines = v.lines || [];
+        const debitLine = lines.find((l: any) => l.direction === "debit") || {};
+        const creditLine = lines.find((l: any) => l.direction === "credit") || {};
+        openDialog(
+          "编辑备查凭证",
+          `
+          <label>日期<input name="voucher_date" type="date" required value="${v.voucher_date}" /></label>
+          <label class="full">摘要<input name="summary" required value="${escapeHtml(v.summary)}" /></label>
+          <label>借方科目<input name="debit_account" required value="${escapeHtml(debitLine.account_name || "银行存款")}" /></label>
+          <label>借方金额<input name="debit_amount" type="number" min="0.01" step="0.01" required value="${v.debit_total}" /></label>
+          <label>贷方科目<input name="credit_account" required value="${escapeHtml(creditLine.account_name || "主营业务收入")}" /></label>
+          <label>贷方金额<input name="credit_amount" type="number" min="0.01" step="0.01" required value="${v.credit_total}" /></label>
+          `,
+          async (fd) => {
+            const result = await api("finance.vouchers.update", {
+              id,
+              voucher_date: fd.get("voucher_date"),
+              summary: fd.get("summary"),
+              lines: [
+                { account_name: fd.get("debit_account"), direction: "debit", amount: Number(fd.get("debit_amount")) },
+                { account_name: fd.get("credit_account"), direction: "credit", amount: Number(fd.get("credit_amount")) },
+              ],
+            });
+            toast(result.ok ? "凭证已更新" : result.message, result.ok ? "ok" : "error");
+            if (result.ok) drawVouchers();
+          }
+        );
       })
     );
   };
@@ -7090,6 +7209,8 @@ async function renderPropertyExt(main: HTMLElement) {
     <h3>锁定盘</h3><div class="list" data-locks></div>
     <h3>合作盘</h3><div class="list" data-coops></div>
     <h3>视频/全景</h3><div class="list" data-media-list></div>
+    <h3>拍卖中</h3><div class="list" data-auctions></div>
+    <h3>独家/包销中</h3><div class="list" data-exclusives></div>
   `;
   const drawLocks = async () => {
     const result = await api("propertyExt.locks.list", {});
@@ -7291,7 +7412,62 @@ async function renderPropertyExt(main: HTMLElement) {
       }
     )
   );
-  await Promise.all([drawLocks(), drawCoops(), drawMedia()]);
+  const drawAuctions = () => {
+    const list = main.querySelector("[data-auctions]")!;
+    const houses = options.ok
+      ? ((options.data as any).houses || []).filter((h: any) => h.deal_mode === "auction")
+      : [];
+    list.innerHTML =
+      houses
+        .map(
+          (h: any) => `<div class="row"><div>
+            <div><span class="tag warn">拍卖中</span><strong>${escapeHtml(h.title)}</strong> · ${escapeHtml(h.community || "")}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn" data-complete-auction="${h.id}">完成拍卖</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无进行中拍卖</div>`;
+    list.querySelectorAll("[data-complete-auction]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const updated = await api("propertyExt.auction.complete", {
+          house_id: (button as HTMLElement).dataset.completeAuction,
+        });
+        toast(updated.ok ? "拍卖已完成" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) render();
+      })
+    );
+  };
+  const drawExclusives = () => {
+    const list = main.querySelector("[data-exclusives]")!;
+    const houses = options.ok
+      ? ((options.data as any).houses || []).filter((h: any) =>
+          ["exclusive", "package"].includes(h.deal_mode)
+        )
+      : [];
+    list.innerHTML =
+      houses
+        .map(
+          (h: any) => `<div class="row"><div>
+            <div><span class="tag warn">${h.deal_mode === "exclusive" ? "独家" : "包销"}</span><strong>${escapeHtml(h.title)}</strong> · ${escapeHtml(h.community || "")}</div>
+          </div><div class="ops">
+            ${canWrite ? `<button class="btn" data-end-exclusive="${h.id}">结束</button>` : ""}
+          </div></div>`
+        )
+        .join("") || `<div class="empty">暂无生效中独家/包销</div>`;
+    list.querySelectorAll("[data-end-exclusive]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const reason = prompt("结束原因（至少 2 个字）");
+        if (!reason) return;
+        const updated = await api("propertyExt.exclusive.end", {
+          house_id: (button as HTMLElement).dataset.endExclusive,
+          reason,
+        });
+        toast(updated.ok ? "独家/包销已结束" : updated.message, updated.ok ? "ok" : "error");
+        if (updated.ok) render();
+      })
+    );
+  };
+  await Promise.all([drawLocks(), drawCoops(), drawMedia(), drawAuctions(), drawExclusives()]);
 }
 
 async function renderDealExt(main: HTMLElement) {
@@ -8572,9 +8748,10 @@ async function renderMortgageCalc(main: HTMLElement) {
 }
 
 async function renderMessages(main: HTMLElement) {
-  const r = await api("message.list");
+  const [r, unread] = await Promise.all([api("message.list"), api("message.unread")]);
+  const unreadCount = unread.ok ? (unread.data as any).count : 0;
   main.innerHTML = `
-    <div class="header"><h2>消息</h2>
+    <div class="header"><h2>消息${unreadCount ? `（未读 ${unreadCount}）` : ""}</h2>
       <div class="ops">
         <button class="btn ghost" data-subscriptions>订阅设置</button>
         <button class="btn ghost" data-read>全部已读</button>
