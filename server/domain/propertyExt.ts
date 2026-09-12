@@ -476,6 +476,22 @@ export function activateAuction(db: Db, user: SessionUser, payload: any): ApiRes
   tx();
   addEvent(db, user, "auction", house.id, "activated");
   writeAudit(db, user, "propertyExt.auction.activate", "house_auction_profile", house.id);
+  const recipients = new Set<string>();
+  if (house.agent_id) recipients.add(house.agent_id);
+  if (profile.created_by) recipients.add(profile.created_by);
+  recipients.delete(user.id);
+  for (const userId of recipients) {
+    createMessage(db, {
+      company_id: user.company_id,
+      store_id: house.store_id,
+      user_id: userId,
+      title: "拍卖已启用",
+      body: house.title,
+      kind: "business_record_status",
+      ref_type: "house_auction_profile",
+      ref_id: house.id,
+    });
+  }
   return { ok: true, data: { house_id: house.id, status: "active" } };
 }
 
